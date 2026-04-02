@@ -1,0 +1,34 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Logs and text dumps
+*.txt
+*.log
+
+# Documentation / patches
+*.pdf
+_patches/
+
+# Benchmark outputs
+bench_output/
+benchmark_results/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.iml
+
+# Environment
+.env
+.env.*
