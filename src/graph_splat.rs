@@ -1,6 +1,6 @@
 //! Graph Splat — graph structures over Gaussian splats.
 //! Hybrid store combining vector search with knowledge graph.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

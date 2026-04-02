@@ -1,4 +1,4 @@
-//! Geometry functions for M2M hypersphere operations.
+//! Geometry functions for SplatDB hypersphere operations.
 //!
 //! Optimized implementations using ndarray with iterators and zero-copy where possible.
 

@@ -2,7 +2,7 @@
 //!
 //! Computes precision, recall, MRR, NDCG, and embedding quality metrics.
 //! Includes benchmark texts for standardized evaluation.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::Array2;
 use serde::Serialize;

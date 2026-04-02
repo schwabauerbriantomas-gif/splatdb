@@ -1,11 +1,11 @@
-# M2M Rust Port — Full Specification
+# SplatDB Rust Port — Full Specification
 
 ## Goal
-Complete the Rust port of m2m-vector-search from Python. Fix all bugs, optimize with rayon/BLAS, and port missing modules.
+Complete the Rust port of splatdb from Python. Fix all bugs, optimize with rayon/BLAS, and port missing modules.
 
 ## Location
-- Rust project: `C:\Users\Brian\Desktop\m2m-rust`
-- Python source (reference): `C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\`
+- Rust project: `C:\Users\Brian\Desktop\splatdb`
+- Python source (reference): `C:\Users\Brian\Desktop\splatdb-main\src\splatdb\`
 - Shell: PowerShell (NOT bash). Use `& "$env:USERPROFILE\.cargo\bin\cargo.exe"` for cargo.
 
 ## Current State
@@ -35,7 +35,7 @@ Lines 206 and 237 use `q.insert_axis(Axis(0))` which moves `q`, then `q` is borr
 **Fix**: Use `q.view().insert_axis(Axis(0))` instead (uses view, doesn't move).
 
 ### Task 4: Port SplatStore (HIGH PRIORITY)
-Port `C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py` to Rust as `src/splats.rs`.
+Port `C:\Users\Brian\Desktop\splatdb-main\src\splatdb\splats.py` to Rust as `src/splats.rs`.
 
 This is the MAIN API that users interact with. It wraps:
 - HRM2Engine for indexing

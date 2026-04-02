@@ -1,6 +1,6 @@
 //! MCP (Model Context Protocol) Server — stdio transport
 //!
-//! Exposes M2M Vector Search as an MCP server for AI agent integration.
+//! Exposes SplatDB Vector Search as an MCP server for AI agent integration.
 //! Uses JSON-RPC 2.0 over stdin/stdout (stdio transport).
 //! All logs go to stderr to keep the protocol channel clean.
 //!
@@ -14,7 +14,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::config::M2MConfig;
+use crate::config::SplatDBConfig;
 use crate::splats::SplatStore;
 use crate::storage::metadata_store::{DocumentRecord, MetadataStore};
 use crate::storage::sqlite_store::SqliteMetadataStore;
@@ -112,8 +112,8 @@ struct JsonRpcError {
 fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
-            "name": "m2m_store",
-            "description": "Store a memory in the M2M vector search engine. Returns the memory ID.",
+            "name": "splatdb_store",
+            "description": "Store a memory in the SplatDB vector search engine. Returns the memory ID.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -126,8 +126,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "m2m_search",
-            "description": "Search for similar memories in the M2M vector store. Returns ranked results with similarity scores.",
+            "name": "splatdb_search",
+            "description": "Search for similar memories in the SplatDB vector store. Returns ranked results with similarity scores.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -139,16 +139,16 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "m2m_status",
-            "description": "Get the current status of the M2M vector store (number of memories, dimensions, active indexes).",
+            "name": "splatdb_status",
+            "description": "Get the current status of the SplatDB vector store (number of memories, dimensions, active indexes).",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
             }
         }),
         json!({
-            "name": "m2m_doc_add",
-            "description": "Add a document with metadata to the M2M store. Persists to SQLite.",
+            "name": "splatdb_doc_add",
+            "description": "Add a document with metadata to the SplatDB store. Persists to SQLite.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -160,8 +160,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "m2m_doc_get",
-            "description": "Retrieve a document by ID from the M2M store (SQLite-backed).",
+            "name": "splatdb_doc_get",
+            "description": "Retrieve a document by ID from the SplatDB store (SQLite-backed).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -171,8 +171,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "m2m_doc_del",
-            "description": "Delete a document from the M2M store (SQLite-backed, soft delete).",
+            "name": "splatdb_doc_del",
+            "description": "Delete a document from the SplatDB store (SQLite-backed, soft delete).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -507,7 +507,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                     "tools": { "listChanged": false }
                 },
                 "serverInfo": {
-                    "name": "m2m-vector-search",
+                    "name": "splatdb",
                     "version": "2.2.0"
                 }
             })),
@@ -542,12 +542,12 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 .unwrap_or(json!({}));
 
             let result = match tool_name {
-                "m2m_store" => handle_store(state, &arguments),
-                "m2m_search" => handle_search(state, &arguments),
-                "m2m_status" => handle_status(state),
-                "m2m_doc_add" => handle_doc_add(state, &arguments),
-                "m2m_doc_get" => handle_doc_get(state, &arguments),
-                "m2m_doc_del" => handle_doc_del(state, &arguments),
+                "splatdb_store" => handle_store(state, &arguments),
+                "splatdb_search" => handle_search(state, &arguments),
+                "splatdb_status" => handle_status(state),
+                "splatdb_doc_add" => handle_doc_add(state, &arguments),
+                "splatdb_doc_get" => handle_doc_get(state, &arguments),
+                "splatdb_doc_del" => handle_doc_del(state, &arguments),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
 
@@ -590,20 +590,20 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
 // ============================================================================
 
 pub fn run_mcp_server() {
-    eprintln!("[m2m] MCP server v2.3 starting (stdio transport)...");
+    eprintln!("[splatdb] MCP server v2.3 starting (stdio transport)...");
 
-    let config = M2MConfig::default();
+    let config = SplatDBConfig::default();
     let mut store = SplatStore::new(config);
 
     // Initialize SQLite doc store
-    let db_path = std::path::PathBuf::from("/root/.hermes/m2m_docs.db");
+    let db_path = std::path::PathBuf::from("/root/.hermes/splatdb_docs.db");
     let doc_store = match SqliteMetadataStore::new(db_path.clone()) {
         Ok(ds) => {
-            eprintln!("[m2m] SQLite doc store: {:?}", db_path);
+            eprintln!("[splatdb] SQLite doc store: {:?}", db_path);
             ds
         }
         Err(e) => {
-            eprintln!("[m2m] WARNING: SQLite init failed ({}), docs won't persist", e);
+            eprintln!("[splatdb] WARNING: SQLite init failed ({}), docs won't persist", e);
             SqliteMetadataStore::new(std::path::PathBuf::from(":memory:"))
                 .expect("in-memory SQLite should always work")
         }
@@ -642,10 +642,10 @@ pub fn run_mcp_server() {
             }
             if !ids.is_empty() {
                 store.build_index();
-                eprintln!("[m2m] Warm start: reloaded {} documents from SQLite", ids.len());
+                eprintln!("[splatdb] Warm start: reloaded {} documents from SQLite", ids.len());
             }
         }
-        Err(e) => eprintln!("[m2m] Warm start: could not list docs: {}", e),
+        Err(e) => eprintln!("[splatdb] Warm start: could not list docs: {}", e),
     }
 
     let state = Mutex::new(McpState {
@@ -660,7 +660,7 @@ pub fn run_mcp_server() {
     let mut stdout = io::stdout();
     let reader = stdin.lock();
 
-    eprintln!("[m2m] MCP server ready. Waiting for JSON-RPC on stdin...");
+    eprintln!("[splatdb] MCP server ready. Waiting for JSON-RPC on stdin...");
 
     for line in reader.lines() {
         match line {
@@ -670,12 +670,12 @@ pub fn run_mcp_server() {
                     continue;
                 }
 
-                eprintln!("[m2m] <- {}", if line.len() > 200 { &line[..200] } else { &line });
+                eprintln!("[splatdb] <- {}", if line.len() > 200 { &line[..200] } else { &line });
 
                 let req: JsonRpcRequest = match serde_json::from_str(&line) {
                     Ok(r) => r,
                     Err(e) => {
-                        eprintln!("[m2m] parse error: {}", e);
+                        eprintln!("[splatdb] parse error: {}", e);
                         let resp = JsonRpcResponse {
                             jsonrpc: "2.0".into(),
                             id: None,
@@ -698,17 +698,17 @@ pub fn run_mcp_server() {
 
                 if !is_notification && resp.id.is_some() {
                     let out = serde_json::to_string(&resp).unwrap();
-                    eprintln!("[m2m] -> {}", if out.len() > 200 { &out[..200] } else { &out });
+                    eprintln!("[splatdb] -> {}", if out.len() > 200 { &out[..200] } else { &out });
                     writeln!(stdout, "{}", out).ok();
                     stdout.flush().ok();
                 }
             }
             Err(e) => {
-                eprintln!("[m2m] stdin error: {}", e);
+                eprintln!("[splatdb] stdin error: {}", e);
                 break;
             }
         }
     }
 
-    eprintln!("[m2m] MCP server shutting down (stdin closed).");
+    eprintln!("[splatdb] MCP server shutting down (stdin closed).");
 }

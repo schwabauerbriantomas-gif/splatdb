@@ -1,5 +1,5 @@
 //! Cluster health monitoring and types.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

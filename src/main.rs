@@ -1,4 +1,4 @@
-//! M2M Vector Search CLI — AI-friendly interface.
+//! SplatDB Vector Search CLI — AI-friendly interface.
 
 mod cli;
 
@@ -7,10 +7,10 @@ use clap::Parser;
 use cli::Commands;
 
 #[derive(Parser)]
-#[command(name = "m2m", version, about = "M2M Vector Search — Gaussian Splat semantic memory")]
+#[command(name = "splatdb", version, about = "SplatDB Vector Search — Gaussian Splat semantic memory")]
 struct Cli {
-    /// Storage directory (default: ./m2m_data)
-    #[arg(long, global = true, default_value = "./m2m_data")]
+    /// Storage directory (default: ./splatdb_data)
+    #[arg(long, global = true, default_value = "./splatdb_data")]
     data_dir: String,
 
     /// Latent dimension (default: 64)

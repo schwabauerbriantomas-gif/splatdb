@@ -1,6 +1,6 @@
-//! M2M (Machine-to-Memory) Configuration
+//! SplatDB (Gaussian Splat Vector DB) Configuration
 //!
-//! Centralized configuration for M2M system with auto-detection of devices.
+//! Centralized configuration for SplatDB system with auto-detection of devices.
 
 pub mod types;
 pub mod presets;
@@ -24,12 +24,12 @@ pub fn detect_device() -> &'static str {
     "cpu"
 }
 
-/// Configuration for M2M (Machine-to-Memory) system.
+/// Configuration for SplatDB (Gaussian Splat Vector DB) system.
 ///
 /// Supports devices: cpu, vulkan, cuda.
 /// Use device='auto' for auto-detection (CUDA > Vulkan > CPU).
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct M2MConfig {
+pub struct SplatDBConfig {
     // --- System Configuration ---
     pub device: String,
     pub dtype: Dtype,
@@ -181,7 +181,7 @@ pub struct M2MConfig {
     pub gpu_auto_tune: bool,
 }
 
-impl Default for M2MConfig {
+impl Default for SplatDBConfig {
     fn default() -> Self {
         Self {
             // System
@@ -337,7 +337,7 @@ impl Default for M2MConfig {
     }
 }
 
-impl M2MConfig {
+impl SplatDBConfig {
     /// Device for allocations.
     pub fn compute_device(&self) -> &str {
         if self.enable_cuda {
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let config = M2MConfig::default();
+        let config = SplatDBConfig::default();
         assert_eq!(config.latent_dim, 640);
         assert_eq!(config.knn_k, 64);
         assert_eq!(config.device, "cpu");
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_simple_config() {
-        let config = M2MConfig::simple(None);
+        let config = SplatDBConfig::simple(None);
         assert!(!config.enable_3_tier_memory);
         assert!(!config.enable_quantization);
         assert!(!config.enable_graph);
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_advanced_config() {
-        let config = M2MConfig::advanced(Some("cuda"));
+        let config = SplatDBConfig::advanced(Some("cuda"));
         assert!(config.enable_3_tier_memory);
         assert!(config.enable_quantization);
         assert!(config.enable_graph);
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_finalized_auto_device() {
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.device = "auto".to_string();
         config.finalize();
         // detect_device() probes nvidia-smi — will find "cuda" if GPU present, else "cpu"
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_finalized_cuda_device() {
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.device = "cuda".to_string();
         config.finalize();
         assert!(config.enable_cuda);
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_training_config() {
-        let config = M2MConfig::training(None);
+        let config = SplatDBConfig::training(None);
         assert!(config.enable_training);
         assert!(config.enable_data_lake);
         assert!(config.training_distillation);
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_distributed_config() {
-        let config = M2MConfig::distributed(None);
+        let config = SplatDBConfig::distributed(None);
         assert!(config.enable_auto_scaling);
         assert!(config.enable_mapreduce);
         assert!(config.enable_quantization);
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_gpu_config() {
-        let config = M2MConfig::gpu(None);
+        let config = SplatDBConfig::gpu(None);
         assert!(config.enable_cuda);
         assert!(config.enable_gpu_search);
         assert!(config.enable_hnsw);
@@ -460,13 +460,13 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::{Array1, Array2};
 
-        let presets: Vec<(&str, M2MConfig)> = vec![
-            ("default", M2MConfig::default()),
-            ("simple", M2MConfig::simple(None)),
-            ("advanced", M2MConfig::advanced(None)),
-            ("training", M2MConfig::training(None)),
-            ("distributed", M2MConfig::distributed(None)),
-            ("gpu", M2MConfig::gpu(None)),
+        let presets: Vec<(&str, SplatDBConfig)> = vec![
+            ("default", SplatDBConfig::default()),
+            ("simple", SplatDBConfig::simple(None)),
+            ("advanced", SplatDBConfig::advanced(None)),
+            ("training", SplatDBConfig::training(None)),
+            ("distributed", SplatDBConfig::distributed(None)),
+            ("gpu", SplatDBConfig::gpu(None)),
         ];
 
         for (name, mut config) in presets {
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn test_simple_preset_features() {
-        let c = M2MConfig::simple(None);
+        let c = SplatDBConfig::simple(None);
         // Simple should have heavy features DISABLED
         assert!(!c.enable_quantization, "simple: quantization should be off");
         assert!(!c.enable_graph, "simple: graph should be off");
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_advanced_preset_features() {
-        let c = M2MConfig::advanced(None);
+        let c = SplatDBConfig::advanced(None);
         // Advanced should have EVERYTHING enabled
         assert!(c.enable_quantization, "advanced: quantization should be on");
         assert!(c.enable_graph, "advanced: graph should be on");
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_training_preset_features() {
-        let c = M2MConfig::training(None);
+        let c = SplatDBConfig::training(None);
         // Training-specific features
         assert!(c.enable_training, "training: training should be on");
         assert!(c.training_noise_augmentation, "training: noise augmentation should be on");
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_distributed_preset_features() {
-        let c = M2MConfig::distributed(None);
+        let c = SplatDBConfig::distributed(None);
         // Distributed-specific
         assert!(c.enable_auto_scaling, "distributed: auto-scaling should be on");
         assert!(c.enable_mapreduce, "distributed: mapreduce should be on");
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_gpu_preset_features() {
-        let c = M2MConfig::gpu(None);
+        let c = SplatDBConfig::gpu(None);
         // GPU-specific
         assert!(c.enable_cuda, "gpu: cuda should be on");
         assert!(c.enable_gpu_search, "gpu: gpu search should be on");
@@ -600,7 +600,7 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::Array2;
 
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.latent_dim = 4;
         config.max_splats = 1000;
         config.device = "cpu".to_string();
@@ -642,7 +642,7 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::Array2;
 
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.latent_dim = 4;
         config.max_splats = 1000;
         config.device = "cpu".to_string();
@@ -683,7 +683,7 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::Array2;
 
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.latent_dim = 8;
         config.max_splats = 100;
         config.finalize();
@@ -699,7 +699,7 @@ mod tests {
     // ─── Subsystem initialization tests per preset ───
 
     /// Helper: create a store with CPU-forced config from a preset
-    fn store_from_preset(mut config: M2MConfig) -> crate::splats::SplatStore {
+    fn store_from_preset(mut config: SplatDBConfig) -> crate::splats::SplatStore {
         config.device = "cpu".to_string();
         config.enable_cuda = false;
         config.enable_vulkan = false;
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn test_simple_preset_no_subsystems() {
-        let store = store_from_preset(M2MConfig::simple(None));
+        let store = store_from_preset(SplatDBConfig::simple(None));
         assert!(!store.has_quantization(), "simple: no quantization subsystem");
         assert!(!store.has_hnsw(), "simple: no HNSW subsystem");
         assert!(!store.has_lsh(), "simple: no LSH subsystem");
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_advanced_preset_subsystems() {
-        let store = store_from_preset(M2MConfig::advanced(None));
+        let store = store_from_preset(SplatDBConfig::advanced(None));
         assert!(store.has_quantization(), "advanced: should have quantization");
         assert!(store.has_hnsw(), "advanced: should have HNSW");
         assert!(!store.has_lsh(), "advanced: LSH not in advanced preset");
@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_training_preset_subsystems() {
-        let store = store_from_preset(M2MConfig::training(None));
+        let store = store_from_preset(SplatDBConfig::training(None));
         assert!(!store.has_quantization(), "training: no quantization");
         assert!(!store.has_hnsw(), "training: no HNSW");
         assert!(!store.has_lsh(), "training: no LSH");
@@ -737,7 +737,7 @@ mod tests {
 
     #[test]
     fn test_distributed_preset_subsystems() {
-        let store = store_from_preset(M2MConfig::distributed(None));
+        let store = store_from_preset(SplatDBConfig::distributed(None));
         assert!(store.has_quantization(), "distributed: should have quantization");
         assert!(!store.has_hnsw(), "distributed: no HNSW (not in distributed config)");
         assert!(store.has_semantic_memory(), "distributed: should have semantic memory");
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_gpu_preset_subsystems() {
-        let store = store_from_preset(M2MConfig::gpu(None));
+        let store = store_from_preset(SplatDBConfig::gpu(None));
         assert!(store.has_quantization(), "gpu: should have quantization");
         assert!(store.has_hnsw(), "gpu: should have HNSW");
         assert!(store.has_semantic_memory(), "gpu: should have semantic memory");
@@ -756,7 +756,7 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::{Array1, Array2};
 
-        let mut config = M2MConfig::advanced(None);
+        let mut config = SplatDBConfig::advanced(None);
         config.device = "cpu".to_string();
         config.enable_cuda = false;
         config.enable_vulkan = false;
@@ -791,7 +791,7 @@ mod tests {
         use crate::splats::SplatStore;
         use ndarray::Array2;
 
-        let mut config = M2MConfig::simple(None);
+        let mut config = SplatDBConfig::simple(None);
         config.device = "cpu".to_string();
         config.enable_cuda = false;
         config.latent_dim = 16;

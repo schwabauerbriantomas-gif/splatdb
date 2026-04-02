@@ -1,5 +1,5 @@
 //! Cluster protocol definitions.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::{Deserialize, Serialize};
 

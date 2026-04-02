@@ -2,16 +2,16 @@
 
 use std::path::PathBuf;
 
-use m2m_vector_search::{M2MConfig, SplatStore};
+use splatdb::{SplatDBConfig, SplatStore};
 
 use super::helpers::*;
 
-pub fn cmd_index(data_dir: String, backend: String, config: M2MConfig, input: PathBuf, shard: String) {
+pub fn cmd_index(data_dir: String, backend: String, config: SplatDBConfig, input: PathBuf, shard: String) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     };
-    eprintln!("[m2m] Loaded {} vectors ({}D) from {}", vectors.nrows(), vectors.ncols(), input.display());
+    eprintln!("[splatdb] Loaded {} vectors ({}D) from {}", vectors.nrows(), vectors.ncols(), input.display());
 
     let persist = make_persistence(&data_dir, &backend, true)
         .unwrap_or_else(|e| { eprintln!("Storage error: {}", e); std::process::exit(1); });
@@ -33,12 +33,12 @@ pub fn cmd_index(data_dir: String, backend: String, config: M2MConfig, input: Pa
     }));
 }
 
-pub fn cmd_ingest(config: M2MConfig, input: PathBuf, n_clusters: Option<usize>, seed: u64) {
+pub fn cmd_ingest(config: SplatDBConfig, input: PathBuf, n_clusters: Option<usize>, seed: u64) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     };
-    eprintln!("[m2m] Ingesting {} vectors ({}D) via DatasetTransformer", vectors.nrows(), vectors.ncols());
+    eprintln!("[splatdb] Ingesting {} vectors ({}D) via DatasetTransformer", vectors.nrows(), vectors.ncols());
 
     let mut store = SplatStore::new(config);
     let k = n_clusters.unwrap_or_else(|| (vectors.nrows() as f64).sqrt() as usize);
@@ -63,12 +63,12 @@ pub fn cmd_ingest(config: M2MConfig, input: PathBuf, n_clusters: Option<usize>, 
     }
 }
 
-pub fn cmd_ingest_hierarchical(config: M2MConfig, input: PathBuf, n_clusters: usize, min_cluster_size: usize, seed: u64) {
+pub fn cmd_ingest_hierarchical(config: SplatDBConfig, input: PathBuf, n_clusters: usize, min_cluster_size: usize, seed: u64) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     };
-    eprintln!("[m2m] Hierarchical ingest {} vectors ({}D)", vectors.nrows(), vectors.ncols());
+    eprintln!("[splatdb] Hierarchical ingest {} vectors ({}D)", vectors.nrows(), vectors.ncols());
 
     let mut store = SplatStore::new(config);
     let t0 = std::time::Instant::now();
@@ -91,12 +91,12 @@ pub fn cmd_ingest_hierarchical(config: M2MConfig, input: PathBuf, n_clusters: us
     }
 }
 
-pub fn cmd_ingest_leader(data_dir: String, backend: String, config: M2MConfig, input: PathBuf, target_clusters: usize, threshold: Option<f64>, seed: u64) {
+pub fn cmd_ingest_leader(data_dir: String, backend: String, config: SplatDBConfig, input: PathBuf, target_clusters: usize, threshold: Option<f64>, seed: u64) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     };
-    eprintln!("[m2m] Leader clustering ingest {} vectors ({}D)", vectors.nrows(), vectors.ncols());
+    eprintln!("[splatdb] Leader clustering ingest {} vectors ({}D)", vectors.nrows(), vectors.ncols());
 
     let mut store = SplatStore::new(config);
     let t0 = std::time::Instant::now();
@@ -137,15 +137,15 @@ pub fn cmd_ingest_leader(data_dir: String, backend: String, config: M2MConfig, i
 pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: usize, _metric: String) {
     #[cfg(not(feature = "cuda"))]
     {
-        eprintln!("[m2m] bench-gpu requires --features cuda");
+        eprintln!("[splatdb] bench-gpu requires --features cuda");
         std::process::exit(1);
     }
     #[cfg(feature = "cuda")]
     {
     use std::time::Instant;
-    use m2m_vector_search::gpu::cuda_kernel::GpuIndex;
+    use splatdb::gpu::cuda_kernel::GpuIndex;
 
-    eprintln!("[m2m] Generating {} vectors ({}D)...", n_vectors, dim);
+    eprintln!("[splatdb] Generating {} vectors ({}D)...", n_vectors, dim);
     let mut rng = rand::thread_rng();
     let dataset: Vec<f32> = (0..n_vectors * dim)
         .map(|_| rand::Rng::gen_range(&mut rng, -1.0..1.0))
@@ -154,20 +154,20 @@ pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: 
         .map(|_| rand::Rng::gen_range(&mut rng, -1.0..1.0))
         .collect();
 
-    eprintln!("[m2m] CPU benchmark...");
+    eprintln!("[splatdb] CPU benchmark...");
     let t0 = Instant::now();
-    let cpu_results = m2m_vector_search::gpu::batch_search(
+    let cpu_results = splatdb::gpu::batch_search(
         &queries, n_queries, &dataset, n_vectors, dim, top_k, &metric,
     );
     let cpu_ms = t0.elapsed().as_millis() as f64;
 
     let gpu_result = if let Some(mut gpu_idx) = GpuIndex::new() {
-        eprintln!("[m2m] Uploading {} vectors to GPU...", n_vectors);
+        eprintln!("[splatdb] Uploading {} vectors to GPU...", n_vectors);
         let t_upload = Instant::now();
         gpu_idx.upload_dataset(&dataset, n_vectors, dim);
         let upload_ms = t_upload.elapsed().as_millis() as f64;
 
-        eprintln!("[m2m] GPU query benchmark (dataset in VRAM)...");
+        eprintln!("[splatdb] GPU query benchmark (dataset in VRAM)...");
         let t1 = Instant::now();
         let gpu_results = gpu_idx.topk_search(&queries, n_queries, top_k, &metric);
         let query_ms = t1.elapsed().as_millis() as f64;
@@ -175,9 +175,9 @@ pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: 
         let gpu_results = match gpu_results {
             Some(r) => r,
             None => {
-                eprintln!("[m2m] GPU topk_search returned None");
+                eprintln!("[splatdb] GPU topk_search returned None");
                 let t2 = Instant::now();
-                let r = m2m_vector_search::gpu::batch_search(
+                let r = splatdb::gpu::batch_search(
                     &queries, n_queries, &dataset, n_vectors, dim, top_k, &metric,
                 );
                 let _ = query_ms + t2.elapsed().as_millis() as f64;
@@ -189,7 +189,7 @@ pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: 
             && cpu_results.iter().zip(gpu_results.iter())
                 .all(|(c, g)| c.0.first() == g.0.first());
 
-        eprintln!("[m2m] GPU/CPU results match: {}", matches);
+        eprintln!("[splatdb] GPU/CPU results match: {}", matches);
         Some((upload_ms, query_ms))
     } else {
         None
@@ -231,7 +231,7 @@ pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: 
 pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_queries: usize) {
     use std::time::Instant;
 
-    eprintln!("[m2m] Generating {} vectors ({}D)...", n_vectors, dim);
+    eprintln!("[splatdb] Generating {} vectors ({}D)...", n_vectors, dim);
     let mut rng = rand::thread_rng();
     let raw: Vec<f32> = (0..n_vectors * dim)
         .map(|_| rand::Rng::gen_range(&mut rng, -1.0..1.0))
@@ -241,7 +241,7 @@ pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_q
         .map(|_| rand::Rng::gen_range(&mut rng, -1.0..1.0))
         .collect();
 
-    let mut ingest_cfg = M2MConfig::gpu(None);
+    let mut ingest_cfg = SplatDBConfig::gpu(None);
     ingest_cfg.latent_dim = dim;
     ingest_cfg.max_splats = n_clusters * 2;
     ingest_cfg.device = "cpu".to_string();
@@ -250,18 +250,18 @@ pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_q
     ingest_cfg.finalize();
 
     let mut store = SplatStore::new(ingest_cfg);
-    eprintln!("[m2m] Phase 1: DatasetTransformer ingest...");
+    eprintln!("[splatdb] Phase 1: DatasetTransformer ingest...");
     let t_ingest = Instant::now();
     let (n_splats, compression, stats) = store.ingest_with_transformer(&dataset, n_clusters, 42)
         .unwrap_or_else(|e| { eprintln!("Ingest error: {}", e); std::process::exit(1); });
     let ingest_ms = t_ingest.elapsed().as_millis() as f64;
 
-    eprintln!("[m2m] Phase 2: Building index...");
+    eprintln!("[splatdb] Phase 2: Building index...");
     let t_build = Instant::now();
     store.build_index();
     let build_ms = t_build.elapsed().as_millis() as f64;
 
-    eprintln!("[m2m] Phase 3: Search {} queries against {} splats...", n_queries, n_splats);
+    eprintln!("[splatdb] Phase 3: Search {} queries against {} splats...", n_queries, n_splats);
     let query_arr = ndarray::Array2::from_shape_vec((n_queries, dim), queries.clone()).expect("valid shape from args");
     let t_search = Instant::now();
     for i in 0..n_queries {
@@ -271,9 +271,9 @@ pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_q
 
     #[cfg(feature = "cuda")]
     let gpu_search: Option<serde_json::Value> = {
-        if let Some(mut gpu_idx) = m2m_vector_search::gpu::cuda_kernel::GpuIndex::new() {
+        if let Some(mut gpu_idx) = splatdb::gpu::cuda_kernel::GpuIndex::new() {
             let raw_flat: Vec<f32> = dataset.clone().into_raw_vec();
-            eprintln!("[m2m] Phase 4: GPU search on raw {} vectors...", n_vectors);
+            eprintln!("[splatdb] Phase 4: GPU search on raw {} vectors...", n_vectors);
             let t_gpu_upload = Instant::now();
             gpu_idx.upload_dataset(&raw_flat, n_vectors, dim);
             let gpu_upload_ms = t_gpu_upload.elapsed().as_millis() as f64;
@@ -292,7 +292,7 @@ pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_q
     #[cfg(not(feature = "cuda"))]
     let gpu_search: Option<serde_json::Value> = None;
 
-    eprintln!("[m2m] Phase 5: Fused search...");
+    eprintln!("[splatdb] Phase 5: Fused search...");
     let n_fused = n_queries.min(10);
     let t_fused = Instant::now();
     for i in 0..n_fused {

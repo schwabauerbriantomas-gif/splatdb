@@ -1,6 +1,6 @@
 //! Cluster router with energy-aware routing support.
 //! Wraps EnergyRouter and LoadBalancer for unified routing.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::{HashMap, HashSet};
 

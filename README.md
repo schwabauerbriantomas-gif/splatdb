@@ -1,8 +1,8 @@
-# M2M Vector Search
+# SplatDB
 
 A native Rust vector search engine powered by Gaussian Splatting embeddings and hierarchical retrieval.
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/m2m-rust)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb-rust)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-226%20passing-brightgreen.svg)]()
@@ -11,13 +11,13 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 
 ## What Is This?
 
-M2M applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
+SplatDB applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
 
 - **Richer similarity semantics** via splat overlap instead of point-to-point distance
 - **Natural compression** through distribution parameters
 - **Uncertainty-aware retrieval** — regions with sparse coverage have high energy, guiding active learning
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), CUDA GPU acceleration with custom PTX kernels, and hybrid BM25+vector semantic memory, M2M provides a full-featured vector search engine in pure Rust.
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), CUDA GPU acceleration with custom PTX kernels, and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in pure Rust.
 
 ## Architecture
 
@@ -75,10 +75,10 @@ cargo run --release -- search --query "0.1,0.2,0.3,...,-0.5" -k 10
 ### Rust API
 
 ```rust
-use m2m_vector_search::{M2MConfig, SplatStore};
+use splatdb::{SplatDBConfig, SplatStore};
 
 fn main() {
-    let config = M2MConfig::default();  // or: simple(), advanced(), gpu()
+    let config = SplatDBConfig::default();  // or: simple(), advanced(), gpu()
     let mut store = SplatStore::new(config);
 
     let id = store.insert(&vec![0.1f32; 640]);
@@ -136,9 +136,9 @@ Six presets cover edge devices to GPU clusters:
 | `gpu` | CUDA servers | 5M splats | All advanced features + GPU batch, HNSW M=48 |
 
 ```rust
-let edge  = M2MConfig::simple(None);           // Raspberry Pi
-let agent = M2MConfig::advanced(Some("cuda")); // LLM tool
-let gpu   = M2MConfig::gpu(None);              // RTX 3090+
+let edge  = SplatDBConfig::simple(None);           // Raspberry Pi
+let agent = SplatDBConfig::advanced(Some("cuda")); // LLM tool
+let gpu   = SplatDBConfig::gpu(None);              // RTX 3090+
 ```
 
 ## Features
@@ -157,7 +157,7 @@ let gpu   = M2MConfig::gpu(None);              // RTX 3090+
 
 ## MCP Server
 
-M2M includes an MCP server for integration with AI agents (Claude, GPT, open-source LLMs).
+SplatDB includes an MCP server for integration with AI agents (Claude, GPT, open-source LLMs).
 
 Protocol: stdio JSON-RPC 2.0
 
@@ -178,7 +178,7 @@ cargo run --release -- mcp
 ## CLI Reference
 
 ```
-m2m <COMMAND>
+splatdb <COMMAND>
 
 Core:
   index              Add vectors from binary file (u64 rows, u64 cols, f32 data)
@@ -225,7 +225,7 @@ Server:
   preset-info        Show preset subsystem details
 
 Options:
-  --data-dir <DIR>     Storage directory [default: ./m2m_data]
+  --data-dir <DIR>     Storage directory [default: ./splatdb_data]
   --dim <DIM>          Vector dimensionality [default: 640]
   --max-splats <N>     Maximum splat capacity
   --backend <BACKEND>  Search backend (hrm2|hnsw|lsh)

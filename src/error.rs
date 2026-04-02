@@ -1,8 +1,8 @@
 use std::fmt;
 
-/// Unified error type for M2M operations.
+/// Unified error type for SplatDB operations.
 #[derive(Debug)]
-pub enum M2MError {
+pub enum SplatDBError {
     IndexNotBuilt,
     NoBackends,
     InvalidConfig(String),
@@ -11,22 +11,22 @@ pub enum M2MError {
     DimensionMismatch { expected: usize, got: usize },
 }
 
-impl fmt::Display for M2MError {
+impl fmt::Display for SplatDBError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            M2MError::IndexNotBuilt => write!(f, "index has not been built"),
-            M2MError::NoBackends => write!(f, "no search backends available"),
-            M2MError::InvalidConfig(msg) => write!(f, "invalid config: {msg}"),
-            M2MError::StorageError(msg) => write!(f, "storage error: {msg}"),
-            M2MError::SearchError(msg) => write!(f, "search error: {msg}"),
-            M2MError::DimensionMismatch { expected, got } => {
+            SplatDBError::IndexNotBuilt => write!(f, "index has not been built"),
+            SplatDBError::NoBackends => write!(f, "no search backends available"),
+            SplatDBError::InvalidConfig(msg) => write!(f, "invalid config: {msg}"),
+            SplatDBError::StorageError(msg) => write!(f, "storage error: {msg}"),
+            SplatDBError::SearchError(msg) => write!(f, "search error: {msg}"),
+            SplatDBError::DimensionMismatch { expected, got } => {
                 write!(f, "dimension mismatch: expected {expected}, got {got}")
             }
         }
     }
 }
 
-impl std::error::Error for M2MError {}
+impl std::error::Error for SplatDBError {}
 
 #[cfg(test)]
 mod tests {
@@ -35,12 +35,12 @@ mod tests {
     #[test]
     fn test_display_messages() {
         let cases = vec![
-            (M2MError::IndexNotBuilt, "index has not been built"),
-            (M2MError::NoBackends, "no search backends available"),
-            (M2MError::InvalidConfig("bad param".into()), "invalid config: bad param"),
-            (M2MError::StorageError("disk full".into()), "storage error: disk full"),
-            (M2MError::SearchError("timeout".into()), "search error: timeout"),
-            (M2MError::DimensionMismatch { expected: 128, got: 64 }, "dimension mismatch: expected 128, got 64"),
+            (SplatDBError::IndexNotBuilt, "index has not been built"),
+            (SplatDBError::NoBackends, "no search backends available"),
+            (SplatDBError::InvalidConfig("bad param".into()), "invalid config: bad param"),
+            (SplatDBError::StorageError("disk full".into()), "storage error: disk full"),
+            (SplatDBError::SearchError("timeout".into()), "search error: timeout"),
+            (SplatDBError::DimensionMismatch { expected: 128, got: 64 }, "dimension mismatch: expected 128, got 64"),
         ];
         for (err, expected_substring) in cases {
             let msg = format!("{}", err);
@@ -51,12 +51,12 @@ mod tests {
     #[test]
     fn test_error_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<M2MError>();
+        assert_send_sync::<SplatDBError>();
     }
 
     #[test]
     fn test_error_debug_format() {
-        let err = M2MError::DimensionMismatch { expected: 64, got: 32 };
+        let err = SplatDBError::DimensionMismatch { expected: 64, got: 32 };
         let debug = format!("{:?}", err);
         assert!(debug.contains("DimensionMismatch"));
         assert!(debug.contains("expected: 64"));

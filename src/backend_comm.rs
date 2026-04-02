@@ -1,6 +1,6 @@
 //! Backend Communication Protocol — structured messaging, health checks,
 //! performance metrics, and dead letter queue.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -28,7 +28,7 @@ pub enum Priority {
     Critical = 2,
 }
 
-/// Structured message between M2M backends.
+/// Structured message between SplatDB backends.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendMessage {
     pub sender: String,
@@ -135,7 +135,7 @@ pub struct BackendMetrics {
     pub uptime_seconds: f64,
 }
 
-/// Communication protocol between M2M backends.
+/// Communication protocol between SplatDB backends.
 ///
 /// Provides:
 /// - Priority message bus

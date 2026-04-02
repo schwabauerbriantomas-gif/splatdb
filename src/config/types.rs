@@ -1,6 +1,6 @@
-//! M2M Configuration Types
+//! SplatDB Configuration Types
 //!
-//! Enums and data types used by M2MConfig.
+//! Enums and data types used by SplatDBConfig.
 
 use serde::{Deserialize, Serialize};
 use std::any::Any;

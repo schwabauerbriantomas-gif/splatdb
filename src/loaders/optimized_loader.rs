@@ -1,4 +1,4 @@
-//! Optimized data loader. Ported from m2m-vector-search Python.
+//! Optimized data loader. Ported from splatdb Python.
 
 use ndarray::Array2;
 use std::io::{Read, Write};

@@ -1,10 +1,10 @@
-//! Edge node: local M2M instance that can operate offline.
-//! Ported from m2m-vector-search Python.
+//! Edge node: local SplatDB instance that can operate offline.
+//! Ported from splatdb Python.
 
 use crate::cluster::health::LoadMetrics;
 use crate::cluster::sync::SyncQueue;
 
-/// An M2M edge node with local storage and optional coordinator sync.
+/// An SplatDB edge node with local storage and optional coordinator sync.
 pub struct EdgeNode {
     pub edge_id: String,
     coordinator_url: Option<String>,

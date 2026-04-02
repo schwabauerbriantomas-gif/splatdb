@@ -1,7 +1,7 @@
 //! Hierarchical GPU Search — Two-stage ANN search.
 //! Stage 1 (Coarse): Query vs cluster centroids.
 //! Stage 2 (Fine): Query vs candidate cluster members.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::{Array1, Array2, ArrayView2};
 

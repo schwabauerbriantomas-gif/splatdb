@@ -1,8 +1,8 @@
-//! Dataset Transformer — data transformations for M2M datasets.
+//! Dataset Transformer — data transformations for SplatDB datasets.
 //!
 //! Handles normalization, splitting, augmentation, format conversion,
 //! and Gaussian Splat generation via KMeans clustering.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,7 @@ impl Default for TransformConfig {
     }
 }
 
-/// Dataset transformer for M2M.
+/// Dataset transformer for SplatDB.
 pub struct DatasetTransformer {
     config: TransformConfig,
     mean: Option<Array1<f32>>,

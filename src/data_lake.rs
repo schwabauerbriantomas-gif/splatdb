@@ -1,7 +1,7 @@
-//! Data Lake for M2M — dataset management and batch operations.
+//! Data Lake for SplatDB — dataset management and batch operations.
 //!
 //! Simple dataset storage for training and evaluation.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

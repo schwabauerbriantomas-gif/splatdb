@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(gpu_batch[0].len(), n);
 
         eprintln!(
-            "[m2m benchmark] 10K x 640D, {} queries | CPU: {}ms | GPU: {}ms | speedup: {:.2}x",
+            "[splatdb benchmark] 10K x 640D, {} queries | CPU: {}ms | GPU: {}ms | speedup: {:.2}x",
             n_queries,
             cpu_ms,
             gpu_ms,

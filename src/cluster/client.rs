@@ -1,6 +1,6 @@
-//! Cluster client for distributed M2M search.
+//! Cluster client for distributed SplatDB search.
 //! Handles query routing, result aggregation, and failover.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 
@@ -15,15 +15,15 @@ pub enum ClusterError {
     NoResults,
 }
 
-/// Client for interacting with an M2M cluster.
-pub struct M2MClusterClient {
+/// Client for interacting with a SplatDB cluster.
+pub struct SplatDBClusterClient {
     coordinator_url: Option<String>,
     fallback_edges: Vec<String>,
     in_memory_router: Option<ClusterRouter>,
     edge_urls: HashMap<String, String>,
 }
 
-impl M2MClusterClient {
+impl SplatDBClusterClient {
     pub fn new(
         coordinator_url: Option<String>,
         fallback_edges: Vec<String>,

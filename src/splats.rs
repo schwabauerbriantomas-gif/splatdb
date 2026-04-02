@@ -1,11 +1,11 @@
-//! SplatStore - Main API for M2M Vector Search.
+//! SplatStore - Main API for SplatDB Vector Search.
 //! Ported from Python splats.py. CPU-only.
 
 use crate::dataset_transformer;
 use crate::interfaces::VectorIndex;
 use ndarray::{Array1, Array2, ArrayView1};
 
-use crate::config::M2MConfig;
+use crate::config::SplatDBConfig;
 use crate::hrm2_engine::HRM2Engine;
 
 /// Result of a neighbor search.
@@ -26,7 +26,7 @@ pub struct NeighborResult {
 /// - `enable_lsh` → CrossPolytopeLSH for approximate search
 /// - `enable_semantic_memory` → SemanticMemoryDB for hybrid text+vector search
 pub struct SplatStore {
-    config: M2MConfig,
+    config: SplatDBConfig,
     max_splats: usize,
     n_active: usize,
     mu: Array2<f32>,
@@ -46,7 +46,7 @@ pub struct SplatStore {
 
 impl SplatStore {
     /// New.
-    pub fn new(config: M2MConfig) -> Self {
+    pub fn new(config: SplatDBConfig) -> Self {
         let max_splats = config.max_splats;
         let dim = config.latent_dim;
         let n_coarse = (((max_splats as f64).sqrt() / 10.0) as usize).max(10);
@@ -624,8 +624,8 @@ pub struct SplatStoreStats {
 mod tests {
     use super::*;
 
-    fn test_config() -> M2MConfig {
-        let mut c = M2MConfig::default();
+    fn test_config() -> SplatDBConfig {
+        let mut c = SplatDBConfig::default();
         c.max_splats = 1000;
         c.latent_dim = 64;
         c

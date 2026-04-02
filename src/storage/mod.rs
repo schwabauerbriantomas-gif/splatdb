@@ -5,4 +5,4 @@ pub mod json_store;
 pub mod persistence;
 
 pub use metadata_store::{DocumentRecord, MetadataStore};
-pub use persistence::{M2MPersistence, StorageBackend};
+pub use persistence::{SplatDBPersistence, StorageBackend};

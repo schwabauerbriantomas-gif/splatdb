@@ -7,7 +7,7 @@
 //! - Result caching with TTL
 //! - Adaptive caching based on memory
 //!
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 

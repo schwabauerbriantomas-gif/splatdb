@@ -1,6 +1,6 @@
-//! Embedding training infrastructure for M2M.
+//! Embedding training infrastructure for SplatDB.
 //! Knowledge distillation: Teacher -> Student embeddings.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 //!
 //! Note: Actual training requires a deep learning framework (candle, burn, tch).
 //! This module provides the training pipeline, dataset generation, and evaluation.

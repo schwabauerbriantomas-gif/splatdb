@@ -1,8 +1,8 @@
-//! Embedding model wrapper for M2M.
+//! Embedding model wrapper for SplatDB.
 //!
 //! Supports external encoders via trait. Includes Matryoshka representations,
 //! projection head, and distillation loss utilities.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::{Array1, Array2};
 

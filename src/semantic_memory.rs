@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::bm25_index::BM25Index;
 use crate::embedding_model::Encoder;
 use crate::splats::SplatStore;
-use crate::config::M2MConfig;
+use crate::config::SplatDBConfig;
 use ndarray::Array1;
 use serde::Serialize;
 
@@ -78,7 +78,7 @@ impl SemanticMemoryDB {
     #[allow(clippy::field_reassign_with_default)]
     /// Create a new SemanticMemoryDB with the given embedding dimension.
     pub fn new(latent_dim: usize) -> Self {
-        let mut config = M2MConfig::default();
+        let mut config = SplatDBConfig::default();
         config.latent_dim = latent_dim;
 
         Self {
@@ -311,7 +311,7 @@ impl SemanticMemoryDB {
         self.timestamps.clear();
         self.deleted.clear();
         self.bm25.clear();
-        let config = M2MConfig {
+        let config = SplatDBConfig {
             latent_dim: self.latent_dim,
             ..Default::default()
         };
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_auto_categorize() {
-        assert_eq!(auto_categorize("We decided to use M2M"), Some("decision"));
+        assert_eq!(auto_categorize("We decided to use SplatDB"), Some("decision"));
         assert_eq!(auto_categorize("There is a bug in the code"), Some("error"));
         assert!(auto_categorize("random text xyz").is_none());
     }

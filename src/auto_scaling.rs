@@ -1,6 +1,6 @@
-//! Auto-Scaling for M2M Cluster.
+//! Auto-Scaling for SplatDB Cluster.
 //! Automatic scaling based on metrics, trends, and predictions.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 
@@ -169,7 +169,7 @@ impl MetricsCollector {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trend { Increasing, Decreasing, Stable }
 
-/// Auto-scaler for M2M Cluster.
+/// Auto-scaler for SplatDB Cluster.
 ///
 /// Monitors metrics and makes scaling decisions automatically.
 pub struct AutoScaler {
