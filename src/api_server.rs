@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
 use crate::splats::SplatStore;
-use crate::config::M2MConfig;
+use crate::config::SplatDBConfig;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -197,7 +197,7 @@ fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
 }
 
 pub async fn run_server(port: u16) -> anyhow::Result<()> {
-    let config = M2MConfig::default();
+    let config = SplatDBConfig::default();
     let store = SplatStore::new(config);
     
     let state = AppState {
@@ -214,7 +214,7 @@ pub async fn run_server(port: u16) -> anyhow::Result<()> {
         .with_state(state);
 
     let addr = format!("127.0.0.1:{}", port);
-    println!("M2M server listening on {}", addr);
+    println!("SplatDB server listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     Ok(axum::serve(listener, app).await?)
 }

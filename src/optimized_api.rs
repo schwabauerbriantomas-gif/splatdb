@@ -1,7 +1,7 @@
-//! Optimized M2M API with caching, GPU config, and auto-scaling hooks.
+//! Optimized SplatDB API with caching, GPU config, and auto-scaling hooks.
 //!
 //! Integrates query caching, prefetching, and metrics tracking.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::Array1;
 use serde::Serialize;
@@ -38,7 +38,7 @@ impl Default for GpuConfig {
     }
 }
 
-/// Optimized M2M database wrapper.
+/// Optimized SplatDB database wrapper.
 pub struct M2MOptimized {
     pub enable_gpu: bool,
     pub enable_cache: bool,

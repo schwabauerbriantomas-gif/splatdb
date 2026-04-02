@@ -1,7 +1,7 @@
-//! Embedding configuration for M2M.
+//! Embedding configuration for SplatDB.
 //!
 //! Defines supported embedding models and their parameters.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::{Deserialize, Serialize};
 

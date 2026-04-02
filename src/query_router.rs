@@ -2,7 +2,7 @@
 //!
 //! Patterns: Exact k-NN, HRM2 approximate, Range, Batch parallel, LSH.
 //! Auto-learning from latency history.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -79,7 +79,7 @@ const HRM2_MIN_K: usize = 5;
 const BATCH_MIN_SIZE: usize = 4;
 const EXACT_MAX_DATASET: usize = 5000;
 
-/// Query router for M2M.
+/// Query router for SplatDB.
 pub struct QueryRouter {
     _default_strategy: SearchStrategy,
     enable_auto_learning: bool,

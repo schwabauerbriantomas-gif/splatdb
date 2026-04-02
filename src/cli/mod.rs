@@ -240,6 +240,6 @@ pub fn dispatch(cli: Cli) {
         Commands::LshSearch { query, query_file, k } => search_cmds::cmd_lsh_search(cli.data_dir, cli.dim, cli.max_splats, query, query_file, k),
         Commands::BenchGpuIngest { n_vectors, dim, n_clusters, n_queries } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
         Commands::Serve { port } => data_cmds::cmd_serve(port),
-        Commands::Mcp => m2m_vector_search::mcp_server::run_mcp_server(),
+        Commands::Mcp => splatdb::mcp_server::run_mcp_server(),
     }
 }

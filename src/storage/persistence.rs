@@ -23,17 +23,17 @@ pub enum StorageBackend {
 }
 
 
-/// M2M Persistence manager.
+/// SplatDB Persistence manager.
 ///
 /// Binary vector storage is always file-based (shards).
 /// Metadata storage is pluggable via `MetadataStore` trait.
-pub struct M2MPersistence {
+pub struct SplatDBPersistence {
     pub storage_path: PathBuf,
     pub wal: Option<WriteAheadLog>,
     meta: Box<dyn MetadataStore>,
 }
 
-impl M2MPersistence {
+impl SplatDBPersistence {
     /// Create with a specific backend.
     pub fn with_backend(storage_path: &str, backend: StorageBackend, enable_wal: bool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let resolved = validate_path(storage_path)?;

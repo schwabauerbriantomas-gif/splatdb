@@ -1,12 +1,12 @@
-//! Preset configurations for M2M.
+//! Preset configurations for SplatDB.
 //!
 //! Convenience constructors for common deployment scenarios.
 
 use super::types::*;
 use super::detect_device;
-use super::M2MConfig;
+use super::SplatDBConfig;
 
-impl M2MConfig {
+impl SplatDBConfig {
     /// Handle device auto-detection and flags.
     pub fn finalize(&mut self) {
         if self.device == "auto" {

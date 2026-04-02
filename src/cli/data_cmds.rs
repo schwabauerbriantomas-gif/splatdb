@@ -2,12 +2,12 @@
 
 use std::path::PathBuf;
 
-use m2m_vector_search::{M2MConfig, SplatStore};
-use m2m_vector_search::quantization::{QuantConfig, QuantAlgorithm, QuantizedStore};
+use splatdb::{SplatDBConfig, SplatStore};
+use splatdb::quantization::{QuantConfig, QuantAlgorithm, QuantizedStore};
 
 use super::helpers::*;
 
-pub fn cmd_status(data_dir: String, max_splats: usize, config: M2MConfig, verbose: bool) {
+pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatDBConfig, verbose: bool) {
     let (store, persist) = load_or_create_store(&data_dir, &config);
     let stats = store.get_statistics();
 
@@ -22,7 +22,7 @@ pub fn cmd_status(data_dir: String, max_splats: usize, config: M2MConfig, verbos
         if let Some(ref p) = persist {
             out["shards"] = serde_json::json!(p.list_shards());
         }
-        let strategy = m2m_vector_search::interfaces::select_index_strategy(
+        let strategy = splatdb::interfaces::select_index_strategy(
             stats.n_active, stats.embedding_dim
         );
         out["index_strategy"] = serde_json::json!({
@@ -34,7 +34,7 @@ pub fn cmd_status(data_dir: String, max_splats: usize, config: M2MConfig, verbos
     println!("{}", serde_json::to_string_pretty(&out).expect("Failed to serialize status JSON"));
 }
 
-pub fn cmd_soc_check(data_dir: String, config: M2MConfig) {
+pub fn cmd_soc_check(data_dir: String, config: SplatDBConfig) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -45,8 +45,8 @@ pub fn cmd_soc_check(data_dir: String, config: M2MConfig) {
         std::process::exit(1);
     }
 
-    let energy_api = m2m_vector_search::ebm::energy_api::EBMEnergy::new();
-    let mut soc = m2m_vector_search::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(mu.expect("mu checked above"), alpha.expect("alpha checked above"), kappa.expect("kappa checked above"));
 
     let report = soc.check_criticality();
@@ -60,7 +60,7 @@ pub fn cmd_soc_check(data_dir: String, config: M2MConfig) {
     }));
 }
 
-pub fn cmd_soc_avalanche(data_dir: String, config: M2MConfig, seed: Option<usize>) {
+pub fn cmd_soc_avalanche(data_dir: String, config: SplatDBConfig, seed: Option<usize>) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -71,8 +71,8 @@ pub fn cmd_soc_avalanche(data_dir: String, config: M2MConfig, seed: Option<usize
         std::process::exit(1);
     }
 
-    let energy_api = m2m_vector_search::ebm::energy_api::EBMEnergy::new();
-    let mut soc = m2m_vector_search::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(mu.expect("mu checked above"), alpha.expect("alpha checked above"), kappa.expect("kappa checked above"));
 
     let result = soc.trigger_avalanche(seed);
@@ -84,7 +84,7 @@ pub fn cmd_soc_avalanche(data_dir: String, config: M2MConfig, seed: Option<usize
     }));
 }
 
-pub fn cmd_soc_relax(data_dir: String, config: M2MConfig, iterations: usize) {
+pub fn cmd_soc_relax(data_dir: String, config: SplatDBConfig, iterations: usize) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -95,8 +95,8 @@ pub fn cmd_soc_relax(data_dir: String, config: M2MConfig, iterations: usize) {
         std::process::exit(1);
     }
 
-    let energy_api = m2m_vector_search::ebm::energy_api::EBMEnergy::new();
-    let mut soc = m2m_vector_search::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(mu.expect("mu checked above"), alpha.expect("alpha checked above"), kappa.expect("kappa checked above"));
 
     let result = soc.relax(iterations);
@@ -109,7 +109,7 @@ pub fn cmd_soc_relax(data_dir: String, config: M2MConfig, iterations: usize) {
     }));
 }
 
-pub fn cmd_save(data_dir: String, config: M2MConfig, shard: String) {
+pub fn cmd_save(data_dir: String, config: SplatDBConfig, shard: String) {
     let (store, persist) = load_or_create_store(&data_dir, &config);
     let persist = match persist {
         Some(p) => p,
@@ -213,7 +213,7 @@ pub fn cmd_quant_index(input: PathBuf, bits: u8, algorithm: String, seed: u64) {
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     };
     let dim = vectors.ncols();
-    eprintln!("[m2m] Quantizing {} vectors ({}D, {}-bit)", vectors.nrows(), dim, bits);
+    eprintln!("[splatdb] Quantizing {} vectors ({}D, {}-bit)", vectors.nrows(), dim, bits);
 
     let algo = match algorithm.as_str() {
         "polar" => QuantAlgorithm::PolarQuant,
@@ -290,9 +290,9 @@ pub fn cmd_quant_status(dim: usize) {
 }
 
 pub fn cmd_gpu_info() {
-    let cuda_available = m2m_vector_search::gpu::is_cuda_available();
-    let gpu_info = m2m_vector_search::gpu::gpu_info();
-    let device = m2m_vector_search::config::detect_device();
+    let cuda_available = splatdb::gpu::is_cuda_available();
+    let gpu_info = splatdb::gpu::gpu_info();
+    let device = splatdb::config::detect_device();
 
     println!("{}", serde_json::json!({
         "device": device,
@@ -306,11 +306,11 @@ pub fn cmd_gpu_info() {
 
 pub fn cmd_preset_info(preset: Option<String>) {
     let presets = vec![
-        ("simple", M2MConfig::simple(None)),
-        ("advanced", M2MConfig::advanced(None)),
-        ("training", M2MConfig::training(None)),
-        ("distributed", M2MConfig::distributed(None)),
-        ("gpu", M2MConfig::gpu(None)),
+        ("simple", SplatDBConfig::simple(None)),
+        ("advanced", SplatDBConfig::advanced(None)),
+        ("training", SplatDBConfig::training(None)),
+        ("distributed", SplatDBConfig::distributed(None)),
+        ("gpu", SplatDBConfig::gpu(None)),
     ];
 
     let filtered: Vec<_> = if let Some(ref name) = preset {
@@ -352,12 +352,12 @@ pub fn cmd_preset_info(preset: Option<String>) {
 }
 
 pub fn cmd_serve(port: u16) {
-    println!("[m2m] Starting API server on port {}...", port);
+    println!("[splatdb] Starting API server on port {}...", port);
     let rt = tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime");
     rt.block_on(async {
-        if let Err(e) = m2m_vector_search::api_server::run_server(port).await {
-            eprintln!("[m2m] Server error: {}", e);
+        if let Err(e) = splatdb::api_server::run_server(port).await {
+            eprintln!("[splatdb] Server error: {}", e);
             std::process::exit(1);
         }
     });

@@ -1,4 +1,4 @@
-//! M2M Compute Engine - CPU-optimized expert distance computation.
+//! SplatDB Compute Engine - CPU-optimized expert distance computation.
 //!
 //! Ported from Python m2m/engine.py. Uses ndarray einsum for batch L2 distances
 //! and partial_sort for efficient top-k selection.
@@ -15,17 +15,17 @@ pub struct ExpertDistanceResult {
     pub fine_id: usize,
 }
 
-/// CPU-only M2M engine for expert distance computation.
+/// CPU-only SplatDB engine for expert distance computation.
 ///
 /// In the Rust native version, GPU backends (CUDA/Vulkan) are not available.
 /// All computation uses optimized CPU paths with SIMD-friendly f32 operations.
-pub struct M2MEngine {
+pub struct SplatDBEngine {
     pub device: String,
 }
 
-impl M2MEngine {
+impl SplatDBEngine {
     /// New.
-    pub fn new(_config: Option<&crate::config::M2MConfig>) -> Self {
+    pub fn new(_config: Option<&crate::config::SplatDBConfig>) -> Self {
         // CPU-only in native Rust. Config device hint is acknowledged but not used.
         Self {
             device: "cpu".to_string(),
@@ -177,7 +177,7 @@ impl M2MEngine {
     }
 }
 
-impl Default for M2MEngine {
+impl Default for SplatDBEngine {
     fn default() -> Self {
         Self::new(None)
     }
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_empty_experts() {
-        let engine = M2MEngine::default();
+        let engine = SplatDBEngine::default();
         let embeddings = Array2::<f32>::zeros((0, 3));
         let results = engine.compute_expert_distances(
             &[0.0, 0.0, 0.0],
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_distance_computation() {
-        let engine = M2MEngine::default();
+        let engine = SplatDBEngine::default();
         let embeddings = array![[0.0f32, 0.0, 0.0], [3.0, 4.0, 0.0]];
         let results = engine.compute_expert_distances(
             &[0.0, 0.0, 0.0],

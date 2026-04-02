@@ -1,6 +1,6 @@
-//! Energy-based router for M2M Cluster.
+//! Energy-based router for SplatDB Cluster.
 //! Routes queries based on energy landscape of nodes.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 

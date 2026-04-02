@@ -1,8 +1,8 @@
 [package]
-name = "m2m-vector-search"
+name = "splatdb"
 version = "2.1.0"
 edition = "2021"
-description = "M2M Vector Search - Native Rust implementation"
+description = "SplatDB - Gaussian Splat vector search engine"
 license = "AGPL-3.0"
 
 [features]

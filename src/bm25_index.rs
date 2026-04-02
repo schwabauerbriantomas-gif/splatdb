@@ -2,7 +2,7 @@
 //!
 //! Lightweight implementation using term frequency / inverse document frequency.
 //! Designed for small-to-medium collections (~1-10K docs).
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::{HashMap, HashSet};
 
@@ -212,10 +212,10 @@ mod tests {
     #[test]
     fn test_basic_search() {
         let mut bm25 = BM25Index::new();
-        bm25.add("doc_1", "M2M vector search for semantic memory");
-        bm25.add("doc_2", "Brian decided to use M2M for semantic memory");
+        bm25.add("doc_1", "SplatDB vector search for semantic memory");
+        bm25.add("doc_2", "Brian decided to use SplatDB for semantic memory");
 
-        let results = bm25.search("M2M semantic", 5);
+        let results = bm25.search("SplatDB semantic", 5);
         assert!(!results.is_empty());
         assert_eq!(results.len(), 2);
     }

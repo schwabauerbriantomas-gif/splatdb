@@ -5,7 +5,7 @@
 //! - Warm (RAM): Recently accessed splats
 //! - Cold (Disk/HashMap): Infrequently accessed splats
 //!
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};

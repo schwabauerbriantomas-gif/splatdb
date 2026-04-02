@@ -1,7 +1,7 @@
 //! CUDA Brute-Force Search — high-performance k-NN search.
 //! CPU implementation using ndarray (fallback when CUDA unavailable).
 //! Interface ready for GPU backend via cudarc/cust.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 

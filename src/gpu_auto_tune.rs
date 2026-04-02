@@ -1,6 +1,6 @@
-//! GPU Auto-Tuning and optimization for M2M.
+//! GPU Auto-Tuning and optimization for SplatDB.
 //! Detects hardware, benchmarks performance, configures optimal parameters.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use std::collections::HashMap;
 

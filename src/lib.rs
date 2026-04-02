@@ -46,8 +46,8 @@ pub mod api;
 pub mod loaders;
 pub mod gpu;
 
-pub use error::M2MError;
-pub use config::M2MConfig;
+pub use error::SplatDBError;
+pub use config::SplatDBConfig;
 pub use geometry::{normalize_sphere, geodesic_distance};
 pub use splat_types::{GaussianSplat, SplatEmbedding, SplatCluster};
 pub use splats::SplatStore;

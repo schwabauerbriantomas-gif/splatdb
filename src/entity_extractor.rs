@@ -1,7 +1,7 @@
-//! Entity extractor for M2M.
+//! Entity extractor for SplatDB.
 //! Extracts entities via structural patterns (regex), n-gram analysis,
 //! and optional semantic clustering.
-//! Ported from m2m-vector-search Python.
+//! Ported from splatdb Python.
 
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -31,7 +31,7 @@ impl Default for ExtractorConfig {
     }
 }
 
-pub struct M2MEntityExtractor {
+pub struct SplatDBEntityExtractor {
     email_re: Regex,
     url_re: Regex,
     phone_re: Regex,
@@ -42,7 +42,7 @@ pub struct M2MEntityExtractor {
     config: ExtractorConfig,
 }
 
-impl M2MEntityExtractor {
+impl SplatDBEntityExtractor {
     /// New.
     pub fn new() -> Self {
         Self::with_config(ExtractorConfig::default())
@@ -221,7 +221,7 @@ fn cosine_sim(a: &[f32], b: &[f32]) -> f64 {
     if denom < 1e-10 { 0.0 } else { dot / denom }
 }
 
-impl Default for M2MEntityExtractor {
+impl Default for SplatDBEntityExtractor {
     fn default() -> Self { Self::new() }
 }
 
@@ -231,35 +231,35 @@ mod tests {
 
     #[test]
     fn test_extract_url() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("Visit https://example.com for info");
         assert!(results.iter().any(|c| c.entity_type == "url"));
     }
 
     #[test]
     fn test_extract_date() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("The event is on 2026-03-28");
         assert!(results.iter().any(|c| c.entity_type == "date" && c.text == "2026-03-28"));
     }
 
     #[test]
     fn test_extract_money() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("Price is $1234");
         assert!(results.iter().any(|c| c.entity_type == "money"));
     }
 
     #[test]
     fn test_extract_email() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("Contact user@example.com for info");
         assert!(results.iter().any(|c| c.entity_type == "contact" && c.text.contains("@")));
     }
 
     #[test]
     fn test_extract_proper_nouns() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("Apple Inc. announced Steve Jobs as CEO");
         let proper: Vec<_> = results.iter().filter(|c| c.entity_type == "proper_noun").collect();
         assert!(!proper.is_empty(), "Should detect proper nouns");
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_ngram_with_connectors() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("El Ministerio de Hacienda firmo el acuerdo");
         let proper: Vec<_> = results.iter().filter(|c| c.entity_type == "proper_noun").collect();
         assert!(proper.iter().any(|c| c.text.contains("Ministerio")));
@@ -275,14 +275,14 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("");
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_validate_semantic() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let mut candidates = vec![
             EntityCandidate {
                 text: "test".into(), entity_type: "proper_noun".into(), score: 0.5,
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_count_by_type() {
-        let ext = M2MEntityExtractor::new();
+        let ext = SplatDBEntityExtractor::new();
         let results = ext.extract("Email test@a.com and visit https://example.com on 2026-01-01");
         let counts = ext.count_by_type(&results);
         assert!(counts.contains_key("contact"));

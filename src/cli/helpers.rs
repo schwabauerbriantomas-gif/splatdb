@@ -3,13 +3,13 @@
 use ndarray::{Array1, Array2};
 use std::path::PathBuf;
 
-use m2m_vector_search::{
-    M2MConfig, SplatStore,
-    storage::persistence::{M2MPersistence, StorageBackend},
+use splatdb::{
+    SplatDBConfig, SplatStore,
+    storage::persistence::{SplatDBPersistence, StorageBackend},
 };
 
-pub fn make_config(dim: usize, max_splats: usize) -> M2MConfig {
-    M2MConfig { latent_dim: dim, max_splats, ..Default::default() }
+pub fn make_config(dim: usize, max_splats: usize) -> SplatDBConfig {
+    SplatDBConfig { latent_dim: dim, max_splats, ..Default::default() }
 }
 
 pub fn resolve_backend(name: &str) -> StorageBackend {
@@ -20,11 +20,11 @@ pub fn resolve_backend(name: &str) -> StorageBackend {
     }
 }
 
-pub fn make_persistence(data_dir: &str, backend: &str, rw: bool) -> Result<M2MPersistence, Box<dyn std::error::Error + Send + Sync>> {
-    M2MPersistence::with_backend(data_dir, resolve_backend(backend), rw)
+pub fn make_persistence(data_dir: &str, backend: &str, rw: bool) -> Result<SplatDBPersistence, Box<dyn std::error::Error + Send + Sync>> {
+    SplatDBPersistence::with_backend(data_dir, resolve_backend(backend), rw)
 }
 
-pub fn load_or_create_store(data_dir: &str, config: &M2MConfig) -> (SplatStore, Option<M2MPersistence>) {
+pub fn load_or_create_store(data_dir: &str, config: &SplatDBConfig) -> (SplatStore, Option<SplatDBPersistence>) {
     let persist = make_persistence(data_dir, "sqlite", true).ok();
     let mut store = SplatStore::new(config.clone());
 
@@ -32,7 +32,7 @@ pub fn load_or_create_store(data_dir: &str, config: &M2MConfig) -> (SplatStore, 
         if let Ok(Some(vectors)) = p.load_vectors("default") {
             store.add_splat(&vectors);
             store.build_index();
-            eprintln!("[m2m] Loaded {} vectors from default shard", vectors.nrows());
+            eprintln!("[splatdb] Loaded {} vectors from default shard", vectors.nrows());
         }
     }
 
@@ -99,7 +99,7 @@ pub fn load_vectors_bin(path: &PathBuf) -> Result<Array2<f32>, String> {
     Array2::from_shape_vec((rows, cols), data).map_err(|e| format!("Shape error: {}", e))
 }
 
-pub fn format_neighbors(results: &[m2m_vector_search::splats::NeighborResult], format: &str) -> String {
+pub fn format_neighbors(results: &[splatdb::splats::NeighborResult], format: &str) -> String {
     match format {
         "json" => {
             let entries: Vec<serde_json::Value> = results.iter().map(|r| {
