@@ -60,9 +60,15 @@ impl SplatStore {
                 projections: config.quant_projections,
                 seed: 42,
                 algorithm: match config.quant_algorithm {
-                    crate::config::QuantAlgorithm::TurboQuant => crate::quantization::QuantAlgorithm::TurboQuant,
-                    crate::config::QuantAlgorithm::PolarQuant => crate::quantization::QuantAlgorithm::PolarQuant,
-                    crate::config::QuantAlgorithm::None => crate::quantization::QuantAlgorithm::TurboQuant,
+                    crate::config::QuantAlgorithm::TurboQuant => {
+                        crate::quantization::QuantAlgorithm::TurboQuant
+                    }
+                    crate::config::QuantAlgorithm::PolarQuant => {
+                        crate::quantization::QuantAlgorithm::PolarQuant
+                    }
+                    crate::config::QuantAlgorithm::None => {
+                        crate::quantization::QuantAlgorithm::TurboQuant
+                    }
                 },
             };
             crate::quantization::QuantizedStore::new(dim, qcfg).ok()
@@ -202,13 +208,24 @@ impl SplatStore {
         // Squared L2 distances
         let dists_sq: Vec<f32> = index_data
             .outer_iter()
-            .map(|row| row.iter().zip(query.iter()).map(|(a, b)| { let d = a - b; d * d }).sum())
+            .map(|row| {
+                row.iter()
+                    .zip(query.iter())
+                    .map(|(a, b)| {
+                        let d = a - b;
+                        d * d
+                    })
+                    .sum()
+            })
             .collect();
 
         // Partial sort top-k
-        let mut indexed: Vec<(f32, usize)> = dists_sq.iter().enumerate().map(|(i, &d)| (d, i)).collect();
+        let mut indexed: Vec<(f32, usize)> =
+            dists_sq.iter().enumerate().map(|(i, &d)| (d, i)).collect();
         if k < indexed.len() {
-            indexed.select_nth_unstable_by(k, |a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            indexed.select_nth_unstable_by(k, |a, b| {
+                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
         indexed[..k].sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -241,13 +258,22 @@ impl SplatStore {
         let k = k.min(n);
 
         // Collect candidate sets from each enabled backend
-        let mut candidates: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+        let mut candidates: std::collections::HashMap<usize, f32> =
+            std::collections::HashMap::new();
 
         // 1. Primary linear scan (always)
         let index_data = self.mu.slice(ndarray::s![..n, ..]);
         for i in 0..n {
-            let dist: f32 = index_data.row(i).iter().zip(query.iter())
-                .map(|(a, b)| { let d = a - b; d * d }).sum::<f32>().sqrt();
+            let dist: f32 = index_data
+                .row(i)
+                .iter()
+                .zip(query.iter())
+                .map(|(a, b)| {
+                    let d = a - b;
+                    d * d
+                })
+                .sum::<f32>()
+                .sqrt();
             candidates.insert(i, dist);
         }
 
@@ -257,7 +283,10 @@ impl SplatStore {
             for (id, dist) in qresults {
                 let idx = id as usize;
                 if idx < n {
-                    candidates.entry(idx).and_modify(|d| *d = (*d).min(dist)).or_insert(dist);
+                    candidates
+                        .entry(idx)
+                        .and_modify(|d| *d = (*d).min(dist))
+                        .or_insert(dist);
                 }
             }
         }
@@ -267,7 +296,10 @@ impl SplatStore {
             let hresults = hnsw.search(*query, k * 2);
             for (idx, dist) in hresults.indices.iter().zip(hresults.distances.iter()) {
                 if *idx < n {
-                    candidates.entry(*idx).and_modify(|d| *d = (*d).min(*dist)).or_insert(*dist);
+                    candidates
+                        .entry(*idx)
+                        .and_modify(|d| *d = (*d).min(*dist))
+                        .or_insert(*dist);
                 }
             }
         }
@@ -277,7 +309,10 @@ impl SplatStore {
             let (indices, dists) = lsh.query(query, k * 2);
             for (idx, dist) in indices.iter().zip(dists.iter()) {
                 if *idx < n {
-                    candidates.entry(*idx).and_modify(|d| *d = (*d).min(*dist)).or_insert(*dist);
+                    candidates
+                        .entry(*idx)
+                        .and_modify(|d| *d = (*d).min(*dist))
+                        .or_insert(*dist);
                 }
             }
         }
@@ -285,7 +320,9 @@ impl SplatStore {
         // Sort by distance and return top-k
         let mut ranked: Vec<(usize, f32)> = candidates.into_iter().collect();
         if k < ranked.len() {
-            ranked.select_nth_unstable_by(k, |a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            ranked.select_nth_unstable_by(k, |a, b| {
+                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
         ranked[..k].sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -302,18 +339,32 @@ impl SplatStore {
     }
 
     /// Check if quantization subsystem is active.
-    pub fn has_quantization(&self) -> bool { self.quant_store.is_some() }
+    pub fn has_quantization(&self) -> bool {
+        self.quant_store.is_some()
+    }
     /// Check if HNSW index is active.
-    pub fn has_hnsw(&self) -> bool { self.hnsw.is_some() }
+    pub fn has_hnsw(&self) -> bool {
+        self.hnsw.is_some()
+    }
     /// Check if LSH index is active.
-    pub fn has_lsh(&self) -> bool { self.lsh.is_some() }
+    pub fn has_lsh(&self) -> bool {
+        self.lsh.is_some()
+    }
     /// Check if semantic memory is enabled in this preset.
     /// Note: SemanticMemoryDB must be managed externally (it wraps its own SplatStore).
-    pub fn has_semantic_memory(&self) -> bool { self.config.enable_semantic_memory }
+    pub fn has_semantic_memory(&self) -> bool {
+        self.config.enable_semantic_memory
+    }
 
     /// Batch find neighbors for multiple queries.
-    pub fn find_neighbors_batch(&self, queries: &Array2<f32>, k: usize) -> Vec<Vec<NeighborResult>> {
-        (0..queries.nrows()).map(|i| self.find_neighbors(&queries.row(i), k)).collect()
+    pub fn find_neighbors_batch(
+        &self,
+        queries: &Array2<f32>,
+        k: usize,
+    ) -> Vec<Vec<NeighborResult>> {
+        (0..queries.nrows())
+            .map(|i| self.find_neighbors(&queries.row(i), k))
+            .collect()
     }
 
     /// Find k nearest neighbors using HRM2 engine (fast path).
@@ -323,7 +374,11 @@ impl SplatStore {
     /// - Dataset has fewer than 100 active vectors (not worth the overhead)
     /// - HRM2 engine is not indexed
     /// - HRM2 query returns an error
-    pub fn find_neighbors_fast(&mut self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
+    pub fn find_neighbors_fast(
+        &mut self,
+        query: &ArrayView1<f32>,
+        k: usize,
+    ) -> Vec<NeighborResult> {
         let n = self.n_active;
         if n == 0 || k == 0 {
             return Vec::new();
@@ -363,9 +418,15 @@ impl SplatStore {
         query: &ArrayView1<f32>,
         k: usize,
     ) -> Result<Vec<NeighborResult>, String> {
-        if k < 1 { return Err("k must be >= 1".into()); }
+        if k < 1 {
+            return Err("k must be >= 1".into());
+        }
         if query.len() != self.config.latent_dim {
-            return Err(format!("Query dimension mismatch: expected {}, got {}", self.config.latent_dim, query.len()));
+            return Err(format!(
+                "Query dimension mismatch: expected {}, got {}",
+                self.config.latent_dim,
+                query.len()
+            ));
         }
         if !query.iter().all(|v| v.is_finite()) {
             return Err("Query vector contains NaN or Inf".into());
@@ -423,8 +484,14 @@ impl SplatStore {
 
     /// Get active frequency values.
     pub fn get_frequency(&self) -> Option<Array1<f32>> {
-        if self.n_active == 0 { return None; }
-        Some(self.frequency.slice(ndarray::s![..self.n_active]).to_owned())
+        if self.n_active == 0 {
+            return None;
+        }
+        Some(
+            self.frequency
+                .slice(ndarray::s![..self.n_active])
+                .to_owned(),
+        )
     }
 
     /// Shannon entropy of the kappa distribution.
@@ -437,14 +504,27 @@ impl SplatStore {
         if total <= 0.0 {
             return 0.0;
         }
-        let h: f32 = kappa.iter().filter(|&&k| k > 0.0).map(|&k| { let p = k / total; -p * p.ln() }).sum();
+        let h: f32 = kappa
+            .iter()
+            .filter(|&&k| k > 0.0)
+            .map(|&k| {
+                let p = k / total;
+                -p * p.ln()
+            })
+            .sum();
         let max_h = (self.n_active as f32).ln();
-        if max_h <= 0.0 { 0.0 } else { (h / max_h).clamp(0.0, 1.0) }
+        if max_h <= 0.0 {
+            0.0
+        } else {
+            (h / max_h).clamp(0.0, 1.0)
+        }
     }
 
     /// Remove invalid splats (alpha ~0, NaN/Inf in mu).
     pub fn compact(&mut self) {
-        if self.n_active == 0 { return; }
+        if self.n_active == 0 {
+            return;
+        }
         let n = self.n_active;
         let mut write_idx = 0;
         for read_idx in 0..n {
@@ -481,25 +561,35 @@ impl SplatStore {
     }
 
     /// Number of active (non-empty) splats.
-    pub fn n_active(&self) -> usize { self.n_active }
+    pub fn n_active(&self) -> usize {
+        self.n_active
+    }
     /// Maximum splat capacity.
-    pub fn max_splats(&self) -> usize { self.max_splats }
+    pub fn max_splats(&self) -> usize {
+        self.max_splats
+    }
 
     /// Get active mu vectors (n_active × dim slice).
     pub fn get_mu(&self) -> Option<Array2<f32>> {
-        if self.n_active == 0 { return None; }
+        if self.n_active == 0 {
+            return None;
+        }
         Some(self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned())
     }
 
     /// Get active alpha values.
     pub fn get_alpha(&self) -> Option<Array1<f32>> {
-        if self.n_active == 0 { return None; }
+        if self.n_active == 0 {
+            return None;
+        }
         Some(self.alpha.slice(ndarray::s![..self.n_active]).to_owned())
     }
 
     /// Get active kappa values.
     pub fn get_kappa(&self) -> Option<Array1<f32>> {
-        if self.n_active == 0 { return None; }
+        if self.n_active == 0 {
+            return None;
+        }
         Some(self.kappa.slice(ndarray::s![..self.n_active]).to_owned())
     }
 
@@ -550,11 +640,9 @@ impl SplatStore {
 
         // Load splat centroids as mu
         let n = splats.len();
-        let mu_arr = Array2::from_shape_vec(
-            (n, dim),
-            splats.iter().flat_map(|s| s.mu.clone()).collect(),
-        )
-        .expect("mu shape should match (n, dim)");
+        let mu_arr =
+            Array2::from_shape_vec((n, dim), splats.iter().flat_map(|s| s.mu.clone()).collect())
+                .expect("mu shape should match (n, dim)");
         let alpha_arr: Vec<f32> = splats.iter().map(|s| s.alpha as f32).collect();
         let kappa_arr: Vec<f32> = splats.iter().map(|s| s.kappa as f32).collect();
 
@@ -607,11 +695,9 @@ impl SplatStore {
         }
 
         let n = splats.len();
-        let mu_arr = Array2::from_shape_vec(
-            (n, dim),
-            splats.iter().flat_map(|s| s.mu.clone()).collect(),
-        )
-        .expect("mu shape should match (n, dim)");
+        let mu_arr =
+            Array2::from_shape_vec((n, dim), splats.iter().flat_map(|s| s.mu.clone()).collect())
+                .expect("mu shape should match (n, dim)");
         let alpha_arr: Vec<f32> = splats.iter().map(|s| s.alpha as f32).collect();
         let kappa_arr: Vec<f32> = splats.iter().map(|s| s.kappa as f32).collect();
 
@@ -666,10 +752,9 @@ impl SplatStore {
         }
 
         let n = splats.len();
-        let mu_arr = Array2::from_shape_vec(
-            (n, dim),
-            splats.iter().flat_map(|s| s.mu.clone()).collect(),
-        ).expect("mu shape should match (n, dim)");
+        let mu_arr =
+            Array2::from_shape_vec((n, dim), splats.iter().flat_map(|s| s.mu.clone()).collect())
+                .expect("mu shape should match (n, dim)");
         let alpha_arr: Vec<f32> = splats.iter().map(|s| s.alpha as f32).collect();
         let kappa_arr: Vec<f32> = splats.iter().map(|s| s.kappa as f32).collect();
 
@@ -688,6 +773,7 @@ pub struct SplatStoreStats {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -713,7 +799,11 @@ mod tests {
         let query = normalized.row(0).to_owned();
         let results = store.find_neighbors(&query.view(), 5);
         assert_eq!(results.len(), 5);
-        assert!(results[0].distance < 0.01, "First neighbor should be near-identical, got dist={}", results[0].distance);
+        assert!(
+            results[0].distance < 0.01,
+            "First neighbor should be near-identical, got dist={}",
+            results[0].distance
+        );
         assert_eq!(results[0].index, 0);
     }
 
@@ -733,7 +823,11 @@ mod tests {
         let data = Array2::ones((10, 64));
         store.add_splat(&data);
         let e = store.entropy();
-        assert!(e > 0.0 && e <= 1.0, "Entropy should be in (0, 1], got {}", e);
+        assert!(
+            e > 0.0 && e <= 1.0,
+            "Entropy should be in (0, 1], got {}",
+            e
+        );
     }
 
     #[test]

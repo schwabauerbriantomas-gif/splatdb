@@ -101,7 +101,12 @@ impl QueryCache {
     }
 
     /// Get cached result if available and not expired.
-    pub fn get(&mut self, query: &Array1<f32>, k: usize, filters_json: Option<&str>) -> Option<String> {
+    pub fn get(
+        &mut self,
+        query: &Array1<f32>,
+        k: usize,
+        filters_json: Option<&str>,
+    ) -> Option<String> {
         let key = hash_query(query, k, filters_json);
         let now = now_secs();
 
@@ -203,7 +208,11 @@ impl QueryCache {
     /// Get stats.
     pub fn get_stats(&self) -> serde_json::Value {
         let total = self.hits + self.misses;
-        let hit_rate = if total > 0 { self.hits as f64 / total as f64 } else { 0.0 };
+        let hit_rate = if total > 0 {
+            self.hits as f64 / total as f64
+        } else {
+            0.0
+        };
         serde_json::json!({
             "entries": self.entries.len(),
             "max_entries": self.max_entries,
@@ -350,7 +359,11 @@ impl QueryOptimizer {
     pub fn new(cache_entries: usize, cache_memory_mb: usize, enable_prefetch: bool) -> Self {
         Self {
             cache: QueryCache::new(cache_entries, cache_memory_mb, 300.0),
-            prefetcher: if enable_prefetch { Some(QueryPrefetcher::new(10)) } else { None },
+            prefetcher: if enable_prefetch {
+                Some(QueryPrefetcher::new(10))
+            } else {
+                None
+            },
             enable_prefetch,
             total_queries: 0,
             cache_hits: 0,
@@ -377,7 +390,8 @@ impl QueryOptimizer {
         }
 
         let results = search_fn(query, k);
-        self.cache.put(query, results.clone(), k, filters_json, None);
+        self.cache
+            .put(query, results.clone(), k, filters_json, None);
 
         if let Some(ref mut pf) = self.prefetcher {
             let key = hash_query(query, k, filters_json);

@@ -131,16 +131,21 @@ impl CoordinatorApi {
             latency_ms: 0.0,
         };
         self.nodes.insert(req.node_id.clone(), state);
-        self.get_node(&req.node_id).ok_or("Node registered but not found".into())
+        self.get_node(&req.node_id)
+            .ok_or("Node registered but not found".into())
     }
 
     pub fn unregister_node(&mut self, node_id: &str) -> Result<(), String> {
-        self.nodes.remove(node_id).map(|_| ())
+        self.nodes
+            .remove(node_id)
+            .map(|_| ())
             .ok_or_else(|| format!("Node '{}' not found", node_id))
     }
 
     pub fn heartbeat(&mut self, req: &HeartbeatRequest) -> Result<(), String> {
-        let node = self.nodes.get_mut(&req.node_id)
+        let node = self
+            .nodes
+            .get_mut(&req.node_id)
             .ok_or_else(|| format!("Node '{}' not found", req.node_id))?;
         node.healthy = true;
         node.n_vectors = req.n_vectors;
@@ -164,33 +169,42 @@ impl CoordinatorApi {
     }
 
     pub fn list_nodes(&self) -> Vec<NodeInfo> {
-        self.nodes.values().map(|n| NodeInfo {
-            node_id: n.node_id.clone(),
-            role: n.role.clone(),
-            address: n.address.clone(),
-            healthy: n.healthy,
-            n_vectors: n.n_vectors,
-            last_heartbeat: n.last_heartbeat,
-        }).collect()
+        self.nodes
+            .values()
+            .map(|n| NodeInfo {
+                node_id: n.node_id.clone(),
+                role: n.role.clone(),
+                address: n.address.clone(),
+                healthy: n.healthy,
+                n_vectors: n.n_vectors,
+                last_heartbeat: n.last_heartbeat,
+            })
+            .collect()
     }
 
     // ─── Routing ───
 
     pub fn route_query(&mut self, req: &RouteQueryRequest) -> RouteQueryResponse {
-        let healthy_nodes: Vec<&NodeState> = self.nodes.values()
-            .filter(|n| n.healthy)
-            .collect();
+        let healthy_nodes: Vec<&NodeState> = self.nodes.values().filter(|n| n.healthy).collect();
 
         let targets = match req.strategy.as_str() {
             "broadcast" => healthy_nodes.iter().map(|n| n.node_id.clone()).collect(),
             "round_robin" => {
                 // Simple: pick first healthy node
-                healthy_nodes.first().map(|n| vec![n.node_id.clone()]).unwrap_or_default()
+                healthy_nodes
+                    .first()
+                    .map(|n| vec![n.node_id.clone()])
+                    .unwrap_or_default()
             }
             "least_loaded" => {
                 // Pick node with lowest CPU
-                healthy_nodes.iter()
-                    .min_by(|a, b| a.cpu_percent.partial_cmp(&b.cpu_percent).unwrap_or(std::cmp::Ordering::Equal))
+                healthy_nodes
+                    .iter()
+                    .min_by(|a, b| {
+                        a.cpu_percent
+                            .partial_cmp(&b.cpu_percent)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
                     .map(|n| vec![n.node_id.clone()])
                     .unwrap_or_default()
             }
@@ -198,7 +212,10 @@ impl CoordinatorApi {
         };
 
         self.total_queries += 1;
-        RouteQueryResponse { target_nodes: targets, strategy: req.strategy.clone() }
+        RouteQueryResponse {
+            target_nodes: targets,
+            strategy: req.strategy.clone(),
+        }
     }
 
     // ─── Shard Management ───
@@ -207,7 +224,8 @@ impl CoordinatorApi {
         if !self.nodes.contains_key(&req.node_id) {
             return Err(format!("Node '{}' not found", req.node_id));
         }
-        self.shard_assignments.insert(req.shard_id.clone(), req.node_id.clone());
+        self.shard_assignments
+            .insert(req.shard_id.clone(), req.node_id.clone());
         Ok(())
     }
 
@@ -216,7 +234,10 @@ impl CoordinatorApi {
     }
 
     pub fn list_shards(&self) -> Vec<(String, String)> {
-        self.shard_assignments.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.shard_assignments
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     // ─── Stats ───
@@ -226,7 +247,9 @@ impl CoordinatorApi {
         let total_vectors: usize = self.nodes.values().map(|n| n.n_vectors).sum();
         let avg_latency = if !self.nodes.is_empty() {
             self.nodes.values().map(|n| n.latency_ms).sum::<f64>() / self.nodes.len() as f64
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         ClusterStatsResponse {
             total_nodes: self.nodes.len(),
@@ -254,11 +277,16 @@ impl CoordinatorApi {
 }
 
 impl Default for CoordinatorApi {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn now_secs() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
 }
 
 #[cfg(test)]
@@ -269,9 +297,12 @@ mod tests {
     fn test_register_and_list() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         let nodes = api.list_nodes();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].node_id, "n1");
@@ -281,13 +312,21 @@ mod tests {
     fn test_heartbeat() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         api.heartbeat(&HeartbeatRequest {
-            node_id: "n1".into(), n_vectors: 100, cpu_percent: 50.0,
-            memory_percent: 30.0, qps: 10.0, latency_ms: 5.0,
-        }).unwrap();
+            node_id: "n1".into(),
+            n_vectors: 100,
+            cpu_percent: 50.0,
+            memory_percent: 30.0,
+            qps: 10.0,
+            latency_ms: 5.0,
+        })
+        .unwrap();
         let node = api.get_node("n1").unwrap();
         assert_eq!(node.n_vectors, 100);
     }
@@ -296,15 +335,23 @@ mod tests {
     fn test_route_broadcast() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n2".into(), role: "worker".into(), address: "localhost:8002".into(),
+            node_id: "n2".into(),
+            role: "worker".into(),
+            address: "localhost:8002".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         let resp = api.route_query(&RouteQueryRequest {
-            query: vec![0.0; 64], k: 10, strategy: "broadcast".into(),
+            query: vec![0.0; 64],
+            k: 10,
+            strategy: "broadcast".into(),
         });
         assert_eq!(resp.target_nodes.len(), 2);
     }
@@ -313,23 +360,41 @@ mod tests {
     fn test_route_least_loaded() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n2".into(), role: "worker".into(), address: "localhost:8002".into(),
+            node_id: "n2".into(),
+            role: "worker".into(),
+            address: "localhost:8002".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         api.heartbeat(&HeartbeatRequest {
-            node_id: "n1".into(), n_vectors: 100, cpu_percent: 80.0,
-            memory_percent: 30.0, qps: 10.0, latency_ms: 5.0,
-        }).unwrap();
+            node_id: "n1".into(),
+            n_vectors: 100,
+            cpu_percent: 80.0,
+            memory_percent: 30.0,
+            qps: 10.0,
+            latency_ms: 5.0,
+        })
+        .unwrap();
         api.heartbeat(&HeartbeatRequest {
-            node_id: "n2".into(), n_vectors: 50, cpu_percent: 20.0,
-            memory_percent: 30.0, qps: 5.0, latency_ms: 3.0,
-        }).unwrap();
+            node_id: "n2".into(),
+            n_vectors: 50,
+            cpu_percent: 20.0,
+            memory_percent: 30.0,
+            qps: 5.0,
+            latency_ms: 3.0,
+        })
+        .unwrap();
         let resp = api.route_query(&RouteQueryRequest {
-            query: vec![0.0; 64], k: 10, strategy: "least_loaded".into(),
+            query: vec![0.0; 64],
+            k: 10,
+            strategy: "least_loaded".into(),
         });
         assert_eq!(resp.target_nodes, vec!["n2"]);
     }
@@ -338,10 +403,17 @@ mod tests {
     fn test_shard_assignment() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
-        api.assign_shard(&AssignShardRequest { shard_id: "shard_0".into(), node_id: "n1".into() }).unwrap();
+        })
+        .unwrap();
+        api.assign_shard(&AssignShardRequest {
+            shard_id: "shard_0".into(),
+            node_id: "n1".into(),
+        })
+        .unwrap();
         assert_eq!(api.get_shard_assignment("shard_0"), Some("n1"));
     }
 
@@ -349,9 +421,12 @@ mod tests {
     fn test_stale_detection() {
         let mut api = CoordinatorApi::new();
         api.register_node(&RegisterNodeRequest {
-            node_id: "n1".into(), role: "worker".into(), address: "localhost:8001".into(),
+            node_id: "n1".into(),
+            role: "worker".into(),
+            address: "localhost:8001".into(),
             capabilities: HashMap::new(),
-        }).unwrap();
+        })
+        .unwrap();
         // Manually age the heartbeat
         if let Some(node) = api.nodes.get_mut("n1") {
             node.last_heartbeat = now_secs() - 60.0;
@@ -361,5 +436,3 @@ mod tests {
         assert!(!api.get_node("n1").unwrap().healthy);
     }
 }
-
-

@@ -84,14 +84,17 @@ impl SearchSupervisor {
     pub fn new(default_backend: BackendType, enable_auto_fallback: bool) -> Self {
         let mut backends = HashMap::new();
         for bt in [BackendType::Cpu, BackendType::Cuda, BackendType::Vulkan] {
-            backends.insert(bt, BackendInfo {
-                backend: bt,
-                available: false,
-                avg_latency_ms: 0.0,
-                total_queries: 0,
-                total_errors: 0,
-                max_dimension: 0,
-            });
+            backends.insert(
+                bt,
+                BackendInfo {
+                    backend: bt,
+                    available: false,
+                    avg_latency_ms: 0.0,
+                    total_queries: 0,
+                    total_errors: 0,
+                    max_dimension: 0,
+                },
+            );
         }
         let mut latency_history = HashMap::new();
         for bt in [BackendType::Cpu, BackendType::Cuda, BackendType::Vulkan] {
@@ -124,7 +127,12 @@ impl SearchSupervisor {
     }
 
     /// Classify query complexity.
-    pub fn classify_complexity(&self, k: usize, dataset_size: usize, batch_size: usize) -> QueryComplexity {
+    pub fn classify_complexity(
+        &self,
+        k: usize,
+        dataset_size: usize,
+        batch_size: usize,
+    ) -> QueryComplexity {
         if batch_size > 1 {
             return QueryComplexity::Complex;
         }
@@ -138,11 +146,17 @@ impl SearchSupervisor {
     }
 
     /// Decide which backend to use.
-    pub fn decide_backend(&mut self, k: usize, dataset_size: usize, query_dim: usize) -> anyhow::Result<SupervisorDecision> {
+    pub fn decide_backend(
+        &mut self,
+        k: usize,
+        dataset_size: usize,
+        query_dim: usize,
+    ) -> anyhow::Result<SupervisorDecision> {
         let start = std::time::Instant::now();
         let complexity = self.classify_complexity(k, dataset_size, 1);
 
-        let available: Vec<BackendType> = self.backends
+        let available: Vec<BackendType> = self
+            .backends
             .iter()
             .filter(|(_, info)| info.available)
             .map(|(bt, _)| *bt)
@@ -158,12 +172,17 @@ impl SearchSupervisor {
         let fallback_chain = preference_order[1..].to_vec();
 
         self.stats.total_decisions += 1;
-        *self.stats.decisions_by_backend.entry(primary.as_str().to_string()).or_insert(0) += 1;
+        *self
+            .stats
+            .decisions_by_backend
+            .entry(primary.as_str().to_string())
+            .or_insert(0) += 1;
 
         let elapsed_us = start.elapsed().as_micros() as f64 / 1000.0;
-        self.stats.avg_decision_time_ms = (
-            self.stats.avg_decision_time_ms * (self.stats.total_decisions - 1) as f64 + elapsed_us
-        ) / self.stats.total_decisions as f64;
+        self.stats.avg_decision_time_ms = (self.stats.avg_decision_time_ms
+            * (self.stats.total_decisions - 1) as f64
+            + elapsed_us)
+            / self.stats.total_decisions as f64;
 
         Ok(SupervisorDecision {
             backend: primary,
@@ -172,7 +191,12 @@ impl SearchSupervisor {
         })
     }
 
-    fn get_preference_order(&self, complexity: QueryComplexity, available: &[BackendType], query_dim: usize) -> Vec<BackendType> {
+    fn get_preference_order(
+        &self,
+        complexity: QueryComplexity,
+        available: &[BackendType],
+        query_dim: usize,
+    ) -> Vec<BackendType> {
         let order = match complexity {
             QueryComplexity::Simple => [BackendType::Cpu, BackendType::Vulkan, BackendType::Cuda],
             QueryComplexity::Moderate => [BackendType::Vulkan, BackendType::Cuda, BackendType::Cpu],
@@ -202,7 +226,8 @@ impl SearchSupervisor {
         if let Some(info) = self.backends.get_mut(&backend) {
             info.total_queries += 1;
             if success {
-                info.avg_latency_ms = (info.avg_latency_ms * (info.total_queries - 1) as f64 + elapsed_ms)
+                info.avg_latency_ms = (info.avg_latency_ms * (info.total_queries - 1) as f64
+                    + elapsed_ms)
                     / info.total_queries as f64;
                 let history = self.latency_history.entry(backend).or_default();
                 history.push(elapsed_ms);
@@ -230,13 +255,16 @@ impl SearchSupervisor {
             } else {
                 0.0
             };
-            status.insert(bt.as_str().to_string(), serde_json::json!({
-                "available": info.available,
-                "total_queries": info.total_queries,
-                "total_errors": info.total_errors,
-                "avg_latency_ms": (info.avg_latency_ms * 100.0).round() / 100.0,
-                "error_rate": (error_rate * 10000.0).round() / 10000.0,
-            }));
+            status.insert(
+                bt.as_str().to_string(),
+                serde_json::json!({
+                    "available": info.available,
+                    "total_queries": info.total_queries,
+                    "total_errors": info.total_errors,
+                    "avg_latency_ms": (info.avg_latency_ms * 100.0).round() / 100.0,
+                    "error_rate": (error_rate * 10000.0).round() / 10000.0,
+                }),
+            );
         }
         serde_json::Value::Object(status)
     }
@@ -260,9 +288,18 @@ mod tests {
     fn test_simple_complexity() {
         let sup = SearchSupervisor::new(BackendType::Cpu, true);
         assert_eq!(sup.classify_complexity(5, 1000, 1), QueryComplexity::Simple);
-        assert_eq!(sup.classify_complexity(50, 50000, 1), QueryComplexity::Moderate);
-        assert_eq!(sup.classify_complexity(200, 200000, 1), QueryComplexity::Complex);
-        assert_eq!(sup.classify_complexity(5, 100, 10), QueryComplexity::Complex);
+        assert_eq!(
+            sup.classify_complexity(50, 50000, 1),
+            QueryComplexity::Moderate
+        );
+        assert_eq!(
+            sup.classify_complexity(200, 200000, 1),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            sup.classify_complexity(5, 100, 10),
+            QueryComplexity::Complex
+        );
     }
 
     #[test]
@@ -294,5 +331,3 @@ mod tests {
         assert_eq!(health["cpu"]["total_queries"], 3);
     }
 }
-
-

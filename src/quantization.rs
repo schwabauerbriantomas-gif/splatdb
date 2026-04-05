@@ -3,9 +3,9 @@
 //! Compresses 640D splat embeddings to 4-8 bits per value with minimal accuracy loss.
 //! Uses data-oblivious quantization — no training, no codebooks, instant indexing.
 
+use crate::quant::{PolarCode, PolarQuantizer, TurboCode, TurboQuantizer};
 use ndarray::{Array2, ArrayView1};
 use rayon::prelude::*;
-use crate::quant::{TurboQuantizer, PolarQuantizer, PolarCode, TurboCode};
 
 /// Quantization algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,12 +142,16 @@ impl QuantizedStore {
         let v: Vec<f32> = vector.to_vec();
         if let Some(ref turbo) = self.turbo {
             match turbo.encode(&v) {
-                Ok(code) => { self.codes_turbo.push(code); }
+                Ok(code) => {
+                    self.codes_turbo.push(code);
+                }
                 Err(_) => return false,
             }
         } else if let Some(ref polar) = self.polar {
             match polar.encode(&v) {
-                Ok(code) => { self.codes_polar.push(code); }
+                Ok(code) => {
+                    self.codes_polar.push(code);
+                }
                 Err(_) => return false,
             }
         }
@@ -161,19 +165,21 @@ impl QuantizedStore {
         let q: Vec<f32> = query.to_vec();
         let n = self.ids.len();
         let k = k.min(n);
-        if k == 0 { return Vec::new(); }
+        if k == 0 {
+            return Vec::new();
+        }
 
         let mut scores: Vec<(usize, f32)> = if let Some(ref turbo) = self.turbo {
-            self.codes_turbo.par_iter().enumerate()
-                .filter_map(|(i, code)| {
-                    turbo.inner_product_estimate(code, &q).ok().map(|s| (i, s))
-                })
+            self.codes_turbo
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, code)| turbo.inner_product_estimate(code, &q).ok().map(|s| (i, s)))
                 .collect()
         } else if let Some(ref polar) = self.polar {
-            self.codes_polar.par_iter().enumerate()
-                .filter_map(|(i, code)| {
-                    polar.inner_product_estimate(code, &q).ok().map(|s| (i, s))
-                })
+            self.codes_polar
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, code)| polar.inner_product_estimate(code, &q).ok().map(|s| (i, s)))
                 .collect()
         } else {
             Vec::new()
@@ -183,16 +189,21 @@ impl QuantizedStore {
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scores.truncate(k);
 
-        scores.into_iter()
+        scores
+            .into_iter()
             .map(|(i, score)| (self.ids[i], score))
             .collect()
     }
 
     /// Get number of stored codes.
-    pub fn len(&self) -> usize { self.ids.len() }
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
 
     /// Check if store is empty.
-    pub fn is_empty(&self) -> bool { self.ids.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
 
     /// Estimate memory usage in bytes.
     pub fn memory_usage(&self) -> usize {
@@ -214,19 +225,16 @@ impl QuantizedStore {
     }
 
     /// Get the config.
-    pub fn config(&self) -> &QuantConfig { &self.config }
+    pub fn config(&self) -> &QuantConfig {
+        &self.config
+    }
 
     /// Measure recall@k against brute-force ground truth.
     ///
     /// Given a set of query vectors and the full dataset, computes what fraction
     /// of the true top-k neighbors are recovered by quantized search.
     /// Returns recall in [0.0, 1.0] where 1.0 = perfect recall.
-    pub fn measure_recall(
-        &self,
-        queries: &Array2<f32>,
-        data: &Array2<f32>,
-        k: usize,
-    ) -> f32 {
+    pub fn measure_recall(&self, queries: &Array2<f32>, data: &Array2<f32>, k: usize) -> f32 {
         if self.is_empty() || queries.nrows() == 0 {
             return 0.0;
         }
@@ -237,15 +245,25 @@ impl QuantizedStore {
             let query = queries.row(qi);
 
             // Ground truth: brute-force top-k
-            let mut gt_dists: Vec<(usize, f32)> = data.outer_iter().enumerate()
+            let mut gt_dists: Vec<(usize, f32)> = data
+                .outer_iter()
+                .enumerate()
                 .map(|(i, row)| {
-                    let dist: f32 = row.iter().zip(query.iter())
-                        .map(|(a, b)| { let d = a - b; d * d }).sum();
+                    let dist: f32 = row
+                        .iter()
+                        .zip(query.iter())
+                        .map(|(a, b)| {
+                            let d = a - b;
+                            d * d
+                        })
+                        .sum();
                     (i, dist)
                 })
                 .collect();
             let k = k.min(gt_dists.len());
-            if k == 0 { continue; }
+            if k == 0 {
+                continue;
+            }
             gt_dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             let gt_set: std::collections::HashSet<usize> =
                 gt_dists[..k].iter().map(|(i, _)| *i).collect();
@@ -268,10 +286,9 @@ impl QuantizedStore {
 mod tests {
     use super::*;
 
-
     fn random_vectors(n: usize, dim: usize, seed: u64) -> Array2<f32> {
-        use rand::SeedableRng;
         use rand::Rng;
+        use rand::SeedableRng;
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
         Array2::from_shape_fn((n, dim), |(_, _)| rng.gen::<f32>())
     }
@@ -329,7 +346,11 @@ mod tests {
         let config = QuantConfig::for_search(dim);
         let store = QuantizedStore::new(dim, config).unwrap();
         // 4 bits: raw=512 bytes, quant=64 bytes => ratio=8x
-        assert!(store.compression_ratio() >= 7.0, "Expected ~8x ratio, got {}", store.compression_ratio());
+        assert!(
+            store.compression_ratio() >= 7.0,
+            "Expected ~8x ratio, got {}",
+            store.compression_ratio()
+        );
     }
 
     #[test]
@@ -343,6 +364,11 @@ mod tests {
 
         let mem = store.memory_usage();
         let raw = 50 * dim * 4; // f32
-        assert!(mem < raw, "Compressed {} should be less than raw {}", mem, raw);
+        assert!(
+            mem < raw,
+            "Compressed {} should be less than raw {}",
+            mem,
+            raw
+        );
     }
 }

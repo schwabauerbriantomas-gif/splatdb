@@ -69,7 +69,11 @@ impl GpuVectorIndex {
 
     /// Create with default config.
     pub fn with_dim(_dim: usize) -> Self {
-        Self::new(GpuIndexConfig { backend: GpuBackend::Cpu, metric: Metric::L2, ..Default::default() })
+        Self::new(GpuIndexConfig {
+            backend: GpuBackend::Cpu,
+            metric: Metric::L2,
+            ..Default::default()
+        })
     }
 
     /// Build index from vectors (uploads once, persistent).
@@ -91,7 +95,11 @@ impl GpuVectorIndex {
     /// Add vectors to existing index.
     pub fn add_vectors(&mut self, new_vectors: ArrayView2<f32>) -> Result<(), String> {
         if new_vectors.ncols() != self.dim {
-            return Err(format!("Dimension mismatch: index={}, new={}", self.dim, new_vectors.ncols()));
+            return Err(format!(
+                "Dimension mismatch: index={}, new={}",
+                self.dim,
+                new_vectors.ncols()
+            ));
         }
 
         // Concatenate existing + new
@@ -122,7 +130,11 @@ impl GpuVectorIndex {
     }
 
     /// Batch search: B queries at once.
-    pub fn search_batch(&self, queries: ArrayView2<f32>, k: usize) -> Result<Vec<SearchResult>, String> {
+    pub fn search_batch(
+        &self,
+        queries: ArrayView2<f32>,
+        k: usize,
+    ) -> Result<Vec<SearchResult>, String> {
         self.timed_search_batch(|s| s.search_batch(queries, k))
     }
 
@@ -140,14 +152,18 @@ impl GpuVectorIndex {
             let q = Array1::from_vec(query.to_vec());
             let expand_k = (k * 10).min(s.n_vectors());
             let result = s.search(q.view(), expand_k);
-            let filtered: Vec<(usize, f32)> = result.indices
+            let filtered: Vec<(usize, f32)> = result
+                .indices
                 .iter()
                 .zip(result.distances.iter())
                 .filter(|(idx, _)| filter(**idx))
                 .take(k)
                 .map(|(idx, dist)| (*idx, *dist))
                 .collect();
-            SearchResult { indices: filtered.iter().map(|(i, _)| *i).collect(), distances: filtered.iter().map(|(_, d)| *d).collect() }
+            SearchResult {
+                indices: filtered.iter().map(|(i, _)| *i).collect(),
+                distances: filtered.iter().map(|(_, d)| *d).collect(),
+            }
         })
     }
 
@@ -178,7 +194,11 @@ impl GpuVectorIndex {
 
     /// Average search latency in ms.
     pub fn avg_latency_ms(&self) -> f64 {
-        if self.total_searches == 0 { 0.0 } else { self.total_search_time_ms / self.total_searches as f64 }
+        if self.total_searches == 0 {
+            0.0
+        } else {
+            self.total_search_time_ms / self.total_searches as f64
+        }
     }
 
     /// Total searches performed.
@@ -187,14 +207,16 @@ impl GpuVectorIndex {
     }
 
     fn timed_search<F>(&self, f: F) -> Result<SearchResult, String>
-    where F: FnOnce(&BruteForceSearcher) -> SearchResult
+    where
+        F: FnOnce(&BruteForceSearcher) -> SearchResult,
     {
         let searcher = self.searcher.as_ref().ok_or("No index built")?;
         Ok(f(searcher))
     }
 
     fn timed_search_batch<F>(&self, f: F) -> Result<Vec<SearchResult>, String>
-    where F: FnOnce(&BruteForceSearcher) -> Vec<SearchResult>
+    where
+        F: FnOnce(&BruteForceSearcher) -> Vec<SearchResult>,
     {
         let searcher = self.searcher.as_ref().ok_or("No index built")?;
         Ok(f(searcher))
@@ -209,7 +231,9 @@ pub struct GpuIndexBuilder {
 impl GpuIndexBuilder {
     /// New.
     pub fn new() -> Self {
-        Self { config: GpuIndexConfig::default() }
+        Self {
+            config: GpuIndexConfig::default(),
+        }
     }
 
     /// Backend.
@@ -237,7 +261,9 @@ impl GpuIndexBuilder {
 }
 
 impl Default for GpuIndexBuilder {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -252,7 +278,9 @@ mod tests {
             [0.0, 0.0, 1.0],
             [0.9, 0.1, 0.0],
             [0.0, 0.9, 0.1],
-        ].into_shape_with_order((5, 3)).unwrap()
+        ]
+        .into_shape_with_order((5, 3))
+        .unwrap()
     }
 
     #[test]
@@ -284,7 +312,9 @@ mod tests {
         let mut idx = GpuVectorIndex::with_dim(3);
         idx.build(data.view()).unwrap();
         // Only allow indices >= 2
-        let result = idx.search_filtered(&[0.0, 0.0, 1.0], 2, |i| i >= 2).unwrap();
+        let result = idx
+            .search_filtered(&[0.0, 0.0, 1.0], 2, |i| i >= 2)
+            .unwrap();
         assert_eq!(result.indices[0], 2);
     }
 

@@ -22,8 +22,8 @@ pub struct SearchResult {
 /// High-performance brute-force k-NN search.
 /// Precomputes norms for efficient cosine/L2 distance calculation.
 pub struct BruteForceSearcher {
-    index: Array2<f32>,       // [N, D] — stored row-major
-    norms_sq: Array1<f64>,    // [N] — precomputed ||x_i||^2
+    index: Array2<f32>,    // [N, D] — stored row-major
+    norms_sq: Array1<f64>, // [N] — precomputed ||x_i||^2
     metric: Metric,
 }
 
@@ -32,7 +32,11 @@ impl BruteForceSearcher {
     pub fn new(embeddings: ArrayView2<f32>, metric: Metric) -> Self {
         let index = embeddings.to_owned();
         let norms_sq = precompute_norms_sq(index.view());
-        Self { index, norms_sq, metric }
+        Self {
+            index,
+            norms_sq,
+            metric,
+        }
     }
 
     /// Number of indexed vectors.
@@ -49,7 +53,10 @@ impl BruteForceSearcher {
     pub fn search(&self, query: ArrayView1<f32>, k: usize) -> SearchResult {
         let k = k.min(self.n_vectors());
         if k == 0 {
-            return SearchResult { indices: vec![], distances: vec![] };
+            return SearchResult {
+                indices: vec![],
+                distances: vec![],
+            };
         }
 
         match self.metric {
@@ -81,7 +88,11 @@ impl BruteForceSearcher {
             })
             .collect();
 
-        let q_norm = query.iter().map(|&v| v as f64 * v as f64).sum::<f64>().sqrt();
+        let q_norm = query
+            .iter()
+            .map(|&v| v as f64 * v as f64)
+            .sum::<f64>()
+            .sqrt();
         let x_norms: Vec<f64> = self.norms_sq.iter().map(|&n| n.sqrt()).collect();
 
         // Cosine similarity, then convert to distance (1 - sim)
@@ -123,7 +134,12 @@ pub struct MultiStartSearcher {
 
 impl MultiStartSearcher {
     /// New.
-    pub fn new(embeddings: ArrayView2<f32>, n_starts: usize, noise_scale: f32, metric: Metric) -> Self {
+    pub fn new(
+        embeddings: ArrayView2<f32>,
+        n_starts: usize,
+        noise_scale: f32,
+        metric: Metric,
+    ) -> Self {
         Self {
             searcher: BruteForceSearcher::new(embeddings, metric),
             n_starts,
@@ -133,8 +149,10 @@ impl MultiStartSearcher {
 
     /// Search.
     pub fn search(&self, query: ArrayView1<f32>, k: usize) -> SearchResult {
-        let mut vote_counts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        let mut vote_dists: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
+        let mut vote_counts: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        let mut vote_dists: std::collections::HashMap<usize, f64> =
+            std::collections::HashMap::new();
 
         for start in 0..self.n_starts {
             let perturbed = if start == 0 {
@@ -142,7 +160,10 @@ impl MultiStartSearcher {
             } else {
                 let mut perturbed = query.to_owned();
                 for v in perturbed.iter_mut() {
-                    *v += (rand_pseudo(start as u64, v.to_bits()) % 1000) as f32 / 1000.0 * self.noise_scale * 2.0 - self.noise_scale;
+                    *v += (rand_pseudo(start as u64, v.to_bits()) % 1000) as f32 / 1000.0
+                        * self.noise_scale
+                        * 2.0
+                        - self.noise_scale;
                 }
                 perturbed
             };
@@ -155,7 +176,10 @@ impl MultiStartSearcher {
         }
 
         if vote_counts.is_empty() {
-            return SearchResult { indices: vec![], distances: vec![] };
+            return SearchResult {
+                indices: vec![],
+                distances: vec![],
+            };
         }
 
         let mut candidates: Vec<(usize, f64, f32)> = vote_counts
@@ -166,8 +190,11 @@ impl MultiStartSearcher {
             })
             .collect();
         // Sort by votes desc, then avg distance asc
-        candidates.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
+        candidates.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        });
 
         let k = k.min(candidates.len());
         SearchResult {
@@ -196,7 +223,10 @@ pub struct CudaSearch {
 impl CudaSearch {
     /// New.
     pub fn new(_dim: usize, metric: Metric) -> Self {
-        Self { searcher: None, metric }
+        Self {
+            searcher: None,
+            metric,
+        }
     }
 
     /// Is available.
@@ -219,7 +249,11 @@ impl CudaSearch {
     }
 
     /// Batch search.
-    pub fn search_batch(&self, queries: ArrayView2<f32>, k: usize) -> Result<Vec<SearchResult>, String> {
+    pub fn search_batch(
+        &self,
+        queries: ArrayView2<f32>,
+        k: usize,
+    ) -> Result<Vec<SearchResult>, String> {
         match &self.searcher {
             Some(s) => Ok(s.search_batch(queries, k)),
             None => Err("No index loaded".into()),
@@ -239,15 +273,21 @@ fn precompute_norms_sq(data: ArrayView2<f32>) -> Array1<f64> {
         (0..data.nrows())
             .map(|i| data.row(i).iter().map(|&v| v as f64 * v as f64).sum())
             .collect()
-    }).unwrap()
+    })
+    .unwrap()
 }
 
 fn dot_product_f64(a: ArrayView1<f32>, b: ArrayView1<f32>) -> f64 {
-    a.iter().zip(b.iter()).map(|(&x, &y)| x as f64 * y as f64).sum()
+    a.iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| x as f64 * y as f64)
+        .sum()
 }
 
 fn top_k_by_distance(mut scored: Vec<(usize, f32)>, k: usize) -> SearchResult {
-    scored.select_nth_unstable_by(k.saturating_sub(1), |a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.select_nth_unstable_by(k.saturating_sub(1), |a, b| {
+        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(k);
     scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     SearchResult {
@@ -278,7 +318,9 @@ mod tests {
             [0.0, 0.0, 1.0],
             [1.0, 1.0, 0.0],
             [0.0, 1.0, 1.0],
-        ].into_shape_with_order((5, 3)).unwrap()
+        ]
+        .into_shape_with_order((5, 3))
+        .unwrap()
     }
 
     #[test]
@@ -334,7 +376,9 @@ mod tests {
         let data = make_data();
         let mut searcher = BruteForceSearcher::new(data.view(), Metric::Cosine);
         assert_eq!(searcher.n_vectors(), 5);
-        let small = array![[1.0, 0.0], [0.0, 1.0]].into_shape_with_order((2, 2)).unwrap();
+        let small = array![[1.0, 0.0], [0.0, 1.0]]
+            .into_shape_with_order((2, 2))
+            .unwrap();
         searcher.rebuild(small.view());
         assert_eq!(searcher.n_vectors(), 2);
     }

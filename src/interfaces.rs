@@ -40,7 +40,9 @@ impl BruteForceIndex {
             return (vec![], vec![]);
         }
         // Partial sort: use select_nth_unstable for O(n) average
-        scores.select_nth_unstable_by(k - 1, |a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.select_nth_unstable_by(k - 1, |a, b| {
+            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
         scores.truncate(k);
         scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let indices: Vec<usize> = scores.iter().map(|(i, _)| *i).collect();
@@ -57,12 +59,20 @@ impl VectorIndex for BruteForceIndex {
     fn search(&self, query: ArrayView1<f32>, k: usize) -> IndexSearchResult {
         let vectors = match &self.vectors {
             Some(v) => v,
-            None => return IndexSearchResult { indices: vec![], distances: vec![] },
+            None => {
+                return IndexSearchResult {
+                    indices: vec![],
+                    distances: vec![],
+                }
+            }
         };
         let n = vectors.nrows();
         let k = k.min(n);
         if k == 0 {
-            return IndexSearchResult { indices: vec![], distances: vec![] };
+            return IndexSearchResult {
+                indices: vec![],
+                distances: vec![],
+            };
         }
 
         if self.metric == "cosine" {
@@ -88,7 +98,9 @@ impl VectorIndex for BruteForceIndex {
                 .collect();
             let k = k.min(scores.len());
             let mut scores = scores;
-            scores.select_nth_unstable_by(k - 1, |a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            scores.select_nth_unstable_by(k - 1, |a, b| {
+                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
             scores.truncate(k);
             scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             let indices: Vec<usize> = scores.iter().map(|(i, _)| *i).collect();
@@ -114,7 +126,9 @@ impl VectorIndex for BruteForceIndex {
     fn remove(&mut self, indices: &[usize]) {
         if let Some(vectors) = &self.vectors {
             let remove_set: std::collections::HashSet<usize> = indices.iter().copied().collect();
-            let keep: Vec<usize> = (0..vectors.nrows()).filter(|i| !remove_set.contains(i)).collect();
+            let keep: Vec<usize> = (0..vectors.nrows())
+                .filter(|i| !remove_set.contains(i))
+                .collect();
             if keep.is_empty() {
                 self.vectors = None;
             } else {

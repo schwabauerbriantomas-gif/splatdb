@@ -93,7 +93,13 @@ impl QueryRouter {
     /// New.
     pub fn new(default_strategy: SearchStrategy, enable_auto_learning: bool) -> Self {
         let mut latency_history = HashMap::new();
-        for s in [SearchStrategy::Exact, SearchStrategy::ApproximateHrm2, SearchStrategy::Range, SearchStrategy::BatchParallel, SearchStrategy::Lsh] {
+        for s in [
+            SearchStrategy::Exact,
+            SearchStrategy::ApproximateHrm2,
+            SearchStrategy::Range,
+            SearchStrategy::BatchParallel,
+            SearchStrategy::Lsh,
+        ] {
             latency_history.insert(s, Vec::new());
         }
         Self {
@@ -108,7 +114,8 @@ impl QueryRouter {
 
     /// Register a search strategy as available.
     pub fn register_strategy(&mut self, strategy: SearchStrategy) {
-        self.strategies.insert(strategy, strategy.as_str().to_string());
+        self.strategies
+            .insert(strategy, strategy.as_str().to_string());
     }
 
     /// Unregister a strategy.
@@ -131,9 +138,15 @@ impl QueryRouter {
         // 2. Batch search
         if profile.batch_size >= BATCH_MIN_SIZE {
             let (strategy, reason) = if profile.dataset_size >= HRM2_MIN_DATASET {
-                (SearchStrategy::ApproximateHrm2, format!("Batch of {} with large dataset", profile.batch_size))
+                (
+                    SearchStrategy::ApproximateHrm2,
+                    format!("Batch of {} with large dataset", profile.batch_size),
+                )
             } else {
-                (SearchStrategy::BatchParallel, format!("Batch of {} queries", profile.batch_size))
+                (
+                    SearchStrategy::BatchParallel,
+                    format!("Batch of {} queries", profile.batch_size),
+                )
             };
             return RouteDecision {
                 strategy,
@@ -160,7 +173,10 @@ impl QueryRouter {
             RouteDecision {
                 strategy: SearchStrategy::Exact,
                 confidence: 0.75,
-                reason: format!("Dataset={}, k={} -> exact viable", profile.dataset_size, profile.k),
+                reason: format!(
+                    "Dataset={}, k={} -> exact viable",
+                    profile.dataset_size, profile.k
+                ),
                 estimated_latency_ms: self.estimate_latency(SearchStrategy::Exact),
             }
         } else {
@@ -181,7 +197,11 @@ impl QueryRouter {
     /// Record latency for a strategy.
     pub fn record_latency(&mut self, strategy: SearchStrategy, latency_ms: f64) {
         self.stats.total_routes += 1;
-        *self.stats.routes_by_strategy.entry(strategy.as_str().to_string()).or_insert(0) += 1;
+        *self
+            .stats
+            .routes_by_strategy
+            .entry(strategy.as_str().to_string())
+            .or_insert(0) += 1;
 
         let history = self.latency_history.entry(strategy).or_default();
         history.push(latency_ms);
@@ -191,7 +211,9 @@ impl QueryRouter {
         }
 
         let avg: f64 = history.iter().sum::<f64>() / history.len() as f64;
-        self.stats.avg_latency_by_strategy.insert(strategy.as_str().to_string(), avg);
+        self.stats
+            .avg_latency_by_strategy
+            .insert(strategy.as_str().to_string(), avg);
     }
 
     fn auto_adjust(&self) -> Option<RouteDecision> {
@@ -215,12 +237,17 @@ impl QueryRouter {
         }
 
         let best = latencies.iter().min_by(|a, b| {
-            a.1.partial_cmp(b.1).expect("latency values should be finite and comparable")
+            a.1.partial_cmp(b.1)
+                .expect("latency values should be finite and comparable")
         })?;
         Some(RouteDecision {
             strategy: *best.0,
             confidence: 0.7,
-            reason: format!("Auto-learning: {} is faster ({:.1}ms)", best.0.as_str(), best.1),
+            reason: format!(
+                "Auto-learning: {} is faster ({:.1}ms)",
+                best.0.as_str(),
+                best.1
+            ),
             estimated_latency_ms: *best.1,
         })
     }
@@ -251,7 +278,11 @@ mod tests {
     #[test]
     fn test_small_dataset_exact() {
         let router = QueryRouter::new(SearchStrategy::Exact, false);
-        let profile = QueryProfile { dataset_size: 500, k: 5, ..Default::default() };
+        let profile = QueryProfile {
+            dataset_size: 500,
+            k: 5,
+            ..Default::default()
+        };
         let decision = router.classify(&profile);
         assert_eq!(decision.strategy, SearchStrategy::Exact);
     }
@@ -259,7 +290,11 @@ mod tests {
     #[test]
     fn test_large_dataset_hrm2() {
         let router = QueryRouter::new(SearchStrategy::Exact, false);
-        let profile = QueryProfile { dataset_size: 50000, k: 20, ..Default::default() };
+        let profile = QueryProfile {
+            dataset_size: 50000,
+            k: 20,
+            ..Default::default()
+        };
         let decision = router.classify(&profile);
         assert_eq!(decision.strategy, SearchStrategy::ApproximateHrm2);
     }
@@ -267,7 +302,10 @@ mod tests {
     #[test]
     fn test_range_filter() {
         let router = QueryRouter::new(SearchStrategy::Exact, false);
-        let profile = QueryProfile { has_range_filter: true, ..Default::default() };
+        let profile = QueryProfile {
+            has_range_filter: true,
+            ..Default::default()
+        };
         let decision = router.classify(&profile);
         assert_eq!(decision.strategy, SearchStrategy::Range);
         assert!(decision.confidence > 0.9);
@@ -276,7 +314,11 @@ mod tests {
     #[test]
     fn test_batch_parallel() {
         let router = QueryRouter::new(SearchStrategy::Exact, false);
-        let profile = QueryProfile { batch_size: 10, dataset_size: 500, ..Default::default() };
+        let profile = QueryProfile {
+            batch_size: 10,
+            dataset_size: 500,
+            ..Default::default()
+        };
         let decision = router.classify(&profile);
         assert_eq!(decision.strategy, SearchStrategy::BatchParallel);
     }
@@ -292,5 +334,3 @@ mod tests {
         assert!(*avg > 14.0 && *avg < 16.0);
     }
 }
-
-

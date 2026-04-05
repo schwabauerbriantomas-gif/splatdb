@@ -36,7 +36,8 @@ impl ClusterRouter {
     pub fn register_edge(&mut self, edge_id: &str, url: &str, weight: f64) {
         let info = EdgeNodeInfo::new(edge_id, url);
         self.edge_nodes.insert(edge_id.to_string(), info);
-        self.load_metrics.insert(edge_id.to_string(), LoadMetrics::default());
+        self.load_metrics
+            .insert(edge_id.to_string(), LoadMetrics::default());
         self.energy_router.register_node(edge_id, weight);
     }
 
@@ -47,7 +48,8 @@ impl ClusterRouter {
         self.energy_router.remove_node(edge_id);
 
         // Clean metadata index
-        let empty_docs: Vec<String> = self.metadata_index
+        let empty_docs: Vec<String> = self
+            .metadata_index
             .iter()
             .filter_map(|(doc_id, edges)| {
                 if edges.contains(edge_id) {
@@ -110,10 +112,13 @@ impl ClusterRouter {
 
         let query_hash = hash_query(query);
         if self.energy_router_enabled() {
-            return self.energy_router.route(query_hash, &online_edges, Some(&self.load_metrics));
+            return self
+                .energy_router
+                .route(query_hash, &online_edges, Some(&self.load_metrics));
         }
 
-        self.balancer.select_best_edges(&online_edges, &self.load_metrics, strategy)
+        self.balancer
+            .select_best_edges(&online_edges, &self.load_metrics, strategy)
     }
 
     /// Register a document location.
@@ -209,5 +214,3 @@ mod tests {
         assert_eq!(locs, vec!["e1"]);
     }
 }
-
-

@@ -12,7 +12,9 @@ pub struct LoadBalancer {
 
 impl LoadBalancer {
     pub fn new() -> Self {
-        Self { current_rr_index: 0 }
+        Self {
+            current_rr_index: 0,
+        }
     }
 
     /// Round-robin: returns a single edge sequentially.
@@ -36,7 +38,9 @@ impl LoadBalancer {
             .map(|eid| {
                 let m = load_metrics.get(eid);
                 let score = match m {
-                    Some(metrics) => (metrics.active_queries as f64) * 100.0 + metrics.query_latency_ms,
+                    Some(metrics) => {
+                        (metrics.active_queries as f64) * 100.0 + metrics.query_latency_ms
+                    }
                     None => 0.0,
                 };
                 (eid.clone(), score)
@@ -63,7 +67,9 @@ impl LoadBalancer {
 }
 
 impl Default for LoadBalancer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -85,8 +91,22 @@ mod tests {
         let lb = LoadBalancer::new();
         let edges = vec!["a".into(), "b".into()];
         let mut metrics = HashMap::new();
-        metrics.insert("a".into(), LoadMetrics { active_queries: 10, query_latency_ms: 50.0, ..Default::default() });
-        metrics.insert("b".into(), LoadMetrics { active_queries: 2, query_latency_ms: 10.0, ..Default::default() });
+        metrics.insert(
+            "a".into(),
+            LoadMetrics {
+                active_queries: 10,
+                query_latency_ms: 50.0,
+                ..Default::default()
+            },
+        );
+        metrics.insert(
+            "b".into(),
+            LoadMetrics {
+                active_queries: 2,
+                query_latency_ms: 10.0,
+                ..Default::default()
+            },
+        );
         let result = lb.route_least_loaded(&edges, &metrics);
         assert_eq!(result[0], "b");
     }

@@ -8,10 +8,10 @@
 //!
 //! License: MIT (adapted from github.com/RecursiveIntell/turbo-quant)
 
-use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use super::error::{Result, QuantError};
+use super::error::{QuantError, Result};
 use super::polar::{PolarCode, PolarQuantizer};
 use super::qjl::{QjlQuantizer, QjlSketch};
 
@@ -49,10 +49,18 @@ pub struct TurboQuantizer {
 
 impl TurboQuantizer {
     pub fn new(dim: usize, bits: u8, projections: usize, seed: u64) -> Result<Self> {
-        if dim == 0 { return Err(QuantError::ZeroDimension); }
-        if !dim.is_multiple_of(2) { return Err(QuantError::OddDimension { got: dim }); }
-        if !(2..=16).contains(&bits) { return Err(QuantError::InvalidBitWidth { got: bits }); }
-        if projections == 0 { return Err(QuantError::ZeroProjectionCount); }
+        if dim == 0 {
+            return Err(QuantError::ZeroDimension);
+        }
+        if !dim.is_multiple_of(2) {
+            return Err(QuantError::OddDimension { got: dim });
+        }
+        if !(2..=16).contains(&bits) {
+            return Err(QuantError::InvalidBitWidth { got: bits });
+        }
+        if projections == 0 {
+            return Err(QuantError::ZeroProjectionCount);
+        }
 
         let polar_seed = seed;
         let qjl_seed = seed.wrapping_add(0xCAFE_BABE_0000_0001);
@@ -60,25 +68,48 @@ impl TurboQuantizer {
         let polar = PolarQuantizer::new(dim, bits - 1, polar_seed)?;
         let qjl = QjlQuantizer::new(dim, projections, qjl_seed)?;
 
-        Ok(Self { dim, bits, projections, seed, polar, qjl })
+        Ok(Self {
+            dim,
+            bits,
+            projections,
+            seed,
+            polar,
+            qjl,
+        })
     }
 
-    pub fn dim(&self) -> usize { self.dim }
-    pub fn bits(&self) -> u8 { self.bits }
-    pub fn projections(&self) -> usize { self.projections }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+    pub fn bits(&self) -> u8 {
+        self.bits
+    }
+    pub fn projections(&self) -> usize {
+        self.projections
+    }
 
     /// Encode a vector into a TurboCode.
     pub fn encode(&self, vector: &[f32]) -> Result<TurboCode> {
         if vector.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: vector.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: vector.len(),
+            });
         }
 
         let polar_code = self.polar.encode(vector)?;
         let reconstruction = self.polar.decode(&polar_code)?;
-        let residual: Vec<f32> = vector.iter().zip(reconstruction.iter()).map(|(o, r)| o - r).collect();
+        let residual: Vec<f32> = vector
+            .iter()
+            .zip(reconstruction.iter())
+            .map(|(o, r)| o - r)
+            .collect();
         let residual_sketch = self.qjl.sketch(&residual)?;
 
-        Ok(TurboCode { polar_code, residual_sketch })
+        Ok(TurboCode {
+            polar_code,
+            residual_sketch,
+        })
     }
 
     /// Encode a batch of vectors in parallel.
@@ -90,10 +121,15 @@ impl TurboQuantizer {
     /// Provably unbiased.
     pub fn inner_product_estimate(&self, code: &TurboCode, query: &[f32]) -> Result<f32> {
         if query.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: query.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: query.len(),
+            });
         }
         let polar_est = self.polar.inner_product_estimate(&code.polar_code, query)?;
-        let qjl_correction = self.qjl.inner_product_estimate(&code.residual_sketch, query)?;
+        let qjl_correction = self
+            .qjl
+            .inner_product_estimate(&code.residual_sketch, query)?;
         Ok(polar_est + qjl_correction)
     }
 
@@ -150,12 +186,20 @@ mod tests {
         let far1 = random_vector(16, 200);
         let far2 = random_vector(16, 201);
 
-        let ip_close = q.inner_product_estimate(&q.encode(&close).unwrap(), &query).unwrap();
-        let ip_far1 = q.inner_product_estimate(&q.encode(&far1).unwrap(), &query).unwrap();
-        let ip_far2 = q.inner_product_estimate(&q.encode(&far2).unwrap(), &query).unwrap();
+        let ip_close = q
+            .inner_product_estimate(&q.encode(&close).unwrap(), &query)
+            .unwrap();
+        let ip_far1 = q
+            .inner_product_estimate(&q.encode(&far1).unwrap(), &query)
+            .unwrap();
+        let ip_far2 = q
+            .inner_product_estimate(&q.encode(&far2).unwrap(), &query)
+            .unwrap();
 
-        assert!(ip_close > ip_far1 && ip_close > ip_far2,
-            "close={ip_close:.3}, far1={ip_far1:.3}, far2={ip_far2:.3}");
+        assert!(
+            ip_close > ip_far1 && ip_close > ip_far2,
+            "close={ip_close:.3}, far1={ip_far1:.3}, far2={ip_far2:.3}"
+        );
     }
 
     #[test]

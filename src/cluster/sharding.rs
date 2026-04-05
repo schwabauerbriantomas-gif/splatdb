@@ -20,7 +20,11 @@ pub fn shard_by_hash(doc_id: &str, num_edges: usize) -> usize {
 
 /// Shard by nearest centroid to embedding.
 /// Routes document to edge with nearest centroid vector.
-pub fn shard_by_cluster(embedding: &[f32], centroids: &[Vec<f32>], edge_ids: &[String]) -> Option<String> {
+pub fn shard_by_cluster(
+    embedding: &[f32],
+    centroids: &[Vec<f32>],
+    edge_ids: &[String],
+) -> Option<String> {
     if centroids.is_empty() || edge_ids.is_empty() || embedding.is_empty() {
         return None;
     }
@@ -42,12 +46,19 @@ pub fn shard_by_cluster(embedding: &[f32], centroids: &[Vec<f32>], edge_ids: &[S
 
 /// Shard by geographic proximity.
 /// Routes document to nearest edge by haversine distance.
-pub fn shard_by_geo(doc_lat: f64, doc_lon: f64, edge_locations: &[(String, GeoLocation)]) -> String {
+pub fn shard_by_geo(
+    doc_lat: f64,
+    doc_lon: f64,
+    edge_locations: &[(String, GeoLocation)],
+) -> String {
     if edge_locations.is_empty() {
         return "edge-default".to_string();
     }
 
-    let doc_loc = GeoLocation { latitude: doc_lat, longitude: doc_lon };
+    let doc_loc = GeoLocation {
+        latitude: doc_lat,
+        longitude: doc_lon,
+    };
     let mut nearest = &edge_locations[0].0;
     let mut min_dist = f64::MAX;
 
@@ -119,8 +130,14 @@ mod tests {
 
     #[test]
     fn test_haversine() {
-        let loc1 = GeoLocation { latitude: 0.0, longitude: 0.0 };
-        let loc2 = GeoLocation { latitude: 0.0, longitude: 1.0 };
+        let loc1 = GeoLocation {
+            latitude: 0.0,
+            longitude: 0.0,
+        };
+        let loc2 = GeoLocation {
+            latitude: 0.0,
+            longitude: 1.0,
+        };
         let dist = haversine_distance(&loc1, &loc2);
         assert!(dist > 0.0 && dist < 200.0); // ~111km
     }

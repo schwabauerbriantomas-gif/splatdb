@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 /// Gaussian Splat representing a vector cluster.
 #[derive(Debug, Clone)]
 pub struct GaussianSplat {
-    pub mu: Vec<f32>,         // Centroid
-    pub alpha: f64,           // Weight
-    pub kappa: f64,           // Concentration
-    pub n_vectors: usize,     // Count
-    pub indices: Vec<usize>,  // Original indices
+    pub mu: Vec<f32>,        // Centroid
+    pub alpha: f64,          // Weight
+    pub kappa: f64,          // Concentration
+    pub n_vectors: usize,    // Count
+    pub indices: Vec<usize>, // Original indices
 }
 
 /// HRM2 hierarchy node.
@@ -28,9 +28,9 @@ pub struct Hrm2Node {
 /// Memory tier partition result.
 #[derive(Debug, Clone)]
 pub struct MemoryPartition {
-    pub hot: Vec<usize>,   // Top 20% — vram
-    pub warm: Vec<usize>,  // 20-50% — ram
-    pub cold: Vec<usize>,  // 50-100% — ssd
+    pub hot: Vec<usize>,  // Top 20% — vram
+    pub warm: Vec<usize>, // 20-50% — ram
+    pub cold: Vec<usize>, // 50-100% — ssd
 }
 
 /// Transform statistics.
@@ -92,16 +92,24 @@ pub struct DatasetTransformer {
 impl DatasetTransformer {
     /// New.
     pub fn new(config: TransformConfig) -> Self {
-        Self { config, mean: None, std: None }
+        Self {
+            config,
+            mean: None,
+            std: None,
+        }
     }
 
     /// Compute and store normalization statistics from data.
     pub fn fit(&mut self, data: &Array2<f32>) {
         let (n, _d) = data.dim();
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
 
         if self.config.center {
-            let mean = data.mean_axis(ndarray::Axis(0)).expect("mean_axis should succeed when n > 0");
+            let mean = data
+                .mean_axis(ndarray::Axis(0))
+                .expect("mean_axis should succeed when n > 0");
             self.mean = Some(mean);
         }
 
@@ -144,7 +152,8 @@ impl DatasetTransformer {
             let mut rng = rand::thread_rng();
             for mut row in result.rows_mut() {
                 for val in row.iter_mut() {
-                    let noise: f32 = rng.gen_range(-self.config.augment_noise..self.config.augment_noise) as f32;
+                    let noise: f32 =
+                        rng.gen_range(-self.config.augment_noise..self.config.augment_noise) as f32;
                     *val += noise;
                 }
             }
@@ -178,7 +187,10 @@ impl DatasetTransformer {
 
         let train = data.slice(ndarray::s![..train_n, ..]).to_owned();
         let val = if val_n > 0 {
-            Some(data.slice(ndarray::s![train_n..train_n + val_n, ..]).to_owned())
+            Some(
+                data.slice(ndarray::s![train_n..train_n + val_n, ..])
+                    .to_owned(),
+            )
         } else {
             None
         };
@@ -191,14 +203,29 @@ impl DatasetTransformer {
         let (train_labels, val_labels, test_labels) = match labels {
             Some(l) => {
                 let tl = l[..train_n].to_vec();
-                let vl = if val_n > 0 { Some(l[train_n..train_n + val_n].to_vec()) } else { None };
-                let tsl = if test_n > 0 { Some(l[train_n + val_n..].to_vec()) } else { None };
+                let vl = if val_n > 0 {
+                    Some(l[train_n..train_n + val_n].to_vec())
+                } else {
+                    None
+                };
+                let tsl = if test_n > 0 {
+                    Some(l[train_n + val_n..].to_vec())
+                } else {
+                    None
+                };
                 (Some(tl), vl, tsl)
             }
             None => (None, None, None),
         };
 
-        DatasetSplit { train, val, test, train_labels, val_labels, test_labels }
+        DatasetSplit {
+            train,
+            val,
+            test,
+            train_labels,
+            val_labels,
+            test_labels,
+        }
     }
 
     /// Get stored mean.
@@ -219,13 +246,27 @@ impl DatasetTransformer {
         n_clusters: usize,
         min_cluster_size: usize,
         seed: u64,
-    ) -> (Vec<GaussianSplat>, Hrm2Node, MemoryPartition, TransformStats) {
+    ) -> (
+        Vec<GaussianSplat>,
+        Hrm2Node,
+        MemoryPartition,
+        TransformStats,
+    ) {
         let t0 = std::time::Instant::now();
         let (n, dim) = data.dim();
 
         let mut splats = if n_clusters <= 1 || n <= 1 {
-            let mu = data.mean_axis(ndarray::Axis(0)).expect("mean_axis should succeed when n > 0").to_vec();
-            vec![GaussianSplat { mu, alpha: 1.0, kappa: 10.0, n_vectors: n, indices: (0..n).collect() }]
+            let mu = data
+                .mean_axis(ndarray::Axis(0))
+                .expect("mean_axis should succeed when n > 0")
+                .to_vec();
+            vec![GaussianSplat {
+                mu,
+                alpha: 1.0,
+                kappa: 10.0,
+                n_vectors: n,
+                indices: (0..n).collect(),
+            }]
         } else {
             let k = n_clusters.min(n);
             self.kmeans_to_splats(data, k, seed)
@@ -237,19 +278,40 @@ impl DatasetTransformer {
         }
 
         // Build hierarchy
-        let root_mu = data.mean_axis(ndarray::Axis(0)).expect("mean_axis should succeed when n > 0").to_vec();
-        let root_splat = GaussianSplat { mu: root_mu, alpha: 1.0, kappa: 1.0, n_vectors: n, indices: (0..n).collect() };
-        let children: Vec<Hrm2Node> = splats.iter().map(|s| Hrm2Node {
-            splat: s.clone(), children: Vec::new(), level: 1,
-        }).collect();
-        let hierarchy = Hrm2Node { splat: root_splat, children, level: 0 };
+        let root_mu = data
+            .mean_axis(ndarray::Axis(0))
+            .expect("mean_axis should succeed when n > 0")
+            .to_vec();
+        let root_splat = GaussianSplat {
+            mu: root_mu,
+            alpha: 1.0,
+            kappa: 1.0,
+            n_vectors: n,
+            indices: (0..n).collect(),
+        };
+        let children: Vec<Hrm2Node> = splats
+            .iter()
+            .map(|s| Hrm2Node {
+                splat: s.clone(),
+                children: Vec::new(),
+                level: 1,
+            })
+            .collect();
+        let hierarchy = Hrm2Node {
+            splat: root_splat,
+            children,
+            level: 0,
+        };
 
         // Partition
         let partition = self.partition_splats(&splats, data, seed);
 
         // Stats
         let original_bytes = n * dim * 4;
-        let compressed_bytes: usize = splats.iter().map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4).sum();
+        let compressed_bytes: usize = splats
+            .iter()
+            .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)
+            .sum();
         let elapsed = t0.elapsed().as_secs_f64();
 
         let stats = TransformStats {
@@ -258,7 +320,11 @@ impl DatasetTransformer {
             compression_ratio: n as f64 / splats.len().max(1) as f64,
             original_size_mb: original_bytes as f64 / (1024.0 * 1024.0),
             compressed_size_mb: compressed_bytes as f64 / (1024.0 * 1024.0),
-            memory_savings_pct: if original_bytes > 0 { (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0 } else { 0.0 },
+            memory_savings_pct: if original_bytes > 0 {
+                (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0
+            } else {
+                0.0
+            },
             transform_time_s: elapsed,
         };
 
@@ -272,7 +338,12 @@ impl DatasetTransformer {
         n_clusters: usize,
         min_cluster_size: usize,
         seed: u64,
-    ) -> (Vec<GaussianSplat>, Hrm2Node, MemoryPartition, TransformStats) {
+    ) -> (
+        Vec<GaussianSplat>,
+        Hrm2Node,
+        MemoryPartition,
+        TransformStats,
+    ) {
         let t0 = std::time::Instant::now();
         let (n, dim) = data.dim();
         let n_coarse = ((n_clusters as f64).sqrt() as usize).max(10).min(n);
@@ -283,32 +354,53 @@ impl DatasetTransformer {
 
         let mut splats = Vec::new();
         for c in 0..n_coarse {
-            let members: Vec<usize> = coarse_labels.iter().enumerate()
+            let members: Vec<usize> = coarse_labels
+                .iter()
+                .enumerate()
                 .filter(|(_, &l)| l == c)
                 .map(|(i, _)| i)
                 .collect();
-            if members.is_empty() { continue; }
+            if members.is_empty() {
+                continue;
+            }
 
             if members.len() <= n_fine {
                 // Too small for sub-clustering
                 let mu = vec_mean_indices(data, &members);
                 let variance = cluster_variance(data, &members, &mu);
                 let kappa = (1.0 / variance).clamp(0.1, 100.0);
-                splats.push(GaussianSplat { mu, alpha: members.len() as f64 / n as f64, kappa, n_vectors: members.len(), indices: members });
+                splats.push(GaussianSplat {
+                    mu,
+                    alpha: members.len() as f64 / n as f64,
+                    kappa,
+                    n_vectors: members.len(),
+                    indices: members,
+                });
             } else {
                 // Fine KMeans within coarse cluster
                 let sub_data = extract_rows(data, &members);
-                let (_, fine_labels) = simple_kmeans(&sub_data, n_fine.min(members.len()), 15, seed + c as u64);
+                let (_, fine_labels) =
+                    simple_kmeans(&sub_data, n_fine.min(members.len()), 15, seed + c as u64);
                 for f in 0..n_fine {
-                    let fine_members: Vec<usize> = fine_labels.iter().enumerate()
+                    let fine_members: Vec<usize> = fine_labels
+                        .iter()
+                        .enumerate()
                         .filter(|(_, &l)| l == f)
                         .map(|(i, _)| members[i])
                         .collect();
-                    if fine_members.is_empty() { continue; }
+                    if fine_members.is_empty() {
+                        continue;
+                    }
                     let mu = vec_mean_indices(data, &fine_members);
                     let variance = cluster_variance(data, &fine_members, &mu);
                     let kappa = (1.0 / variance).clamp(0.1, 100.0);
-                    splats.push(GaussianSplat { mu, alpha: fine_members.len() as f64 / n as f64, kappa, n_vectors: fine_members.len(), indices: fine_members });
+                    splats.push(GaussianSplat {
+                        mu,
+                        alpha: fine_members.len() as f64 / n as f64,
+                        kappa,
+                        n_vectors: fine_members.len(),
+                        indices: fine_members,
+                    });
                 }
             }
         }
@@ -317,20 +409,48 @@ impl DatasetTransformer {
             splats = self.merge_small_clusters(splats, min_cluster_size);
         }
 
-        let root_mu = data.mean_axis(ndarray::Axis(0)).expect("mean_axis should succeed when n > 0").to_vec();
-        let root_splat = GaussianSplat { mu: root_mu, alpha: 1.0, kappa: 1.0, n_vectors: n, indices: (0..n).collect() };
-        let children: Vec<Hrm2Node> = splats.iter().map(|s| Hrm2Node { splat: s.clone(), children: Vec::new(), level: 1 }).collect();
-        let hierarchy = Hrm2Node { splat: root_splat, children, level: 0 };
+        let root_mu = data
+            .mean_axis(ndarray::Axis(0))
+            .expect("mean_axis should succeed when n > 0")
+            .to_vec();
+        let root_splat = GaussianSplat {
+            mu: root_mu,
+            alpha: 1.0,
+            kappa: 1.0,
+            n_vectors: n,
+            indices: (0..n).collect(),
+        };
+        let children: Vec<Hrm2Node> = splats
+            .iter()
+            .map(|s| Hrm2Node {
+                splat: s.clone(),
+                children: Vec::new(),
+                level: 1,
+            })
+            .collect();
+        let hierarchy = Hrm2Node {
+            splat: root_splat,
+            children,
+            level: 0,
+        };
         let partition = self.partition_splats(&splats, data, seed);
 
         let original_bytes = n * dim * 4;
-        let compressed_bytes: usize = splats.iter().map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4).sum();
+        let compressed_bytes: usize = splats
+            .iter()
+            .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)
+            .sum();
         let stats = TransformStats {
-            original_count: n, splat_count: splats.len(),
+            original_count: n,
+            splat_count: splats.len(),
             compression_ratio: n as f64 / splats.len().max(1) as f64,
             original_size_mb: original_bytes as f64 / (1024.0 * 1024.0),
             compressed_size_mb: compressed_bytes as f64 / (1024.0 * 1024.0),
-            memory_savings_pct: if original_bytes > 0 { (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0 } else { 0.0 },
+            memory_savings_pct: if original_bytes > 0 {
+                (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0
+            } else {
+                0.0
+            },
             transform_time_s: t0.elapsed().as_secs_f64(),
         };
 
@@ -355,13 +475,20 @@ impl DatasetTransformer {
         min_cluster_size: usize,
         seed: u64,
         threshold: Option<f64>,
-    ) -> (Vec<GaussianSplat>, Hrm2Node, MemoryPartition, TransformStats) {
+    ) -> (
+        Vec<GaussianSplat>,
+        Hrm2Node,
+        MemoryPartition,
+        TransformStats,
+    ) {
         let t0 = std::time::Instant::now();
         let (n, dim) = data.dim();
 
         // Auto-compute threshold: estimate average nearest-neighbor distance
         let effective_threshold = threshold.unwrap_or_else(|| {
-            if n < 2 { return 1.0; }
+            if n < 2 {
+                return 1.0;
+            }
             // Sample up to 200 points, compute avg nn distance, scale by target density
             let sample_size = 200.min(n);
             let step = n / sample_size;
@@ -371,18 +498,31 @@ impl DatasetTransformer {
                 let row = data.row(i);
                 let mut min_d = f64::MAX;
                 for j in (0..n).step_by(step) {
-                    if i == j { continue; }
-                    let d: f64 = row.iter().zip(data.row(j).iter())
-                        .map(|(&a, &b)| { let d = a as f64 - b as f64; d * d })
+                    if i == j {
+                        continue;
+                    }
+                    let d: f64 = row
+                        .iter()
+                        .zip(data.row(j).iter())
+                        .map(|(&a, &b)| {
+                            let d = a as f64 - b as f64;
+                            d * d
+                        })
                         .sum();
-                    if d < min_d { min_d = d; }
+                    if d < min_d {
+                        min_d = d;
+                    }
                 }
                 if min_d < f64::MAX {
                     total_nn += min_d.sqrt();
                     count += 1;
                 }
             }
-            let avg_nn = if count > 0 { total_nn / count as f64 } else { 1.0 };
+            let avg_nn = if count > 0 {
+                total_nn / count as f64
+            } else {
+                1.0
+            };
             // Scale: we want ~target_clusters, each covering ~n/target vectors
             // Higher target_clusters -> lower threshold -> more leaders
             let density_factor = (n as f64 / target_clusters.max(1) as f64).sqrt() / n as f64;
@@ -398,25 +538,51 @@ impl DatasetTransformer {
         }
 
         // Build hierarchy
-        let root_mu = data.mean_axis(ndarray::Axis(0)).expect("mean_axis should succeed when n > 0").to_vec();
-        let root_splat = GaussianSplat { mu: root_mu, alpha: 1.0, kappa: 1.0, n_vectors: n, indices: (0..n).collect() };
-        let children: Vec<Hrm2Node> = splats.iter().map(|s| Hrm2Node {
-            splat: s.clone(), children: Vec::new(), level: 1,
-        }).collect();
-        let hierarchy = Hrm2Node { splat: root_splat, children, level: 0 };
+        let root_mu = data
+            .mean_axis(ndarray::Axis(0))
+            .expect("mean_axis should succeed when n > 0")
+            .to_vec();
+        let root_splat = GaussianSplat {
+            mu: root_mu,
+            alpha: 1.0,
+            kappa: 1.0,
+            n_vectors: n,
+            indices: (0..n).collect(),
+        };
+        let children: Vec<Hrm2Node> = splats
+            .iter()
+            .map(|s| Hrm2Node {
+                splat: s.clone(),
+                children: Vec::new(),
+                level: 1,
+            })
+            .collect();
+        let hierarchy = Hrm2Node {
+            splat: root_splat,
+            children,
+            level: 0,
+        };
 
         let partition = self.partition_splats(&splats, data, seed);
 
         let original_bytes = n * dim * 4;
-        let compressed_bytes: usize = splats.iter().map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4).sum();
+        let compressed_bytes: usize = splats
+            .iter()
+            .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)
+            .sum();
         let elapsed = t0.elapsed().as_secs_f64();
 
         let stats = TransformStats {
-            original_count: n, splat_count: splats.len(),
+            original_count: n,
+            splat_count: splats.len(),
             compression_ratio: n as f64 / splats.len().max(1) as f64,
             original_size_mb: original_bytes as f64 / (1024.0 * 1024.0),
             compressed_size_mb: compressed_bytes as f64 / (1024.0 * 1024.0),
-            memory_savings_pct: if original_bytes > 0 { (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0 } else { 0.0 },
+            memory_savings_pct: if original_bytes > 0 {
+                (1.0 - compressed_bytes as f64 / original_bytes as f64) * 100.0
+            } else {
+                0.0
+            },
             transform_time_s: elapsed,
         };
 
@@ -429,41 +595,61 @@ impl DatasetTransformer {
 
         let mut splats = Vec::new();
         for c in 0..k {
-            let members: Vec<usize> = labels.iter().enumerate()
+            let members: Vec<usize> = labels
+                .iter()
+                .enumerate()
                 .filter(|(_, &l)| l == c)
                 .map(|(i, _)| i)
                 .collect();
-            if members.is_empty() { continue; }
+            if members.is_empty() {
+                continue;
+            }
 
             let mu = vec_mean_indices(data, &members);
             let variance = cluster_variance(data, &members, &mu);
             let kappa = (1.0 / variance).clamp(0.1, 100.0);
 
             splats.push(GaussianSplat {
-                mu, alpha: members.len() as f64 / n as f64, kappa,
-                n_vectors: members.len(), indices: members,
+                mu,
+                alpha: members.len() as f64 / n as f64,
+                kappa,
+                n_vectors: members.len(),
+                indices: members,
             });
         }
         splats
     }
 
-    fn merge_small_clusters(&self, splats: Vec<GaussianSplat>, min_size: usize) -> Vec<GaussianSplat> {
+    fn merge_small_clusters(
+        &self,
+        splats: Vec<GaussianSplat>,
+        min_size: usize,
+    ) -> Vec<GaussianSplat> {
         let mut splats = splats;
-        let small: Vec<usize> = splats.iter().enumerate()
+        let small: Vec<usize> = splats
+            .iter()
+            .enumerate()
             .filter(|(_, s)| s.n_vectors < min_size)
             .map(|(i, _)| i)
             .collect();
 
         let mut to_remove = std::collections::HashSet::new();
         for si in small {
-            if to_remove.contains(&si) { continue; }
+            if to_remove.contains(&si) {
+                continue;
+            }
             // Find nearest larger cluster
             let mut best_j = None;
             let mut best_dist = f64::MAX;
             for (j, s) in splats.iter().enumerate() {
-                if j == si || to_remove.contains(&j) || s.n_vectors < min_size { continue; }
+                if j == si || to_remove.contains(&j) || s.n_vectors < min_size {
+                    continue;
+                }
                 let dist = euclidean(&splats[si].mu, &s.mu);
-                if dist < best_dist { best_dist = dist; best_j = Some(j); }
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_j = Some(j);
+                }
             }
             if let Some(j) = best_j {
                 let si_indices = splats[si].indices.clone();
@@ -474,7 +660,9 @@ impl DatasetTransformer {
                 // Weighted centroid merge
                 #[allow(clippy::needless_range_loop)]
                 for k in 0..splats[j].mu.len() {
-                    splats[j].mu[k] = (splats[j].mu[k] * splats[j].n_vectors as f32 + si_mu[k] * si_n as f32) / total as f32;
+                    splats[j].mu[k] = (splats[j].mu[k] * splats[j].n_vectors as f32
+                        + si_mu[k] * si_n as f32)
+                        / total as f32;
                 }
                 splats[j].alpha += si_alpha;
                 splats[j].indices.extend_from_slice(&si_indices);
@@ -482,19 +670,37 @@ impl DatasetTransformer {
                 to_remove.insert(si);
             }
         }
-        splats.into_iter().enumerate().filter(|(i, _)| !to_remove.contains(i)).map(|(_, s)| s).collect()
+        splats
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| !to_remove.contains(i))
+            .map(|(_, s)| s)
+            .collect()
     }
 
-    fn partition_splats(&self, splats: &[GaussianSplat], _data: &Array2<f32>, _seed: u64) -> MemoryPartition {
+    fn partition_splats(
+        &self,
+        splats: &[GaussianSplat],
+        _data: &Array2<f32>,
+        _seed: u64,
+    ) -> MemoryPartition {
         if splats.is_empty() {
-            return MemoryPartition { hot: Vec::new(), warm: Vec::new(), cold: Vec::new() };
+            return MemoryPartition {
+                hot: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+            };
         }
         let n = splats.len();
-        let mut scored: Vec<(usize, f64)> = splats.iter().enumerate().map(|(i, s)| {
-            // Score = weighted combination of access, size, concentration
-            let score = 0.4 * s.alpha + 0.3 * s.n_vectors as f64 + 0.3 * s.kappa;
-            (i, score)
-        }).collect();
+        let mut scored: Vec<(usize, f64)> = splats
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                // Score = weighted combination of access, size, concentration
+                let score = 0.4 * s.alpha + 0.3 * s.n_vectors as f64 + 0.3 * s.kappa;
+                (i, score)
+            })
+            .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let hot_end = (n as f64 * 0.2).ceil() as usize;
@@ -519,7 +725,9 @@ impl DatasetTransformer {
 /// no iteration count tuning, deterministic with seed.
 fn leader_cluster(data: &Array2<f32>, threshold: f64, seed: u64) -> Vec<GaussianSplat> {
     let (n, dim) = data.dim();
-    if n == 0 { return Vec::new(); }
+    if n == 0 {
+        return Vec::new();
+    }
 
     let threshold_sq = threshold * threshold;
     let mut leaders: Vec<LeaderState> = Vec::new();
@@ -529,7 +737,9 @@ fn leader_cluster(data: &Array2<f32>, threshold: f64, seed: u64) -> Vec<Gaussian
     let mut order: Vec<usize> = (0..n).collect();
     // Fisher-Yates shuffle with deterministic seed
     for i in (1..n).rev() {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let j = (rng_state as usize) % (i + 1);
         order.swap(i, j);
     }
@@ -542,8 +752,13 @@ fn leader_cluster(data: &Array2<f32>, threshold: f64, seed: u64) -> Vec<Gaussian
         let mut best_dist_sq = f64::MAX;
 
         for (li, leader) in leaders.iter().enumerate() {
-            let dist_sq: f64 = row.iter().zip(leader.centroid.iter())
-                .map(|(&a, &b)| { let d = a as f64 - b as f64; d * d })
+            let dist_sq: f64 = row
+                .iter()
+                .zip(leader.centroid.iter())
+                .map(|(&a, &b)| {
+                    let d = a as f64 - b as f64;
+                    d * d
+                })
                 .sum();
             if dist_sq < best_dist_sq {
                 best_dist_sq = dist_sq;
@@ -578,17 +793,24 @@ fn leader_cluster(data: &Array2<f32>, threshold: f64, seed: u64) -> Vec<Gaussian
 
     // Convert to GaussianSplats
     let total = n as f64;
-    leaders.into_iter().map(|l| {
-        let avg_dist = if l.count > 1 { l.sum_dist / l.count as f64 } else { 1.0 };
-        let variance = avg_dist + 1e-8;
-        GaussianSplat {
-            mu: l.centroid,
-            alpha: l.count as f64 / total,
-            kappa: (1.0 / variance).clamp(0.1, 100.0),
-            n_vectors: l.count,
-            indices: l.indices,
-        }
-    }).collect()
+    leaders
+        .into_iter()
+        .map(|l| {
+            let avg_dist = if l.count > 1 {
+                l.sum_dist / l.count as f64
+            } else {
+                1.0
+            };
+            let variance = avg_dist + 1e-8;
+            GaussianSplat {
+                mu: l.centroid,
+                alpha: l.count as f64 / total,
+                kappa: (1.0 / variance).clamp(0.1, 100.0),
+                n_vectors: l.count,
+                indices: l.indices,
+            }
+        })
+        .collect()
 }
 
 /// Internal state for leader clustering.
@@ -601,17 +823,26 @@ struct LeaderState {
 
 // ─── Helper functions ───
 
-fn simple_kmeans(data: &Array2<f32>, k: usize, max_iter: usize, seed: u64) -> (Vec<Vec<f32>>, Vec<usize>) {
+fn simple_kmeans(
+    data: &Array2<f32>,
+    k: usize,
+    max_iter: usize,
+    seed: u64,
+) -> (Vec<Vec<f32>>, Vec<usize>) {
     let (n, dim) = data.dim();
     let k = k.min(n);
-    if k == 0 || dim == 0 { return (Vec::new(), vec![0; n]); }
+    if k == 0 || dim == 0 {
+        return (Vec::new(), vec![0; n]);
+    }
 
     let mut rng_state = seed;
-    let mut centroids: Vec<Vec<f32>> = (0..k).map(|_| {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let idx = (rng_state as usize) % n;
-        data.row(idx).to_vec()
-    }).collect();
+    let mut centroids: Vec<Vec<f32>> = (0..k)
+        .map(|_| {
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let idx = (rng_state as usize) % n;
+            data.row(idx).to_vec()
+        })
+        .collect();
 
     let mut labels = vec![0usize; n];
 
@@ -623,25 +854,43 @@ fn simple_kmeans(data: &Array2<f32>, k: usize, max_iter: usize, seed: u64) -> (V
             let mut best_c = 0;
             let mut best_dist = f64::MAX;
             for (c, center) in centroids.iter().enumerate() {
-                let dist: f64 = row.iter().zip(center.iter())
-                    .map(|(&x, &y)| { let d = x as f64 - y as f64; d * d })
+                let dist: f64 = row
+                    .iter()
+                    .zip(center.iter())
+                    .map(|(&x, &y)| {
+                        let d = x as f64 - y as f64;
+                        d * d
+                    })
                     .sum();
-                if dist < best_dist { best_dist = dist; best_c = c; }
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_c = c;
+                }
             }
-            if labels[i] != best_c { labels[i] = best_c; changed = true; }
+            if labels[i] != best_c {
+                labels[i] = best_c;
+                changed = true;
+            }
         }
-        if !changed { break; }
+        if !changed {
+            break;
+        }
 
         let mut counts = vec![0usize; k];
         let mut sums = vec![vec![0.0f64; dim]; k];
         for i in 0..n {
             let c = labels[i];
             counts[c] += 1;
-            for j in 0..dim { sums[c][j] += data[[i, j]] as f64; }
+            for j in 0..dim {
+                sums[c][j] += data[[i, j]] as f64;
+            }
         }
         for c in 0..k {
             if counts[c] > 0 {
-                centroids[c] = sums[c].iter().map(|s| (s / counts[c] as f64) as f32).collect();
+                centroids[c] = sums[c]
+                    .iter()
+                    .map(|s| (s / counts[c] as f64) as f32)
+                    .collect();
             }
         }
     }
@@ -652,7 +901,11 @@ fn vec_mean_indices(data: &Array2<f32>, indices: &[usize]) -> Vec<f32> {
     let dim = data.ncols();
     let n = indices.len() as f32;
     let mut sum = vec![0.0f32; dim];
-    for &i in indices { for j in 0..dim { sum[j] += data[[i, j]]; } }
+    for &i in indices {
+        for j in 0..dim {
+            sum[j] += data[[i, j]];
+        }
+    }
     sum.iter().map(|s| s / n).collect()
 }
 
@@ -675,7 +928,14 @@ fn extract_rows(data: &Array2<f32>, indices: &[usize]) -> Array2<f32> {
 }
 
 fn euclidean(a: &[f32], b: &[f32]) -> f64 {
-    a.iter().zip(b.iter()).map(|(&x, &y)| { let d = x as f64 - y as f64; d * d }).sum::<f64>().sqrt()
+    a.iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| {
+            let d = x as f64 - y as f64;
+            d * d
+        })
+        .sum::<f64>()
+        .sqrt()
 }
 
 #[cfg(test)]
@@ -699,7 +959,12 @@ mod tests {
 
     #[test]
     fn test_unit_sphere() {
-        let config = TransformConfig { unit_sphere: true, center: false, normalize: false, ..Default::default() };
+        let config = TransformConfig {
+            unit_sphere: true,
+            center: false,
+            normalize: false,
+            ..Default::default()
+        };
         let mut transformer = DatasetTransformer::new(config);
         let data = make_data();
         let transformed = transformer.fit_transform(&data);
@@ -713,7 +978,11 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let config = TransformConfig { train_ratio: 0.5, val_ratio: 0.25, ..Default::default() };
+        let config = TransformConfig {
+            train_ratio: 0.5,
+            val_ratio: 0.25,
+            ..Default::default()
+        };
         let transformer = DatasetTransformer::new(config);
         let data = make_data();
         let split = transformer.split(&data, None);
@@ -724,7 +993,12 @@ mod tests {
 
     #[test]
     fn test_no_center() {
-        let config = TransformConfig { center: false, normalize: false, augment_flip: false, ..Default::default() };
+        let config = TransformConfig {
+            center: false,
+            normalize: false,
+            augment_flip: false,
+            ..Default::default()
+        };
         let mut transformer = DatasetTransformer::new(config);
         let data = make_data();
         let transformed = transformer.fit_transform(&data);
@@ -733,14 +1007,17 @@ mod tests {
 
     #[test]
     fn test_to_splats() {
-        let config = TransformConfig { augment_flip: false, ..Default::default() };
+        let config = TransformConfig {
+            augment_flip: false,
+            ..Default::default()
+        };
         let transformer = DatasetTransformer::new(config);
         let data = Array2::from_shape_vec((20, 3), (0..60).map(|i| i as f32).collect()).unwrap();
         let (splats, hierarchy, partition, stats) = transformer.to_splats(&data, 4, 1, 42);
-        assert!(splats.len() > 0);
+        assert!(!splats.is_empty());
         assert!(splats.len() <= 4);
         assert_eq!(hierarchy.level, 0);
-        assert!(hierarchy.children.len() > 0);
+        assert!(!hierarchy.children.is_empty());
         assert!(stats.compression_ratio > 0.0);
         assert!(stats.original_count == 20);
         assert!(!partition.hot.is_empty() || !partition.warm.is_empty());
@@ -748,17 +1025,27 @@ mod tests {
 
     #[test]
     fn test_hierarchical_splats() {
-        let config = TransformConfig { augment_flip: false, ..Default::default() };
+        let config = TransformConfig {
+            augment_flip: false,
+            ..Default::default()
+        };
         let transformer = DatasetTransformer::new(config);
-        let data = Array2::from_shape_vec((50, 4), (0..200).map(|i| (i as f32 * 0.1).sin()).collect()).unwrap();
-        let (splats, _hierarchy, _partition, stats) = transformer.to_splats_hierarchical(&data, 16, 2, 42);
-        assert!(splats.len() > 0);
+        let data =
+            Array2::from_shape_vec((50, 4), (0..200).map(|i| (i as f32 * 0.1).sin()).collect())
+                .unwrap();
+        let (splats, _hierarchy, _partition, stats) =
+            transformer.to_splats_hierarchical(&data, 16, 2, 42);
+        assert!(!splats.is_empty());
         assert!(stats.splat_count > 0);
     }
 
     #[test]
     fn test_leader_clustering_basic() {
-        let data = Array2::from_shape_vec((100, 4), (0..400).map(|i| (i as f32 * 0.05).cos()).collect()).unwrap();
+        let data = Array2::from_shape_vec(
+            (100, 4),
+            (0..400).map(|i| (i as f32 * 0.05).cos()).collect(),
+        )
+        .unwrap();
         let splats = leader_cluster(&data, 0.5, 42);
         assert!(!splats.is_empty());
         // Each splat should have at least 1 member
@@ -784,11 +1071,17 @@ mod tests {
 
     #[test]
     fn test_leader_to_splats() {
-        let config = TransformConfig { augment_flip: false, ..Default::default() };
+        let config = TransformConfig {
+            augment_flip: false,
+            ..Default::default()
+        };
         let transformer = DatasetTransformer::new(config);
-        let data = Array2::from_shape_vec((60, 4), (0..240).map(|i| (i as f32 * 0.1).sin()).collect()).unwrap();
-        let (splats, _hierarchy, _partition, stats) = transformer.to_splats_leader(&data, 10, 1, 42, Some(0.3));
-        assert!(splats.len() > 0);
+        let data =
+            Array2::from_shape_vec((60, 4), (0..240).map(|i| (i as f32 * 0.1).sin()).collect())
+                .unwrap();
+        let (splats, _hierarchy, _partition, stats) =
+            transformer.to_splats_leader(&data, 10, 1, 42, Some(0.3));
+        assert!(!splats.is_empty());
         assert!(stats.compression_ratio > 1.0);
         assert_eq!(stats.original_count, 60);
         // All vectors accounted for
@@ -798,18 +1091,28 @@ mod tests {
 
     #[test]
     fn test_leader_auto_threshold() {
-        let config = TransformConfig { augment_flip: false, ..Default::default() };
+        let config = TransformConfig {
+            augment_flip: false,
+            ..Default::default()
+        };
         let transformer = DatasetTransformer::new(config);
         // 3 clear clusters
         let data = Array2::from_shape_vec((90, 4), {
             let mut v = Vec::new();
-            for _ in 0..30 { v.extend_from_slice(&[1.0, 0.0, 0.0, 0.0]); }
-            for _ in 0..30 { v.extend_from_slice(&[0.0, 1.0, 0.0, 0.0]); }
-            for _ in 0..30 { v.extend_from_slice(&[0.0, 0.0, 1.0, 0.0]); }
+            for _ in 0..30 {
+                v.extend_from_slice(&[1.0, 0.0, 0.0, 0.0]);
+            }
+            for _ in 0..30 {
+                v.extend_from_slice(&[0.0, 1.0, 0.0, 0.0]);
+            }
+            for _ in 0..30 {
+                v.extend_from_slice(&[0.0, 0.0, 1.0, 0.0]);
+            }
             v
-        }).unwrap();
-        let (splats, _, _, stats) = transformer.to_splats_leader(&data, 3, 1, 42, None);
-        assert!(splats.len() >= 1);
+        })
+        .unwrap();
+        let (splats, _, _, _stats) = transformer.to_splats_leader(&data, 3, 1, 42, None);
+        assert!(!splats.is_empty());
         assert!(splats.len() <= 10); // auto-threshold shouldn't explode
         let total: usize = splats.iter().map(|s| s.n_vectors).sum();
         assert_eq!(total, 90);

@@ -24,10 +24,16 @@ pub struct DocumentRecord {
 /// Binary vector storage (shards) is handled separately by `VectorStore`.
 pub trait MetadataStore: Send + Sync {
     /// Insert or replace a document record.
-    fn upsert(&self, record: &DocumentRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn upsert(
+        &self,
+        record: &DocumentRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get a non-deleted document by ID.
-    fn get(&self, doc_id: &str) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>>;
+    fn get(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Soft-delete (mark as deleted).
     fn soft_delete(&self, doc_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
@@ -36,10 +42,16 @@ pub trait MetadataStore: Send + Sync {
     fn hard_delete(&self, doc_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// List all document IDs, optionally including soft-deleted ones.
-    fn list_ids(&self, include_deleted: bool) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
+    fn list_ids(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Count documents, optionally including soft-deleted ones.
-    fn count(&self, include_deleted: bool) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>;
+    fn count(
+        &self,
+        include_deleted: bool,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Flush/sync pending writes (for databases with write buffers).
     fn flush(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

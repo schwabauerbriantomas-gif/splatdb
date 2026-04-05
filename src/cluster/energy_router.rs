@@ -88,12 +88,15 @@ impl EnergyRouter {
     }
 
     pub fn register_node(&mut self, node_id: &str, weight: f64) {
-        self.node_energies.insert(node_id.to_string(), NodeEnergy {
-            _node_id: node_id.to_string(),
-            last_energy: 1.0,
-            updated_at: now_secs(),
-            weight,
-        });
+        self.node_energies.insert(
+            node_id.to_string(),
+            NodeEnergy {
+                _node_id: node_id.to_string(),
+                last_energy: 1.0,
+                updated_at: now_secs(),
+                weight,
+            },
+        );
         self.route_counts.insert(node_id.to_string(), 0);
     }
 
@@ -138,7 +141,11 @@ impl EnergyRouter {
             .iter()
             .map(|nid| {
                 let energy = self.get_cached_energy(query_hash, nid);
-                let weight = self.node_energies.get(nid).map(|ne| ne.weight).unwrap_or(1.0);
+                let weight = self
+                    .node_energies
+                    .get(nid)
+                    .map(|ne| ne.weight)
+                    .unwrap_or(1.0);
                 (nid.clone(), energy * weight)
             })
             .collect();
@@ -211,7 +218,11 @@ impl EnergyRouter {
         let mut scored: Vec<(String, f64)> = nodes
             .iter()
             .map(|nid| {
-                let energy = self.node_energies.get(nid).map(|ne| ne.last_energy).unwrap_or(1.0);
+                let energy = self
+                    .node_energies
+                    .get(nid)
+                    .map(|ne| ne.last_energy)
+                    .unwrap_or(1.0);
                 let locality = 1.0 - energy.min(1.0);
                 (nid.clone(), locality)
             })
@@ -241,7 +252,10 @@ impl EnergyRouter {
                 let locality_score = energy_score;
                 let latency_score = 0.0;
 
-                let combined = 0.4 * energy_score + 0.2 * load_score + 0.3 * locality_score + 0.1 * latency_score;
+                let combined = 0.4 * energy_score
+                    + 0.2 * load_score
+                    + 0.3 * locality_score
+                    + 0.1 * latency_score;
                 (nid.clone(), combined)
             })
             .collect();
@@ -253,7 +267,11 @@ impl EnergyRouter {
 
     fn get_cached_energy(&mut self, query_hash: u64, node_id: &str) -> f64 {
         if !self.config.cache_energy {
-            return self.node_energies.get(node_id).map(|ne| ne.last_energy).unwrap_or(1.0);
+            return self
+                .node_energies
+                .get(node_id)
+                .map(|ne| ne.last_energy)
+                .unwrap_or(1.0);
         }
 
         let cache_key = format!("{}_{}", query_hash, node_id);
@@ -265,7 +283,11 @@ impl EnergyRouter {
             }
         }
 
-        let energy = self.node_energies.get(node_id).map(|ne| ne.last_energy).unwrap_or(1.0);
+        let energy = self
+            .node_energies
+            .get(node_id)
+            .map(|ne| ne.last_energy)
+            .unwrap_or(1.0);
         self.energy_cache.insert(cache_key.clone(), energy);
         self.cache_timestamps.insert(cache_key, now);
         energy
@@ -283,7 +305,11 @@ impl EnergyRouter {
             cache_size: self.energy_cache.len(),
             nodes_count: self.node_energies.len(),
             route_distribution: self.route_counts.clone(),
-            node_energies: self.node_energies.iter().map(|(k, v)| (k.clone(), v.last_energy)).collect(),
+            node_energies: self
+                .node_energies
+                .iter()
+                .map(|(k, v)| (k.clone(), v.last_energy))
+                .collect(),
         }
     }
 
@@ -310,5 +336,3 @@ fn now_secs() -> f64 {
         .unwrap_or_default()
         .as_secs_f64()
 }
-
-

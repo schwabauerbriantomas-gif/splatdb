@@ -63,7 +63,10 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     pub fn new(timeout_secs: f64) -> Self {
-        Self { statuses: Vec::new(), timeout_secs }
+        Self {
+            statuses: Vec::new(),
+            timeout_secs,
+        }
     }
 
     pub fn update(&mut self, node_id: &str, healthy: bool, n_vectors: usize) {

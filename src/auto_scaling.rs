@@ -83,7 +83,10 @@ pub struct MetricsCollector {
 impl MetricsCollector {
     /// New.
     pub fn new(history_size: usize) -> Self {
-        Self { history_size, metrics_history: HashMap::new() }
+        Self {
+            history_size,
+            metrics_history: HashMap::new(),
+        }
     }
 
     /// Record metrics from a node.
@@ -143,31 +146,49 @@ impl MetricsCollector {
                     "latency" => Some(m.latency_ms),
                     _ => None,
                 };
-                if let Some(v) = val { all_values.push(v); }
+                if let Some(v) = val {
+                    all_values.push(v);
+                }
             }
         }
 
-        if all_values.len() < 3 { return Trend::Stable; }
+        if all_values.len() < 3 {
+            return Trend::Stable;
+        }
 
         // Sort by time (already sorted since we recorded chronologically)
         let mid = all_values.len() / 2;
         let first_half: f64 = all_values[..mid].iter().sum::<f64>() / mid.max(1) as f64;
-        let second_half: f64 = all_values[mid..].iter().sum::<f64>() / (all_values.len() - mid).max(1) as f64;
+        let second_half: f64 =
+            all_values[mid..].iter().sum::<f64>() / (all_values.len() - mid).max(1) as f64;
         let diff = second_half - first_half;
         let threshold = first_half.abs() * 0.1 + 0.01; // 10% change threshold, with minimum
 
-        if diff > threshold { Trend::Increasing } else if diff < -threshold { Trend::Decreasing } else { Trend::Stable }
+        if diff > threshold {
+            Trend::Increasing
+        } else if diff < -threshold {
+            Trend::Decreasing
+        } else {
+            Trend::Stable
+        }
     }
 
     /// Get recent metrics for a specific node.
     pub fn get_node_history(&self, node_id: &str) -> &[NodeMetrics] {
-        self.metrics_history.get(node_id).map(|v| v.as_slice()).unwrap_or(&[])
+        self.metrics_history
+            .get(node_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }
 
 /// Metric trend direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Trend { Increasing, Decreasing, Stable }
+pub enum Trend {
+    Increasing,
+    Decreasing,
+    Stable,
+}
 
 /// Auto-scaler for SplatDB Cluster.
 ///
@@ -187,7 +208,12 @@ pub struct AutoScaler {
 
 impl AutoScaler {
     /// New.
-    pub fn new(min_nodes: usize, max_nodes: usize, scale_up_threshold: f64, scale_down_threshold: f64) -> Self {
+    pub fn new(
+        min_nodes: usize,
+        max_nodes: usize,
+        scale_up_threshold: f64,
+        scale_down_threshold: f64,
+    ) -> Self {
         Self {
             min_nodes,
             max_nodes,
@@ -223,7 +249,10 @@ impl AutoScaler {
                 trigger: ScalingTrigger::CpuThreshold,
                 current_nodes: self.current_nodes,
                 target_nodes: self.current_nodes + 1,
-                reason: format!("CPU {}% > threshold {}%", stats.avg_cpu as i32, self.scale_up_threshold as i32),
+                reason: format!(
+                    "CPU {}% > threshold {}%",
+                    stats.avg_cpu as i32, self.scale_up_threshold as i32
+                ),
                 metrics: HashMap::new(),
             };
             self.apply_scaling(&decision);
@@ -234,7 +263,10 @@ impl AutoScaler {
                 trigger: ScalingTrigger::CpuThreshold,
                 current_nodes: self.current_nodes,
                 target_nodes: self.current_nodes - 1,
-                reason: format!("CPU {}% < threshold {}%", stats.avg_cpu as i32, self.scale_down_threshold as i32),
+                reason: format!(
+                    "CPU {}% < threshold {}%",
+                    stats.avg_cpu as i32, self.scale_down_threshold as i32
+                ),
                 metrics: HashMap::new(),
             };
             self.apply_scaling(&decision);
@@ -261,7 +293,9 @@ impl AutoScaler {
     }
 
     /// Get current node count.
-    pub fn current_nodes(&self) -> usize { self.current_nodes }
+    pub fn current_nodes(&self) -> usize {
+        self.current_nodes
+    }
 
     /// Get cluster stats.
     pub fn cluster_stats(&self) -> ClusterStats {
@@ -281,7 +315,10 @@ impl AutoScaler {
 }
 
 fn now_secs() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
 }
 
 #[cfg(test)]
@@ -292,7 +329,10 @@ mod tests {
     fn test_no_decision_few_samples() {
         let mut scaler = AutoScaler::new(1, 10, 80.0, 30.0);
         // With cooldown active, should not scale even with high CPU
-        let m = NodeMetrics { cpu_percent: 95.0, ..NodeMetrics::new("n1") };
+        let m = NodeMetrics {
+            cpu_percent: 95.0,
+            ..NodeMetrics::new("n1")
+        };
         scaler.record_metrics(m);
         // First evaluate sets last_scale_time to now, so subsequent calls within cooldown return None
         let _ = scaler.evaluate();
@@ -305,7 +345,10 @@ mod tests {
         let mut scaler = AutoScaler::new(1, 10, 80.0, 30.0);
         scaler.last_scale_time = 0.0; // Clear cooldown
         for i in 0..5 {
-            let m = NodeMetrics { cpu_percent: 95.0, ..NodeMetrics::new(&format!("n{}", i % 2)) };
+            let m = NodeMetrics {
+                cpu_percent: 95.0,
+                ..NodeMetrics::new(&format!("n{}", i % 2))
+            };
             scaler.record_metrics(m);
         }
         let decision = scaler.evaluate();
@@ -319,7 +362,10 @@ mod tests {
         scaler.current_nodes = 5;
         scaler.last_scale_time = 0.0; // Clear cooldown
         for i in 0..5 {
-            let m = NodeMetrics { cpu_percent: 10.0, ..NodeMetrics::new(&format!("n{}", i)) };
+            let m = NodeMetrics {
+                cpu_percent: 10.0,
+                ..NodeMetrics::new(&format!("n{}", i))
+            };
             scaler.record_metrics(m);
         }
         let decision = scaler.evaluate();
@@ -332,7 +378,10 @@ mod tests {
         let mut collector = MetricsCollector::new(100);
         // Increasing CPU: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
         for i in 0..10 {
-            let m = NodeMetrics { cpu_percent: 10.0 + i as f64 * 10.0, ..NodeMetrics::new("n1") };
+            let m = NodeMetrics {
+                cpu_percent: 10.0 + i as f64 * 10.0,
+                ..NodeMetrics::new("n1")
+            };
             collector.record(m);
         }
         // With window=10, first half avg = 30, second half avg = 80

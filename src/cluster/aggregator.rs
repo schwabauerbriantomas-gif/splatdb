@@ -86,7 +86,9 @@ impl ResultAggregator {
 }
 
 impl Default for ResultAggregator {
-    fn default() -> Self { Self::new(60) }
+    fn default() -> Self {
+        Self::new(60)
+    }
 }
 
 #[cfg(test)]

@@ -7,7 +7,11 @@ use clap::Parser;
 use cli::Commands;
 
 #[derive(Parser)]
-#[command(name = "splatdb", version, about = "SplatDB Vector Search — Gaussian Splat semantic memory")]
+#[command(
+    name = "splatdb",
+    version,
+    about = "SplatDB Vector Search — Gaussian Splat semantic memory"
+)]
 struct Cli {
     /// Storage directory (default: ./splatdb_data)
     #[arg(long, global = true, default_value = "./splatdb_data")]

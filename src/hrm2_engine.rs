@@ -58,7 +58,13 @@ pub struct HRM2Engine {
 
 impl HRM2Engine {
     /// Create a new HRM2 engine with the given clustering parameters.
-    pub fn new(n_coarse: usize, n_fine: usize, embedding_dim: usize, n_probe: usize, metric: &str) -> Self {
+    pub fn new(
+        n_coarse: usize,
+        n_fine: usize,
+        embedding_dim: usize,
+        n_probe: usize,
+        metric: &str,
+    ) -> Self {
         Self {
             n_coarse,
             n_fine,
@@ -97,7 +103,10 @@ impl HRM2Engine {
                 Self::normalize_rows(&mut e);
             }
             self.embeddings = Some(e);
-            self.embeddings.as_ref().expect("embeddings just set above").nrows()
+            self.embeddings
+                .as_ref()
+                .expect("embeddings just set above")
+                .nrows()
         } else if !self.splats.is_empty() {
             let n = self.splats.len();
             let dim = 3;
@@ -113,29 +122,42 @@ impl HRM2Engine {
                 rot_data.extend_from_slice(&s.rotation);
                 opa_data.push(s.opacity);
             }
-            let positions = Array2::from_shape_vec((n, dim), pos_data).expect("position shape mismatch");
+            let positions =
+                Array2::from_shape_vec((n, dim), pos_data).expect("position shape mismatch");
             let colors = Array2::from_shape_vec((n, dim), col_data).expect("color shape mismatch");
             let opacities = Array1::from(opa_data);
             let scales = Array2::from_shape_vec((n, dim), sca_data).expect("scale shape mismatch");
-            let rotations = Array2::from_shape_vec((n, 4), rot_data).expect("rotation shape mismatch");
+            let rotations =
+                Array2::from_shape_vec((n, 4), rot_data).expect("rotation shape mismatch");
 
-            let mut e = self.encoder.build(&positions, &colors, &opacities, &scales, &rotations);
+            let mut e = self
+                .encoder
+                .build(&positions, &colors, &opacities, &scales, &rotations);
             if self.metric == "cosine" {
                 Self::normalize_rows(&mut e);
             }
             self.embeddings = Some(e);
-            self.embeddings.as_ref().expect("embeddings just set above").nrows()
+            self.embeddings
+                .as_ref()
+                .expect("embeddings just set above")
+                .nrows()
         } else {
             return 0.0;
         };
 
-        let embeddings = self.embeddings.as_ref().expect("embeddings must exist after index()");
+        let embeddings = self
+            .embeddings
+            .as_ref()
+            .expect("embeddings must exist after index()");
 
         // Level 1: Coarse clustering
         let n_coarse = self.n_coarse.min(n_samples / 10).max(1);
         let mut coarse = KMeans::new(n_coarse, 100, 42);
         coarse.fit(embeddings);
-        let coarse_labels = coarse.labels.clone().expect("coarse labels must exist after fit");
+        let coarse_labels = coarse
+            .labels
+            .clone()
+            .expect("coarse labels must exist after fit");
 
         self.coarse_model = Some(coarse);
         self.coarse_assignments = Some(coarse_labels.clone());
@@ -148,7 +170,9 @@ impl HRM2Engine {
         self.cluster_masks.clear();
 
         for c in 0..n_coarse {
-            let indices: Vec<usize> = coarse_labels.iter().enumerate()
+            let indices: Vec<usize> = coarse_labels
+                .iter()
+                .enumerate()
                 .filter(|(_, &label)| label == c)
                 .map(|(i, _)| i)
                 .collect();
@@ -157,8 +181,10 @@ impl HRM2Engine {
 
             if indices.len() < 2 {
                 self.fine_models.insert(c, KMeans::new(1, 10, 42));
-                self.fine_assignments.insert(c, Array1::zeros(indices.len()));
-                self.cluster_embeddings.insert(c, Array2::zeros((0, self.embedding_dim)));
+                self.fine_assignments
+                    .insert(c, Array1::zeros(indices.len()));
+                self.cluster_embeddings
+                    .insert(c, Array2::zeros((0, self.embedding_dim)));
                 continue;
             }
 
@@ -173,7 +199,12 @@ impl HRM2Engine {
             let mut fine = KMeans::new(n_fine, 50, 42 + c as u64);
             fine.fit(&cluster_embs);
             self.fine_models.insert(c, fine.clone());
-            self.fine_assignments.insert(c, fine.labels.clone().expect("fine labels must exist after fit"));
+            self.fine_assignments.insert(
+                c,
+                fine.labels
+                    .clone()
+                    .expect("fine labels must exist after fit"),
+            );
         }
 
         self.is_indexed = true;
@@ -188,14 +219,25 @@ impl HRM2Engine {
     }
 
     /// Query for k nearest neighbors at given level of detail.
-    pub fn query(&mut self, query: &ArrayView1<f32>, k: usize, lod: usize) -> anyhow::Result<Vec<(usize, f32)>> {
+    pub fn query(
+        &mut self,
+        query: &ArrayView1<f32>,
+        k: usize,
+        lod: usize,
+    ) -> anyhow::Result<Vec<(usize, f32)>> {
         if !self.is_indexed {
             return Err(anyhow::anyhow!("Index not built. Call index() first."));
         }
 
         let start = Instant::now();
-        let embeddings = self.embeddings.as_ref().expect("embeddings must exist after index()");
-        let coarse = self.coarse_model.as_ref().expect("coarse model must exist after index()");
+        let embeddings = self
+            .embeddings
+            .as_ref()
+            .expect("embeddings must exist after index()");
+        let coarse = self
+            .coarse_model
+            .as_ref()
+            .expect("coarse model must exist after index()");
 
         let q = if self.metric == "cosine" {
             let norm = query.dot(query).sqrt().max(1e-10);
@@ -209,7 +251,11 @@ impl HRM2Engine {
         let coarse_dists = coarse.transform(&q_2d);
         let coarse_dists = coarse_dists.row(0);
         let mut coarse_order: Vec<usize> = (0..coarse_dists.len()).collect();
-        coarse_order.sort_by(|a, b| coarse_dists[*a].partial_cmp(&coarse_dists[*b]).unwrap_or(std::cmp::Ordering::Equal));
+        coarse_order.sort_by(|a, b| {
+            coarse_dists[*a]
+                .partial_cmp(&coarse_dists[*b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let probe_count = self.n_probe.min(coarse_order.len());
         let closest: Vec<usize> = coarse_order.iter().take(probe_count).copied().collect();
@@ -226,7 +272,9 @@ impl HRM2Engine {
                             candidates.push((idx, dist));
                         }
                     }
-                    if candidates.len() >= k { break; }
+                    if candidates.len() >= k {
+                        break;
+                    }
                 }
             }
             1 => {
@@ -240,10 +288,18 @@ impl HRM2Engine {
                     let fine_dists = fine.transform(&q_fine);
                     let fine_dists = fine_dists.row(0);
                     let best_fine = (0..fine_dists.len())
-                        .min_by(|a, b| fine_dists[*a].partial_cmp(&fine_dists[*b]).unwrap_or(std::cmp::Ordering::Equal))
+                        .min_by(|a, b| {
+                            fine_dists[*a]
+                                .partial_cmp(&fine_dists[*b])
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
                         .expect("fine_dists must not be empty");
 
-                    let indices = self.cluster_indices.get(&c).map(|v| v.as_slice()).unwrap_or(&[]);
+                    let indices = self
+                        .cluster_indices
+                        .get(&c)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
                     let fine_assigns: &[usize] = match self.fine_assignments.get(&c) {
                         Some(a) => a.as_slice().unwrap_or(&[]),
                         None => &[],
@@ -255,7 +311,9 @@ impl HRM2Engine {
                             candidates.push((global_i, dist));
                         }
                     }
-                    if candidates.len() >= k { break; }
+                    if candidates.len() >= k {
+                        break;
+                    }
                 }
             }
             _ => {
@@ -283,22 +341,34 @@ impl HRM2Engine {
         self.stats.total_queries += 1;
         let query_us = start.elapsed().as_micros() as f64;
         let n = self.stats.total_queries;
-        self.stats.avg_query_time_us = self.stats.avg_query_time_us * ((n - 1) as f64) / (n as f64) + query_us / (n as f64);
+        self.stats.avg_query_time_us =
+            self.stats.avg_query_time_us * ((n - 1) as f64) / (n as f64) + query_us / (n as f64);
 
         Ok(candidates)
     }
 
     /// Batch query for multiple queries.
-    pub fn query_batch(&mut self, queries: &Array2<f32>, k: usize, lod: usize) -> anyhow::Result<Vec<Vec<(usize, f32)>>> {
+    pub fn query_batch(
+        &mut self,
+        queries: &Array2<f32>,
+        k: usize,
+        lod: usize,
+    ) -> anyhow::Result<Vec<Vec<(usize, f32)>>> {
         let n = queries.nrows();
-        (0..n).map(|i| self.query(&queries.row(i), k, lod)).collect()
+        (0..n)
+            .map(|i| self.query(&queries.row(i), k, lod))
+            .collect()
     }
 
     /// Get engine statistics.
-    pub fn get_stats(&self) -> &HRM2Stats { &self.stats }
+    pub fn get_stats(&self) -> &HRM2Stats {
+        &self.stats
+    }
 
     /// Check if the index has been built.
-    pub fn is_indexed(&self) -> bool { self.is_indexed }
+    pub fn is_indexed(&self) -> bool {
+        self.is_indexed
+    }
 
     /// Reset the engine, removing all data and index state.
     pub fn clear(&mut self) {
@@ -333,18 +403,42 @@ pub fn generate_test_splats(n: usize, seed: u64) -> Vec<GaussianSplat> {
     use rand::Rng;
     use rand::SeedableRng;
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-    (0..n).map(|i| {
-        let mut position = [0.0f32; 3];
-        let mut color = [0.0f32; 3];
-        let mut scale = [0.0f32; 3];
-        let mut rotation = [0.0f32; 4];
-        for p in position.iter_mut() { *p = rng.gen::<f32>() * 10.0 - 5.0; }
-        for c in color.iter_mut() { *c = rng.gen::<f32>(); }
-        for s in scale.iter_mut() { *s = (-rng.gen::<f32>() * 2.0).exp(); }
-        for r in rotation.iter_mut() { *r = rng.gen::<f32>(); }
-        let norm: f32 = rotation.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-10);
-        for r in rotation.iter_mut() { *r /= norm; }
+    (0..n)
+        .map(|i| {
+            let mut position = [0.0f32; 3];
+            let mut color = [0.0f32; 3];
+            let mut scale = [0.0f32; 3];
+            let mut rotation = [0.0f32; 4];
+            for p in position.iter_mut() {
+                *p = rng.gen::<f32>() * 10.0 - 5.0;
+            }
+            for c in color.iter_mut() {
+                *c = rng.gen::<f32>();
+            }
+            for s in scale.iter_mut() {
+                *s = (-rng.gen::<f32>() * 2.0).exp();
+            }
+            for r in rotation.iter_mut() {
+                *r = rng.gen::<f32>();
+            }
+            let norm: f32 = rotation
+                .iter()
+                .map(|x| x * x)
+                .sum::<f32>()
+                .sqrt()
+                .max(1e-10);
+            for r in rotation.iter_mut() {
+                *r /= norm;
+            }
 
-        GaussianSplat { id: i as u64, position, color, opacity: rng.gen::<f32>(), scale, rotation }
-    }).collect()
+            GaussianSplat {
+                id: i as u64,
+                position,
+                color,
+                opacity: rng.gen::<f32>(),
+                scale,
+                rotation,
+            }
+        })
+        .collect()
 }

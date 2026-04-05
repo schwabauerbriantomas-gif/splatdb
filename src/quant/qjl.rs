@@ -10,13 +10,13 @@
 //!
 //! License: MIT (adapted from github.com/RecursiveIntell/turbo-quant)
 
-use std::f32::consts::PI;
-use serde::{Deserialize, Serialize};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, StandardNormal};
+use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
 
-use super::error::{Result, QuantError};
+use super::error::{QuantError, Result};
 
 /// A QJL sketch: sign of each random projection (+1 or -1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -27,7 +27,9 @@ pub struct QjlSketch {
 }
 
 impl QjlSketch {
-    pub fn encoded_bytes(&self) -> usize { self.projections }
+    pub fn encoded_bytes(&self) -> usize {
+        self.projections
+    }
 }
 
 /// Projects vectors to QJL sketches and estimates inner products.
@@ -40,44 +42,80 @@ pub struct QjlQuantizer {
 
 impl QjlQuantizer {
     pub fn new(dim: usize, projections: usize, seed: u64) -> Result<Self> {
-        if dim == 0 { return Err(QuantError::ZeroDimension); }
-        if projections == 0 { return Err(QuantError::ZeroProjectionCount); }
-        Ok(Self { dim, projections, seed })
+        if dim == 0 {
+            return Err(QuantError::ZeroDimension);
+        }
+        if projections == 0 {
+            return Err(QuantError::ZeroProjectionCount);
+        }
+        Ok(Self {
+            dim,
+            projections,
+            seed,
+        })
     }
 
     pub fn sketch(&self, vector: &[f32]) -> Result<QjlSketch> {
         if vector.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: vector.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: vector.len(),
+            });
         }
         let g = self.projection_matrix();
-        let signs: Vec<i8> = g.iter().map(|row| {
-            let dot: f32 = row.iter().zip(vector.iter()).map(|(g, x)| g * x).sum();
-            if dot >= 0.0 { 1i8 } else { -1i8 }
-        }).collect();
-        Ok(QjlSketch { dim: self.dim, projections: self.projections, signs })
+        let signs: Vec<i8> = g
+            .iter()
+            .map(|row| {
+                let dot: f32 = row.iter().zip(vector.iter()).map(|(g, x)| g * x).sum();
+                if dot >= 0.0 {
+                    1i8
+                } else {
+                    -1i8
+                }
+            })
+            .collect();
+        Ok(QjlSketch {
+            dim: self.dim,
+            projections: self.projections,
+            signs,
+        })
     }
 
     pub fn inner_product_estimate(&self, sketch: &QjlSketch, query: &[f32]) -> Result<f32> {
         if sketch.dim != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: sketch.dim });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: sketch.dim,
+            });
         }
         if query.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: query.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: query.len(),
+            });
         }
         let g = self.projection_matrix();
         let m = self.projections as f32;
         let scale = PI / (2.0 * m);
-        let estimate: f32 = g.iter().zip(sketch.signs.iter()).map(|(row, &sign)| {
-            let g_dot_query: f32 = row.iter().zip(query.iter()).map(|(g, q)| g * q).sum();
-            sign as f32 * g_dot_query
-        }).sum();
+        let estimate: f32 = g
+            .iter()
+            .zip(sketch.signs.iter())
+            .map(|(row, &sign)| {
+                let g_dot_query: f32 = row.iter().zip(query.iter()).map(|(g, q)| g * q).sum();
+                sign as f32 * g_dot_query
+            })
+            .sum();
         Ok(scale * estimate)
     }
 
     fn projection_matrix(&self) -> Vec<Vec<f32>> {
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(0xDEAD_BEEF_1234_5678));
         (0..self.projections)
-            .map(|_| (0..self.dim).map(|_| StandardNormal.sample(&mut rng)).collect())
+            .map(|_| {
+                (0..self.dim)
+                    .map(|_| StandardNormal.sample(&mut rng))
+                    .collect()
+            })
             .collect()
     }
 }
@@ -111,6 +149,9 @@ mod tests {
         let estimated = q.inner_product_estimate(&sketch, &y).unwrap();
         let error = (estimated - exact).abs();
         let tolerance = 0.30 * exact.abs() + 3.0;
-        assert!(error < tolerance, "error={error:.3}, exact={exact:.3}, estimated={estimated:.3}");
+        assert!(
+            error < tolerance,
+            "error={error:.3}, exact={exact:.3}, estimated={estimated:.3}"
+        );
     }
 }

@@ -40,7 +40,10 @@ impl JsonMetadataStore {
 }
 
 impl MetadataStore for JsonMetadataStore {
-    fn upsert(&self, record: &DocumentRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn upsert(
+        &self,
+        record: &DocumentRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             let mut data = self.data.write();
             data.insert(record.id.clone(), record.clone());
@@ -48,7 +51,10 @@ impl MetadataStore for JsonMetadataStore {
         self.persist()
     }
 
-    fn get(&self, doc_id: &str) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let data = self.data.read();
         match data.get(doc_id) {
             Some(r) if !r.deleted => Ok(Some(r.clone())),
@@ -57,7 +63,9 @@ impl MetadataStore for JsonMetadataStore {
     }
 
     fn soft_delete(&self, doc_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs_f64();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64();
         {
             let mut data = self.data.write();
             if let Some(record) = data.get_mut(doc_id) {
@@ -75,22 +83,32 @@ impl MetadataStore for JsonMetadataStore {
         let mut data = self.data.write();
         let existed = data.remove(doc_id).is_some();
         drop(data);
-        if existed { self.persist()?; }
+        if existed {
+            self.persist()?;
+        }
         Ok(existed)
     }
 
-    fn list_ids(&self, include_deleted: bool) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    fn list_ids(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let data = self.data.read();
-        let ids: Vec<String> = data.values()
+        let ids: Vec<String> = data
+            .values()
             .filter(|r| include_deleted || !r.deleted)
             .map(|r| r.id.clone())
             .collect();
         Ok(ids)
     }
 
-    fn count(&self, include_deleted: bool) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    fn count(
+        &self,
+        include_deleted: bool,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let data = self.data.read();
-        let count = data.values()
+        let count = data
+            .values()
             .filter(|r| include_deleted || !r.deleted)
             .count();
         Ok(count)
@@ -100,5 +118,7 @@ impl MetadataStore for JsonMetadataStore {
         self.persist()
     }
 
-    fn backend_name(&self) -> &'static str { "json-file" }
+    fn backend_name(&self) -> &'static str {
+        "json-file"
+    }
 }

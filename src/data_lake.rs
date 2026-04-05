@@ -34,14 +34,24 @@ impl DataLake {
     }
 
     /// Register a dataset in the lake.
-    pub fn register(&mut self, id: &str, name: &str, n_vectors: usize, dim: usize, description: Option<&str>) {
-        self.entries.insert(id.to_string(), DatasetEntry {
-            id: id.to_string(),
-            name: name.to_string(),
-            n_vectors,
-            dim,
-            description: description.map(|s| s.to_string()),
-        });
+    pub fn register(
+        &mut self,
+        id: &str,
+        name: &str,
+        n_vectors: usize,
+        dim: usize,
+        description: Option<&str>,
+    ) {
+        self.entries.insert(
+            id.to_string(),
+            DatasetEntry {
+                id: id.to_string(),
+                name: name.to_string(),
+                n_vectors,
+                dim,
+                description: description.map(|s| s.to_string()),
+            },
+        );
     }
 
     /// List all registered datasets.

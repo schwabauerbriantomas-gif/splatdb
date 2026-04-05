@@ -2,8 +2,8 @@
 //!
 //! Convenience constructors for common deployment scenarios.
 
-use super::types::*;
 use super::detect_device;
+use super::types::*;
 use super::SplatDBConfig;
 
 impl SplatDBConfig {
@@ -234,6 +234,7 @@ impl SplatDBConfig {
     ///
     /// GPU-accelerated when available, moderate capacity, all smart features on.
     /// Designed for the MCP server use case: store/search/recall with embeddings.
+    #[allow(clippy::field_reassign_with_default)]
     pub fn mcp(device: Option<&str>) -> Self {
         let mut config = Self::default();
 

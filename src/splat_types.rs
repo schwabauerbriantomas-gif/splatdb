@@ -2,8 +2,8 @@
 //!
 //! Core data structures for representing Gaussian splats and their embeddings.
 
-use serde::{Deserialize, Serialize};
 use ndarray::Array1;
+use serde::{Deserialize, Serialize};
 
 /// Type alias for Splat ID
 pub type SplatID = u64;
@@ -50,7 +50,10 @@ impl Default for GaussianSplat {
 impl GaussianSplat {
     /// Create a new GaussianSplat with default values
     pub fn new(id: u64) -> Self {
-        Self { id, ..Default::default() }
+        Self {
+            id,
+            ..Default::default()
+        }
     }
 
     /// Create a GaussianSplat with all fields specified
@@ -81,7 +84,7 @@ impl GaussianSplat {
             + self.rotation[2] * self.rotation[2]
             + self.rotation[3] * self.rotation[3])
             .sqrt();
-        
+
         if norm > 0.0 {
             for r in &mut self.rotation {
                 *r /= norm;
@@ -90,12 +93,12 @@ impl GaussianSplat {
     }
 
     /// Convert quaternion to rotation matrix.
-    /// 
+    ///
     /// Returns a 3x3 rotation matrix from quaternion (w, x, y, z).
     #[inline(always)]
     pub fn quaternion_to_matrix(q: &[f32; 4]) -> [[f32; 3]; 3] {
         let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
-        
+
         [
             [
                 1.0 - 2.0 * (y * y + z * z),
@@ -116,19 +119,19 @@ impl GaussianSplat {
     }
 
     /// Compute the 3D covariance matrix from scale and rotation.
-    /// 
+    ///
     /// Returns: Σ = R * S * S^T * R^T = M * M^T where M = R * S
     pub fn covariance_3d(&self) -> [[f32; 3]; 3] {
         let r = Self::quaternion_to_matrix(&self.rotation);
         let s = self.scale;
-        
+
         // M = R * S (scale columns of R)
         let m = [
             [r[0][0] * s[0], r[0][1] * s[1], r[0][2] * s[2]],
             [r[1][0] * s[0], r[1][1] * s[1], r[1][2] * s[2]],
             [r[2][0] * s[0], r[2][1] * s[1], r[2][2] * s[2]],
         ];
-        
+
         // Σ = M * M^T
         [
             [
@@ -209,7 +212,7 @@ impl SplatEmbedding {
     }
 
     /// Concatenate all encodings into a single 640D vector.
-    /// 
+    ///
     /// Returns a heap-allocated array with all three encodings concatenated.
     pub fn full_embedding(&self) -> Vec<f32> {
         let mut result = Vec::with_capacity(640);
@@ -298,10 +301,13 @@ impl SplatCluster {
     /// Check if a point is within the cluster bounds.
     pub fn contains_point(&self, point: &[f32; 3]) -> bool {
         let (min_b, max_b) = &self.bounds;
-        
-        point[0] >= min_b[0] && point[0] <= max_b[0]
-            && point[1] >= min_b[1] && point[1] <= max_b[1]
-            && point[2] >= min_b[2] && point[2] <= max_b[2]
+
+        point[0] >= min_b[0]
+            && point[0] <= max_b[0]
+            && point[1] >= min_b[1]
+            && point[1] <= max_b[1]
+            && point[2] >= min_b[2]
+            && point[2] <= max_b[2]
     }
 
     /// Add a splat to this cluster
@@ -319,17 +325,17 @@ impl SplatCluster {
         if embeddings.is_empty() {
             return;
         }
-        
+
         let dim = SplatEmbedding::embedding_dim();
         self.centroid = vec![0.0; dim];
-        
+
         for emb in embeddings {
             let full = emb.full_embedding();
             for (i, val) in full.iter().enumerate() {
                 self.centroid[i] += val;
             }
         }
-        
+
         let n = embeddings.len() as f32;
         for val in &mut self.centroid {
             *val /= n;
@@ -338,6 +344,7 @@ impl SplatCluster {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -354,7 +361,7 @@ mod tests {
         // Identity quaternion should give identity matrix
         let q = [1.0, 0.0, 0.0, 0.0];
         let r = GaussianSplat::quaternion_to_matrix(&q);
-        
+
         assert!((r[0][0] - 1.0).abs() < 1e-5);
         assert!((r[1][1] - 1.0).abs() < 1e-5);
         assert!((r[2][2] - 1.0).abs() < 1e-5);
@@ -367,9 +374,9 @@ mod tests {
         let mut splat = GaussianSplat::default();
         splat.scale = [1.0, 2.0, 3.0];
         splat.rotation = [1.0, 0.0, 0.0, 0.0]; // Identity
-        
+
         let cov = splat.covariance_3d();
-        
+
         // With identity rotation, diagonal should be scale^2
         assert!((cov[0][0] - 1.0).abs() < 1e-5);
         assert!((cov[1][1] - 4.0).abs() < 1e-5);
@@ -387,10 +394,10 @@ mod tests {
     fn test_splat_cluster() {
         let mut cluster = SplatCluster::new(1);
         cluster.bounds = ([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
-        
+
         assert!(cluster.contains_point(&[5.0, 5.0, 5.0]));
         assert!(!cluster.contains_point(&[15.0, 5.0, 5.0]));
-        
+
         cluster.add_splat(1);
         cluster.add_splat(2);
         assert_eq!(cluster.size(), 2);

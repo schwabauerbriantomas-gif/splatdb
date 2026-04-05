@@ -16,4 +16,4 @@ pub use error::{QuantError, Result};
 pub use polar::{PolarCode, PolarQuantizer};
 pub use qjl::{QjlQuantizer, QjlSketch};
 pub use rotation::StoredRotation;
-pub use turbo::{TurboCode, TurboQuantizer, BatchStats};
+pub use turbo::{BatchStats, TurboCode, TurboQuantizer};

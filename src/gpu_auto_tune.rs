@@ -112,7 +112,10 @@ impl GpuAutoTuner {
             total_time += start.elapsed();
         }
 
-        latencies.sort_by(|a, b| a.partial_cmp(b).expect("f64 latencies should be comparable"));
+        latencies.sort_by(|a, b| {
+            a.partial_cmp(b)
+                .expect("f64 latencies should be comparable")
+        });
 
         let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
         let p99_latency = latencies[(latencies.len() as f64 * 0.99) as usize];
@@ -127,7 +130,9 @@ impl GpuAutoTuner {
         };
 
         self.benchmarks.insert(name.to_string(), result);
-        self.benchmarks.get(name).expect("benchmark was just inserted")
+        self.benchmarks
+            .get(name)
+            .expect("benchmark was just inserted")
     }
 
     /// Auto-tune batch size by trying different values.
@@ -202,7 +207,9 @@ impl GpuAutoTuner {
 }
 
 impl Default for GpuAutoTuner {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

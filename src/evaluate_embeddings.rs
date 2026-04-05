@@ -82,7 +82,11 @@ impl EmbeddingEvaluator {
     /// * `embeddings` - Matrix [N, D] of embeddings
     /// * `labels` - Labels for each embedding
     /// * `n_queries` - Number of queries to evaluate (sampled from start)
-    pub fn evaluate(embeddings: &Array2<f32>, labels: &[String], n_queries: usize) -> EmbeddingEvalReport {
+    pub fn evaluate(
+        embeddings: &Array2<f32>,
+        labels: &[String],
+        n_queries: usize,
+    ) -> EmbeddingEvalReport {
         let start = Instant::now();
         let n = embeddings.nrows();
         let actual_queries = n_queries.min(n);
@@ -105,7 +109,9 @@ impl EmbeddingEvaluator {
             // Compute cosine similarities
             let mut sims: Vec<(usize, f64)> = Vec::with_capacity(n);
             for j in 0..n {
-                if j == i { continue; }
+                if j == i {
+                    continue;
+                }
                 let other = embeddings.row(j);
                 let dot: f32 = query.iter().zip(other.iter()).map(|(a, b)| a * b).sum();
                 let norm_q: f32 = query.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -125,19 +131,33 @@ impl EmbeddingEvaluator {
 
             // Find how many have the same label
             let total_relevant: usize = labels.iter().filter(|l| **l == *query_label).count();
-            if total_relevant == 0 { continue; }
+            if total_relevant == 0 {
+                continue;
+            }
             let relevant_minus_self = total_relevant.saturating_sub(1);
 
             // Compute metrics
             for (rank, (idx, _)) in sims.iter().enumerate() {
                 let rank_0 = rank; // 0-indexed
                 if labels[*idx] == *query_label {
-                    if rank_0 == 0 { p1_sum += 1.0; }
-                    if rank_0 < 5 { p5_sum += 1.0; }
-                    if rank_0 < 10 { p10_sum += 1.0; }
-                    if rank_0 == 0 { r1_sum += 1.0; }
-                    if rank_0 < 5 { r5_sum += 1.0; }
-                    if rank_0 < 10 { r10_sum += 1.0; }
+                    if rank_0 == 0 {
+                        p1_sum += 1.0;
+                    }
+                    if rank_0 < 5 {
+                        p5_sum += 1.0;
+                    }
+                    if rank_0 < 10 {
+                        p10_sum += 1.0;
+                    }
+                    if rank_0 == 0 {
+                        r1_sum += 1.0;
+                    }
+                    if rank_0 < 5 {
+                        r5_sum += 1.0;
+                    }
+                    if rank_0 < 10 {
+                        r10_sum += 1.0;
+                    }
 
                     // MRR
                     mrr_sum += 1.0 / (rank_0 + 1) as f64;
@@ -151,7 +171,11 @@ impl EmbeddingEvaluator {
             let mut idcg = 0.0;
             let k10 = sims.iter().take(10);
             for (rank, (idx, _)) in k10.enumerate() {
-                let rel = if labels[*idx].as_str() == *query_label { 1.0 } else { 0.0 };
+                let rel = if labels[*idx].as_str() == *query_label {
+                    1.0
+                } else {
+                    0.0
+                };
                 dcg += rel / (1.0 + rank as f64).ln();
             }
             // Ideal DCG
@@ -174,20 +198,57 @@ impl EmbeddingEvaluator {
             norms.push(norm as f64);
         }
         let norm_mean = norms.iter().sum::<f64>() / norms.len() as f64;
-        let norm_var: f64 = norms.iter().map(|n| (n - norm_mean).powi(2)).sum::<f64>() / norms.len() as f64;
+        let norm_var: f64 =
+            norms.iter().map(|n| (n - norm_mean).powi(2)).sum::<f64>() / norms.len() as f64;
         let norm_std = norm_var.sqrt();
 
-        let avg_sim = if sim_count > 0 { sim_sum / sim_count as f64 } else { 0.0 };
+        let avg_sim = if sim_count > 0 {
+            sim_sum / sim_count as f64
+        } else {
+            0.0
+        };
 
         EmbeddingEvalReport {
-            precision_at_1: if actual_queries > 0 { p1_sum / actual_queries as f64 } else { 0.0 },
-            precision_at_5: if actual_queries > 0 { p5_sum / (actual_queries as f64 * 5.0).min(actual_queries as f64) } else { 0.0 },
-            precision_at_10: if actual_queries > 0 { p10_sum / (actual_queries as f64 * 10.0).min(actual_queries as f64) } else { 0.0 },
-            recall_at_1: if actual_queries > 0 { r1_sum / actual_queries as f64 } else { 0.0 },
-            recall_at_5: if actual_queries > 0 { r5_sum / actual_queries as f64 } else { 0.0 },
-            recall_at_10: if actual_queries > 0 { r10_sum / actual_queries as f64 } else { 0.0 },
-            mrr: if actual_queries > 0 { mrr_sum / actual_queries as f64 } else { 0.0 },
-            ndcg_at_10: if actual_queries > 0 { ndcg_sum / actual_queries as f64 } else { 0.0 },
+            precision_at_1: if actual_queries > 0 {
+                p1_sum / actual_queries as f64
+            } else {
+                0.0
+            },
+            precision_at_5: if actual_queries > 0 {
+                p5_sum / (actual_queries as f64 * 5.0).min(actual_queries as f64)
+            } else {
+                0.0
+            },
+            precision_at_10: if actual_queries > 0 {
+                p10_sum / (actual_queries as f64 * 10.0).min(actual_queries as f64)
+            } else {
+                0.0
+            },
+            recall_at_1: if actual_queries > 0 {
+                r1_sum / actual_queries as f64
+            } else {
+                0.0
+            },
+            recall_at_5: if actual_queries > 0 {
+                r5_sum / actual_queries as f64
+            } else {
+                0.0
+            },
+            recall_at_10: if actual_queries > 0 {
+                r10_sum / actual_queries as f64
+            } else {
+                0.0
+            },
+            mrr: if actual_queries > 0 {
+                mrr_sum / actual_queries as f64
+            } else {
+                0.0
+            },
+            ndcg_at_10: if actual_queries > 0 {
+                ndcg_sum / actual_queries as f64
+            } else {
+                0.0
+            },
             avg_similarity: avg_sim,
             embedding_norm_std: norm_std,
             n_queries: actual_queries,
@@ -218,23 +279,36 @@ impl EmbeddingEvaluator {
             let query_label = &labels[i];
 
             // Teacher top-k
-            let mut t_sims: Vec<(usize, f64)> = (0..n).filter(|&j| j != i).map(|j| {
-                let sim = cosine_sim_rows(&t_query, &teacher.row(j));
-                (j, sim)
-            }).collect();
+            let mut t_sims: Vec<(usize, f64)> = (0..n)
+                .filter(|&j| j != i)
+                .map(|j| {
+                    let sim = cosine_sim_rows(&t_query, &teacher.row(j));
+                    (j, sim)
+                })
+                .collect();
             t_sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             let teacher_topk: Vec<usize> = t_sims.iter().take(k).map(|(idx, _)| *idx).collect();
 
             // Student top-k
-            let mut s_sims: Vec<(usize, f64)> = (0..n).filter(|&j| j != i).map(|j| {
-                let sim = cosine_sim_rows(&s_query, &student.row(j));
-                (j, sim)
-            }).collect();
+            let mut s_sims: Vec<(usize, f64)> = (0..n)
+                .filter(|&j| j != i)
+                .map(|j| {
+                    let sim = cosine_sim_rows(&s_query, &student.row(j));
+                    (j, sim)
+                })
+                .collect();
             s_sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             let student_topk: Vec<usize> = s_sims.iter().take(k).map(|(idx, _)| *idx).collect();
 
-            let teacher_relevant: Vec<usize> = teacher_topk.iter().filter(|&&idx| labels[idx] == *query_label).copied().collect();
-            let preserved = teacher_relevant.iter().filter(|&&idx| student_topk.contains(&idx)).count();
+            let teacher_relevant: Vec<usize> = teacher_topk
+                .iter()
+                .filter(|&&idx| labels[idx] == *query_label)
+                .copied()
+                .collect();
+            let preserved = teacher_relevant
+                .iter()
+                .filter(|&&idx| student_topk.contains(&idx))
+                .count();
             preserved_count += preserved;
             total_relevant += teacher_relevant.len();
         }
@@ -242,7 +316,11 @@ impl EmbeddingEvaluator {
         ComparisonReport {
             student_precision_at_10: student_report.precision_at_10,
             teacher_precision_at_10: teacher_report.precision_at_10,
-            recall_preservation: if total_relevant > 0 { preserved_count as f64 / total_relevant as f64 } else { 0.0 },
+            recall_preservation: if total_relevant > 0 {
+                preserved_count as f64 / total_relevant as f64
+            } else {
+                0.0
+            },
             student_mrr: student_report.mrr,
             teacher_mrr: teacher_report.mrr,
             student_avg_sim: student_report.avg_similarity,
@@ -260,10 +338,13 @@ impl EmbeddingEvaluator {
         for i in 0..actual_queries {
             let q_start = Instant::now();
             let query = embeddings.row(i);
-            let mut sims: Vec<(usize, f64)> = (0..n).filter(|&j| j != i).map(|j| {
-                let sim = cosine_sim_rows(&query, &embeddings.row(j));
-                (j, sim)
-            }).collect();
+            let mut sims: Vec<(usize, f64)> = (0..n)
+                .filter(|&j| j != i)
+                .map(|j| {
+                    let sim = cosine_sim_rows(&query, &embeddings.row(j));
+                    (j, sim)
+                })
+                .collect();
             sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             let _topk: Vec<_> = sims.iter().take(k).collect();
             latencies.push(q_start.elapsed().as_micros() as f64);
@@ -292,11 +373,17 @@ fn cosine_sim_rows(a: &ndarray::ArrayView1<f32>, b: &ndarray::ArrayView1<f32>) -
     let na: f32 = a.iter().map(|v| v * v).sum::<f32>().sqrt();
     let nb: f32 = b.iter().map(|v| v * v).sum::<f32>().sqrt();
     let denom = na * nb;
-    if denom < 1e-8 { 0.0 } else { dot as f64 / denom as f64 }
+    if denom < 1e-8 {
+        0.0
+    } else {
+        dot as f64 / denom as f64
+    }
 }
 
 fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() { return 0.0; }
+    if sorted.is_empty() {
+        return 0.0;
+    }
     let idx = (p / 100.0 * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
@@ -340,17 +427,28 @@ mod tests {
     fn test_compare() {
         let mut data = Vec::new();
         let mut labels = Vec::new();
-        for _ in 0..5 { data.extend([1.0f32, 0.0, 0.0]); labels.push("A".into()); }
-        for _ in 0..5 { data.extend([0.0f32, 1.0, 0.0]); labels.push("B".into()); }
+        for _ in 0..5 {
+            data.extend([1.0f32, 0.0, 0.0]);
+            labels.push("A".into());
+        }
+        for _ in 0..5 {
+            data.extend([0.0f32, 1.0, 0.0]);
+            labels.push("B".into());
+        }
         let emb = Array2::from_shape_vec((10, 3), data).unwrap();
         let report = EmbeddingEvaluator::compare(&emb, &emb, &labels, 5, 5);
-        assert!(report.recall_preservation > 0.9, "Same embeddings should have ~1.0 preservation");
+        assert!(
+            report.recall_preservation > 0.9,
+            "Same embeddings should have ~1.0 preservation"
+        );
     }
 
     #[test]
     fn test_latency() {
         let mut data = Vec::new();
-        for i in 0..20 { data.extend([i as f32, 0.0, 0.0]); }
+        for i in 0..20 {
+            data.extend([i as f32, 0.0, 0.0]);
+        }
         let emb = Array2::from_shape_vec((20, 3), data).unwrap();
         let report = EmbeddingEvaluator::measure_latency(&emb, 5, 5);
         assert_eq!(report.n_queries, 5);

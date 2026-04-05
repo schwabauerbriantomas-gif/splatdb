@@ -51,7 +51,11 @@ impl EnergyResult {
     pub fn new(energy: f32) -> Self {
         let confidence = 1.0 / (1.0 + energy);
         let zone = ConfidenceZone::from_energy(energy);
-        Self { energy, confidence, zone }
+        Self {
+            energy,
+            confidence,
+            zone,
+        }
     }
 }
 
@@ -75,11 +79,7 @@ impl EBMEnergy {
     }
 
     /// Create with initial splat data.
-    pub fn with_splats(
-        mu: Array2<f32>,
-        alpha: Array1<f32>,
-        kappa: Array1<f32>,
-    ) -> Self {
+    pub fn with_splats(mu: Array2<f32>, alpha: Array1<f32>, kappa: Array1<f32>) -> Self {
         Self {
             splat_mu: Some(mu),
             splat_alpha: Some(alpha),
@@ -88,12 +88,7 @@ impl EBMEnergy {
     }
 
     /// Update the splats of the energy landscape.
-    pub fn update_splats(
-        &mut self,
-        mu: Array2<f32>,
-        alpha: Array1<f32>,
-        kappa: Array1<f32>,
-    ) {
+    pub fn update_splats(&mut self, mu: Array2<f32>, alpha: Array1<f32>, kappa: Array1<f32>) {
         self.splat_mu = Some(mu);
         self.splat_alpha = Some(alpha);
         self.splat_kappa = Some(kappa);
@@ -111,23 +106,41 @@ impl EBMEnergy {
             return 1.0;
         }
 
-        let mu = self.splat_mu.as_ref().expect("has_splats guarantees splat_mu is set");
-        let alpha = self.splat_alpha.as_ref().expect("has_splats guarantees splat_alpha is set");
-        let kappa = self.splat_kappa.as_ref().expect("has_splats guarantees splat_kappa is set");
+        let mu = self
+            .splat_mu
+            .as_ref()
+            .expect("has_splats guarantees splat_mu is set");
+        let alpha = self
+            .splat_alpha
+            .as_ref()
+            .expect("has_splats guarantees splat_alpha is set");
+        let kappa = self
+            .splat_kappa
+            .as_ref()
+            .expect("has_splats guarantees splat_kappa is set");
 
-        let total: f32 = mu.outer_iter()
+        let total: f32 = mu
+            .outer_iter()
             .zip(alpha.iter())
             .zip(kappa.iter())
             .map(|((mu_row, &a), &k)| {
-                let dist_sq: f32 = mu_row.iter()
+                let dist_sq: f32 = mu_row
+                    .iter()
                     .zip(vector.iter())
-                    .map(|(m, v)| { let d = m - v; d * d })
+                    .map(|(m, v)| {
+                        let d = m - v;
+                        d * d
+                    })
                     .sum();
                 a * (-k * dist_sq).exp()
             })
             .sum();
 
-        if total < 1e-10 { 10.0 } else { -total.ln() }
+        if total < 1e-10 {
+            10.0
+        } else {
+            -total.ln()
+        }
     }
 
     /// Compute energy for multiple vectors (batch).
@@ -136,24 +149,43 @@ impl EBMEnergy {
             return Array1::ones(vectors.nrows());
         }
 
-        let mu = self.splat_mu.as_ref().expect("has_splats guarantees splat_mu is set");
-        let alpha = self.splat_alpha.as_ref().expect("has_splats guarantees splat_alpha is set");
-        let kappa = self.splat_kappa.as_ref().expect("has_splats guarantees splat_kappa is set");
+        let mu = self
+            .splat_mu
+            .as_ref()
+            .expect("has_splats guarantees splat_mu is set");
+        let alpha = self
+            .splat_alpha
+            .as_ref()
+            .expect("has_splats guarantees splat_alpha is set");
+        let kappa = self
+            .splat_kappa
+            .as_ref()
+            .expect("has_splats guarantees splat_kappa is set");
 
-        let energies: Vec<f32> = vectors.outer_iter()
+        let energies: Vec<f32> = vectors
+            .outer_iter()
             .map(|row| {
-                let total: f32 = mu.outer_iter()
+                let total: f32 = mu
+                    .outer_iter()
                     .zip(alpha.iter())
                     .zip(kappa.iter())
                     .map(|((mu_row, &a), &k)| {
-                        let dist_sq: f32 = mu_row.iter()
+                        let dist_sq: f32 = mu_row
+                            .iter()
                             .zip(row.iter())
-                            .map(|(m, v)| { let d = m - v; d * d })
+                            .map(|(m, v)| {
+                                let d = m - v;
+                                d * d
+                            })
                             .sum();
                         a * (-k * dist_sq).exp()
                     })
                     .sum();
-                if total < 1e-10 { 10.0 } else { -total.ln() }
+                if total < 1e-10 {
+                    10.0
+                } else {
+                    -total.ln()
+                }
             })
             .collect();
 
@@ -171,18 +203,31 @@ impl EBMEnergy {
             return vec![0.0; vector.len()];
         }
 
-        let mu = self.splat_mu.as_ref().expect("has_splats guarantees splat_mu is set");
-        let alpha = self.splat_alpha.as_ref().expect("has_splats guarantees splat_alpha is set");
-        let kappa = self.splat_kappa.as_ref().expect("has_splats guarantees splat_kappa is set");
+        let mu = self
+            .splat_mu
+            .as_ref()
+            .expect("has_splats guarantees splat_mu is set");
+        let alpha = self
+            .splat_alpha
+            .as_ref()
+            .expect("has_splats guarantees splat_alpha is set");
+        let kappa = self
+            .splat_kappa
+            .as_ref()
+            .expect("has_splats guarantees splat_kappa is set");
         let dim = vector.len();
 
         let mut gradient = vec![0.0f32; dim];
         let mut total: f32 = 0.0;
 
         for (mu_row, (&a, &k)) in mu.outer_iter().zip(alpha.iter().zip(kappa.iter())) {
-            let dist_sq: f32 = mu_row.iter()
+            let dist_sq: f32 = mu_row
+                .iter()
                 .zip(vector.iter())
-                .map(|(m, v)| { let d = m - v; d * d })
+                .map(|(m, v)| {
+                    let d = m - v;
+                    d * d
+                })
                 .sum();
             let exp_term = (-k * dist_sq).exp();
             let factor = 2.0 * k * a * exp_term;
@@ -210,7 +255,11 @@ impl EBMEnergy {
         match &self.splat_alpha {
             Some(alpha) if !alpha.is_empty() => {
                 let z: f32 = alpha.iter().sum();
-                if z > 0.0 { -z.ln() } else { f32::INFINITY }
+                if z > 0.0 {
+                    -z.ln()
+                } else {
+                    f32::INFINITY
+                }
             }
             _ => f32::INFINITY,
         }
@@ -263,13 +312,13 @@ impl EBMEnergy {
         }
 
         // Flatten x_vals for the grid
-        let x_grid: Vec<f32> = (0..resolution).flat_map(|_| {
-            (0..resolution).map(|j| -radius + j as f32 * step)
-        }).collect();
+        let x_grid: Vec<f32> = (0..resolution)
+            .flat_map(|_| (0..resolution).map(|j| -radius + j as f32 * step))
+            .collect();
 
-        let y_grid: Vec<f32> = (0..resolution).flat_map(|i| {
-            std::iter::repeat_n(-radius + i as f32 * step, resolution)
-        }).collect();
+        let y_grid: Vec<f32> = (0..resolution)
+            .flat_map(|i| std::iter::repeat_n(-radius + i as f32 * step, resolution))
+            .collect();
 
         (x_grid, y_grid, energy_map)
     }

@@ -87,23 +87,40 @@ impl MapReduceIndexer {
 
             // Coarse KMeans on chunk
             let n_coarse = self.config.n_coarse.min(chunk_n);
-            let (coarse_centers, coarse_labels) = simple_kmeans(&chunk_flat, chunk_n, dim, n_coarse, self.config.random_state + chunk_id as u64);
+            let (coarse_centers, coarse_labels) = simple_kmeans(
+                &chunk_flat,
+                chunk_n,
+                dim,
+                n_coarse,
+                self.config.random_state + chunk_id as u64,
+            );
 
             // Fine KMeans per coarse cluster
             let mut fine_labels = vec![0usize; chunk_n];
             let mut fine_centers: HashMap<usize, Vec<Vec<f32>>> = HashMap::new();
             for c in 0..n_coarse {
-                let members: Vec<usize> = coarse_labels.iter().enumerate()
+                let members: Vec<usize> = coarse_labels
+                    .iter()
+                    .enumerate()
                     .filter(|(_, &l)| l == c)
                     .map(|(i, _)| i)
                     .collect();
-                if members.is_empty() { continue; }
+                if members.is_empty() {
+                    continue;
+                }
 
-                let member_data: Vec<f32> = members.iter()
+                let member_data: Vec<f32> = members
+                    .iter()
                     .flat_map(|&i| chunk_flat[i * dim..(i + 1) * dim].iter().copied())
                     .collect();
                 let n_fine = self.config.n_fine_per_coarse.min(members.len());
-                let (_, labels) = simple_kmeans(&member_data, members.len(), dim, n_fine, self.config.random_state + c as u64);
+                let (_, labels) = simple_kmeans(
+                    &member_data,
+                    members.len(),
+                    dim,
+                    n_fine,
+                    self.config.random_state + c as u64,
+                );
                 for (j, &idx) in members.iter().enumerate() {
                     fine_labels[idx] = labels[j];
                 }
@@ -134,7 +151,8 @@ impl MapReduceIndexer {
         let n_fine_clusters = n_coarse_clusters * self.config.n_fine_per_coarse;
 
         // Merge coarse centers from all chunks
-        let all_coarse: Vec<Vec<f32>> = chunk_results.iter()
+        let all_coarse: Vec<Vec<f32>> = chunk_results
+            .iter()
             .flat_map(|r| r.coarse_centers.iter().cloned())
             .collect();
 
@@ -143,7 +161,13 @@ impl MapReduceIndexer {
         if dim > 0 && !all_coarse.is_empty() {
             let flat: Vec<f32> = all_coarse.iter().flat_map(|v| v.iter().copied()).collect();
             let n_final = n_coarse_clusters.min(all_coarse.len());
-            let _ = simple_kmeans(&flat, all_coarse.len(), dim, n_final, self.config.random_state);
+            let _ = simple_kmeans(
+                &flat,
+                all_coarse.len(),
+                dim,
+                n_final,
+                self.config.random_state,
+            );
         }
 
         ReduceResult {
@@ -165,7 +189,13 @@ impl MapReduceIndexer {
 }
 
 /// Simple KMeans clustering (CPU).
-fn simple_kmeans(data: &[f32], n: usize, dim: usize, k: usize, seed: u64) -> (Vec<Vec<f32>>, Vec<usize>) {
+fn simple_kmeans(
+    data: &[f32],
+    n: usize,
+    dim: usize,
+    k: usize,
+    seed: u64,
+) -> (Vec<Vec<f32>>, Vec<usize>) {
     let k = k.min(n);
     if k == 0 || dim == 0 {
         return (Vec::new(), vec![0usize; n]);
@@ -189,8 +219,13 @@ fn simple_kmeans(data: &[f32], n: usize, dim: usize, k: usize, seed: u64) -> (Ve
             let mut best_c = 0;
             let mut best_dist = f64::MAX;
             for (c, center) in centroids.iter().enumerate() {
-                let dist: f64 = row.iter().zip(center.iter())
-                    .map(|(&x, &y)| { let d = x as f64 - y as f64; d * d })
+                let dist: f64 = row
+                    .iter()
+                    .zip(center.iter())
+                    .map(|(&x, &y)| {
+                        let d = x as f64 - y as f64;
+                        d * d
+                    })
                     .sum::<f64>()
                     .sqrt();
                 if dist < best_dist {
@@ -203,7 +238,9 @@ fn simple_kmeans(data: &[f32], n: usize, dim: usize, k: usize, seed: u64) -> (Ve
                 changed = true;
             }
         }
-        if !changed { break; }
+        if !changed {
+            break;
+        }
 
         // Update centroids
         let mut counts = vec![0usize; k];
@@ -233,16 +270,26 @@ mod tests {
 
     fn make_embeddings() -> Vec<Vec<f32>> {
         vec![
-            vec![1.0, 0.0], vec![1.1, 0.1], vec![0.9, -0.1],
-            vec![0.0, 1.0], vec![0.1, 1.1], vec![-0.1, 0.9],
-            vec![5.0, 5.0], vec![5.1, 4.9], vec![4.9, 5.1],
+            vec![1.0, 0.0],
+            vec![1.1, 0.1],
+            vec![0.9, -0.1],
+            vec![0.0, 1.0],
+            vec![0.1, 1.1],
+            vec![-0.1, 0.9],
+            vec![5.0, 5.0],
+            vec![5.1, 4.9],
+            vec![4.9, 5.1],
         ]
     }
 
     #[test]
     fn test_map_reduce() {
         let indexer = MapReduceIndexer::new(MapReduceConfig {
-            chunk_size: 3, n_workers: 2, n_coarse: 3, n_fine_per_coarse: 2, random_state: 42,
+            chunk_size: 3,
+            n_workers: 2,
+            n_coarse: 3,
+            n_fine_per_coarse: 2,
+            random_state: 42,
         });
         let result = indexer.index(&make_embeddings());
         assert_eq!(result.n_splats, 9);

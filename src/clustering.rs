@@ -3,8 +3,8 @@
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::Rng;
-use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
 /// KMeans clustering result.
@@ -207,7 +207,10 @@ impl KMeans {
     }
 
     /// Transform: compute distances from each point to each centroid.
-    pub fn transform<S2>(&self, data: &ndarray::ArrayBase<S2, ndarray::Dim<[usize; 2]>>) -> Array2<f32>
+    pub fn transform<S2>(
+        &self,
+        data: &ndarray::ArrayBase<S2, ndarray::Dim<[usize; 2]>>,
+    ) -> Array2<f32>
     where
         S2: ndarray::Data<Elem = f32> + std::marker::Sync,
     {
