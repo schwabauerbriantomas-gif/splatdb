@@ -22,7 +22,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 cudarc = { version = "0.19", features = ["cuda-12040"], optional = true }
 
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "io-util"] }
 axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
 anyhow = "1"

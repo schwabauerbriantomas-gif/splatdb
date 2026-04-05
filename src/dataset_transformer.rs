@@ -307,7 +307,7 @@ impl DatasetTransformer {
         let partition = self.partition_splats(&splats, data, seed);
 
         // Stats
-        let original_bytes = n * dim * 4;
+        let original_bytes = n.checked_mul(dim).and_then(|v| v.checked_mul(4)).unwrap_or(usize::MAX);
         let compressed_bytes: usize = splats
             .iter()
             .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)
@@ -435,7 +435,7 @@ impl DatasetTransformer {
         };
         let partition = self.partition_splats(&splats, data, seed);
 
-        let original_bytes = n * dim * 4;
+        let original_bytes = n.checked_mul(dim).and_then(|v| v.checked_mul(4)).unwrap_or(usize::MAX);
         let compressed_bytes: usize = splats
             .iter()
             .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)
@@ -565,7 +565,7 @@ impl DatasetTransformer {
 
         let partition = self.partition_splats(&splats, data, seed);
 
-        let original_bytes = n * dim * 4;
+        let original_bytes = n.checked_mul(dim).and_then(|v| v.checked_mul(4)).unwrap_or(usize::MAX);
         let compressed_bytes: usize = splats
             .iter()
             .map(|s| s.mu.len() * 4 + 16 + s.indices.len() * 4)

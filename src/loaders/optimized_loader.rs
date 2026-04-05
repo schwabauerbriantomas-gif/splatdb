@@ -3,6 +3,8 @@
 use ndarray::Array2;
 use std::io::{Read, Write};
 
+const MAX_LOAD_ELEMENTS: usize = 1_000_000_000;
+
 /// Loads vector data from binary format (rows: u64, cols: u64, f32 data).
 pub fn load_vectors_bin(path: &str) -> Result<Array2<f32>, String> {
     let mut file = std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {}", path, e))?;
@@ -10,18 +12,22 @@ pub fn load_vectors_bin(path: &str) -> Result<Array2<f32>, String> {
 
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let rows = u64::from_le_bytes(buf8) as usize;
+    let rows = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "rows overflow")?;
 
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let cols = u64::from_le_bytes(buf8) as usize;
+    let cols = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "cols overflow")?;
 
-    let mut data = vec![0.0f32; rows * cols];
-    // SAFETY: `data` is a valid Vec<f32> with `rows * cols` elements. Casting to &mut [u8] of
-    // length `data.len() * 4` is valid because f32 is 4 bytes with no padding. The slice does not
-    // outlive `data` and we read exactly that many bytes.
-    let bytes: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, data.len() * 4) };
+    let total = rows.checked_mul(cols).ok_or("overflow in rows*cols")?;
+    if total > MAX_LOAD_ELEMENTS {
+        return Err(format!(
+            "Allocation too large: {} elements (max {})",
+            total, MAX_LOAD_ELEMENTS
+        ));
+    }
+
+    let mut data = vec![0.0f32; total];
+    let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
     file.read_exact(bytes)
         .map_err(|e| format!("Read error: {}", e))?;
     Array2::from_shape_vec((rows, cols), data).map_err(|e| format!("Shape error: {}", e))
@@ -36,11 +42,7 @@ pub fn save_vectors_bin(path: &str, vectors: &Array2<f32>) -> Result<(), String>
         .map_err(|e| format!("Write error: {}", e))?;
     file.write_all(&cols.to_le_bytes())
         .map_err(|e| format!("Write error: {}", e))?;
-    // SAFETY: `vectors` is a contiguous Array2<f32>. Casting its data pointer to & [u8] of length
-    // `rows * cols * 4` is valid because f32 is 4 bytes with no padding and the slice does not
-    // outlive the Array2 reference.
-    let bytes: &[u8] =
-        unsafe { std::slice::from_raw_parts(vectors.as_ptr() as *const u8, rows * cols * 4) };
+    let bytes: &[u8] = bytemuck::cast_slice(vectors.as_slice().unwrap());
     file.write_all(bytes)
         .map_err(|e| format!("Write error: {}", e))?;
     Ok(())
