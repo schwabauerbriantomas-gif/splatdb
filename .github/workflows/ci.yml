@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ─── Lint ───────────────────────────────────────────────
+  lint:
+    name: Clippy + rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (cuda feature)
+        run: cargo clippy --workspace --all-targets --features cuda -- -D warnings
+        # cuda feature compiles without GPU hardware; only PTX kernels need the device
+
+  # ─── Test ───────────────────────────────────────────────
+  test:
+    name: Test (default)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Unit tests
+        run: cargo test --release
+
+      - name: Integration tests
+        run: cargo test --release --test integration
+
+      - name: Build with cuda feature
+        run: cargo build --release --features cuda
+
+      - name: Test with cuda feature
+        run: cargo test --release --features cuda
+
+  # ─── Build (no GPU runtime, just compilation) ──────────
+  build-cuda:
+    name: Build (CUDA feature)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install CUDA deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nvidia-cuda-toolkit || true
+
+      - name: Build with CUDA
+        run: cargo build --release --features cuda
+
+      - name: Test with CUDA
+        run: cargo test --release --features cuda
+
+  # ─── Coverage ───────────────────────────────────────────
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage
+        run: cargo llvm-cov --lcov --output-path lcov.info
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
+  # ─── Security audit ────────────────────────────────────
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Audit dependencies
+        run: cargo audit
+
+  # ─── Release build (no CUDA, cross-check) ──────────────
+  build-release:
+    name: Release build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: splatdb-linux-amd64
+          path: target/release/splatdb
+          retention-days: 7
+
+  # ─── Final gate ─────────────────────────────────────────
+  ci-pass:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs: [lint, test, build-cuda, coverage, audit]
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          echo "lint:    ${{ needs.lint.result }}"
+          echo "test:    ${{ needs.test.result }}"
+          echo "cuda:    ${{ needs.build-cuda.result }}"
+          echo "coverage:${{ needs.coverage.result }}"
+          echo "audit:   ${{ needs.audit.result }}"
+          if [ "${{ needs.lint.result }}" == "failure" ] || \
+             [ "${{ needs.test.result }}" == "failure" ] || \
+             [ "${{ needs.build-cuda.result }}" == "failure" ] || \
+             [ "${{ needs.audit.result }}" == "failure" ]; then
+            echo "::error::CI gate failed"
+            exit 1
+          fi
+          echo "All checks passed ✅"
