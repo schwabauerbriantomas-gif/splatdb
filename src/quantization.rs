@@ -215,6 +215,53 @@ impl QuantizedStore {
 
     /// Get the config.
     pub fn config(&self) -> &QuantConfig { &self.config }
+
+    /// Measure recall@k against brute-force ground truth.
+    ///
+    /// Given a set of query vectors and the full dataset, computes what fraction
+    /// of the true top-k neighbors are recovered by quantized search.
+    /// Returns recall in [0.0, 1.0] where 1.0 = perfect recall.
+    pub fn measure_recall(
+        &self,
+        queries: &Array2<f32>,
+        data: &Array2<f32>,
+        k: usize,
+    ) -> f32 {
+        if self.is_empty() || queries.nrows() == 0 {
+            return 0.0;
+        }
+        let n_queries = queries.nrows();
+        let mut total_recall = 0.0;
+
+        for qi in 0..n_queries {
+            let query = queries.row(qi);
+
+            // Ground truth: brute-force top-k
+            let mut gt_dists: Vec<(usize, f32)> = data.outer_iter().enumerate()
+                .map(|(i, row)| {
+                    let dist: f32 = row.iter().zip(query.iter())
+                        .map(|(a, b)| { let d = a - b; d * d }).sum();
+                    (i, dist)
+                })
+                .collect();
+            let k = k.min(gt_dists.len());
+            if k == 0 { continue; }
+            gt_dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let gt_set: std::collections::HashSet<usize> =
+                gt_dists[..k].iter().map(|(i, _)| *i).collect();
+
+            // Quantized search top-k
+            let qresults = self.search(&query, k);
+            let quant_set: std::collections::HashSet<usize> =
+                qresults.iter().map(|(id, _)| *id as usize).collect();
+
+            // Recall = |quantized ∩ ground_truth| / k
+            let overlap = gt_set.intersection(&quant_set).count() as f32;
+            total_recall += overlap / k as f32;
+        }
+
+        total_recall / n_queries as f32
+    }
 }
 
 #[cfg(test)]

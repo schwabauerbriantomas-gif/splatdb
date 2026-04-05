@@ -132,6 +132,32 @@ impl SplatStore {
         true
     }
 
+    /// Insert a single vector. Returns its index in the store.
+    ///
+    /// Convenience wrapper around `add_splat` for single vectors.
+    /// Returns `None` if capacity is exceeded or dimension mismatches.
+    pub fn insert(&mut self, vec: &[f32]) -> Option<usize> {
+        let dim = self.config.latent_dim;
+        if vec.len() != dim || self.n_active >= self.max_splats {
+            return None;
+        }
+        let arr = Array2::from_shape_vec((1, dim), vec.to_vec()).ok()?;
+        let idx = self.n_active;
+        if !self.add_splat(&arr) {
+            return None;
+        }
+        Some(idx)
+    }
+
+    /// Search for k nearest neighbors by raw vector.
+    ///
+    /// Convenience wrapper around `find_neighbors` that accepts a slice.
+    /// Returns results sorted by distance (closest first).
+    pub fn search(&self, vec: &[f32], k: usize) -> Vec<NeighborResult> {
+        let query = Array1::from_vec(vec.to_vec());
+        self.find_neighbors(&query.view(), k)
+    }
+
     /// Build the search index from active vectors.
     ///
     /// Feeds active vectors to all enabled subsystems:
