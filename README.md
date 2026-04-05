@@ -429,6 +429,84 @@ Start an HTTP server for integration with Python, Node.js, or any HTTP client:
 | `--max-splats` | `100000` | Max capacity |
 | `--backend` | `sqlite` | Metadata backend |
 
+### Endpoints
+
+#### `GET /health` — Health Check
+
+```bash
+curl http://localhost:8199/health
+```
+
+```json
+{"status": "ok", "version": "2.1.0"}
+```
+
+#### `POST /status` — Store Statistics
+
+```bash
+curl -X POST http://localhost:8199/status
+```
+
+```json
+{
+  "n_active": 1500,
+  "max_splats": 100000,
+  "dimension": 640,
+  "has_hnsw": false,
+  "has_lsh": false,
+  "has_quantization": true,
+  "has_semantic_memory": false
+}
+```
+
+#### `POST /store` — Store a Memory
+
+```bash
+curl -X POST http://localhost:8199/store \
+  -H "Content-Type: application/json" \
+  -d '{"text": "my memory text", "category": "notes", "id": "mem_42"}'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `text` | string | Yes | Text content (auto-hashed to embedding if no `embedding`) |
+| `embedding` | float[] | No | Pre-computed embedding vector |
+| `category` | string | No | Category tag |
+| `id` | string | No | Custom ID (auto-generated if omitted) |
+
+Response:
+
+```json
+{"id": "mem_42", "status": "stored"}
+```
+
+#### `POST /search` — Search Memories
+
+```bash
+curl -X POST http://localhost:8199/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "my search", "top_k": 5}'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Query text (auto-hashed to embedding if no `embedding`) |
+| `embedding` | float[] | No | Pre-computed query embedding |
+| `top_k` | int | No | Number of results (default: 10) |
+
+Response:
+
+```json
+{
+  "results": [
+    {"index": 0, "score": 0.023, "metadata": null},
+    {"index": 5, "score": 0.145, "metadata": null}
+  ]
+}
+```
+
+> **Note**: The default HTTP server uses hash-based pseudo-embeddings. For production use, provide real embeddings from a model (e.g. BGE, DINOv2) via the `embedding` field.
+
 ---
 
 ## Rust API
@@ -665,11 +743,11 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 | Module | Source | Description |
 |--------|--------|-------------|
-| `splats` | `src/splats.rs` | Core API — insert, search, upsert, delete, statistics |
+| `splats` | `src/splats.rs` | Core API — insert, search, batch operations, statistics |
 | `hrm2_engine` | `src/hrm2_engine.rs` | Two-level hierarchical retrieval (coarse → fine) |
 | `engine` | `src/engine.rs` | CPU L2 distance with rayon parallelism |
 | `gpu` | `src/gpu/` | CUDA PTX kernels, `GpuIndex` with persistent VRAM |
-| `quantization` | `src/quantization.rs` | TurboQuant / PolarQuant data-oblivious compression |
+| `quantization` | `src/quantization.rs` | TurboQuant / PolarQuant data-oblivious compression with recall measurement |
 | `clustering` | `src/clustering.rs` | KMeans++ with ChaCha8 RNG |
 | `graph_splat` | `src/graph_splat.rs` | Knowledge graph overlay with hybrid search |
 | `semantic_memory` | `src/semantic_memory.rs` | BM25 + vector RRF fusion with temporal decay |
@@ -678,6 +756,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `energy` | `src/energy.rs` | Energy landscape computation |
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
+| `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
 | `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (13 tools) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |

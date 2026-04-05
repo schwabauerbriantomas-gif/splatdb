@@ -320,16 +320,29 @@ pub fn cmd_preset_info(preset: Option<String>) {
         presets
     };
 
+    // Only build a lightweight store for small presets to avoid OOM.
+    // For large presets (gpu/distributed), derive subsystem status from config flags.
     let info: Vec<serde_json::Value> = filtered.iter().map(|(name, c)| {
-        let mut store_config = c.clone();
-        store_config.device = "cpu".to_string();
-        store_config.enable_cuda = false;
-        store_config.finalize();
-        let store = SplatStore::new(store_config);
+        let estimated_mem_gb = (c.max_splats as f64 * c.latent_dim as f64 * 4.0) / 1e9;
+
+        let (has_quant, has_hnsw, has_lsh, has_semantic) = if estimated_mem_gb < 2.0 {
+            // Small enough to safely instantiate
+            let mut store_config = c.clone();
+            store_config.device = "cpu".to_string();
+            store_config.enable_cuda = false;
+            store_config.finalize();
+            let store = SplatStore::new(store_config);
+            (store.has_quantization(), store.has_hnsw(), store.has_lsh(), store.has_semantic_memory())
+        } else {
+            // Derive from config flags to avoid OOM on large presets
+            (c.enable_quantization, c.enable_hnsw, c.enable_lsh, c.enable_semantic_memory)
+        };
+
         serde_json::json!({
             "preset": name,
             "max_splats": c.max_splats,
             "latent_dim": c.latent_dim,
+            "estimated_memory_gb": format!("{:.2}", estimated_mem_gb),
             "subsystems": {
                 "quantization": c.enable_quantization,
                 "hnsw": c.enable_hnsw,
@@ -340,10 +353,10 @@ pub fn cmd_preset_info(preset: Option<String>) {
                 "gpu_search": c.enable_gpu_search,
             },
             "runtime": {
-                "has_quantization": store.has_quantization(),
-                "has_hnsw": store.has_hnsw(),
-                "has_lsh": store.has_lsh(),
-                "has_semantic_memory": store.has_semantic_memory(),
+                "has_quantization": has_quant,
+                "has_hnsw": has_hnsw,
+                "has_lsh": has_lsh,
+                "has_semantic_memory": has_semantic,
             },
         })
     }).collect();
