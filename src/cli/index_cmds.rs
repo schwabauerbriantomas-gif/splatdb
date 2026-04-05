@@ -211,13 +211,8 @@ pub fn cmd_ingest_leader(
     }
 }
 
-pub fn cmd_bench_gpu(
-    _n_vectors: usize,
-    _dim: usize,
-    _n_queries: usize,
-    _top_k: usize,
-    _metric: String,
-) {
+#[allow(unused_variables)]
+pub fn cmd_bench_gpu(n_vectors: usize, dim: usize, n_queries: usize, top_k: usize, metric: String) {
     #[cfg(not(feature = "cuda"))]
     {
         eprintln!("[splatdb] bench-gpu requires --features cuda");
@@ -368,7 +363,7 @@ pub fn cmd_bench_gpu_ingest(n_vectors: usize, dim: usize, n_clusters: usize, n_q
     #[cfg(feature = "cuda")]
     let gpu_search: Option<serde_json::Value> = {
         if let Some(mut gpu_idx) = splatdb::gpu::cuda_kernel::GpuIndex::new() {
-            let raw_flat: Vec<f32> = dataset.clone().into_raw_vec();
+            let raw_flat: Vec<f32> = dataset.clone().into_raw_vec_and_offset().0;
             eprintln!(
                 "[splatdb] Phase 4: GPU search on raw {} vectors...",
                 n_vectors
