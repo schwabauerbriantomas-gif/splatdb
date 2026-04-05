@@ -886,7 +886,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
 pub fn run_mcp_server() {
     eprintln!("[splatdb] MCP server v2.5 starting (stdio transport)...");
 
-    let config = SplatDBConfig::default();
+    let config = SplatDBConfig::mcp(None);
     let mut store = SplatStore::new(config);
 
     // Initialize SQLite doc store
