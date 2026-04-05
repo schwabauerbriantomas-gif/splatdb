@@ -137,7 +137,7 @@ impl GpuIndex {
 
         // Launch configuration: 256 threads per block
         let block_dim = 256;
-        let grid_dim = (n + block_dim - 1) / block_dim;
+        let grid_dim = n.div_ceil(block_dim);
 
         let cfg = LaunchConfig {
             grid_dim: (grid_dim as u32, 1, 1),
@@ -217,7 +217,7 @@ impl GpuIndex {
         let mut output_gpu = self.stream.alloc_zeros::<f32>(n_queries * n).ok()?;
 
         let block_dim = 256;
-        let grid_x = ((n + block_dim - 1) / block_dim) as u32;
+        let grid_x = (n.div_ceil(block_dim)) as u32;
         let grid_y = n_queries as u32;
 
         let cfg = LaunchConfig {
@@ -294,7 +294,7 @@ impl GpuIndex {
 
         let shared_mem_bytes = dim * 4 + 256 * 4; // query + reduction workspace
         let block_dim = 256;
-        let grid_dim = (n + block_dim - 1) / block_dim;
+        let grid_dim = n.div_ceil(block_dim);
 
         let cfg = LaunchConfig {
             grid_dim: (grid_dim as u32, 1, 1),
@@ -373,6 +373,7 @@ impl GpuIndex {
     }
 
     /// Launch combined top-k PTX kernel.
+    #[allow(clippy::too_many_arguments)]
     fn launch_topk_kernel(
         &self,
         queries: &[f32],
@@ -407,16 +408,8 @@ impl GpuIndex {
         let block_dim: u32 = 256;
         // Shared memory: D floats (query) + blockDim*K floats (dist) + blockDim*K ints (idx)
         let shared_mem_bytes = dim
-            .checked_add(
-                (block_dim as usize)
-                    .checked_mul(k)
-                    .unwrap_or(0)
-                    .checked_mul(2)
-                    .unwrap_or(0),
-            )
-            .unwrap_or(usize::MAX)
-            .checked_mul(4)
-            .unwrap_or(usize::MAX);
+            .saturating_add((block_dim as usize).saturating_mul(k).saturating_mul(2))
+            .saturating_mul(4);
 
         let cfg = LaunchConfig {
             grid_dim: (n_queries as u32, 1, 1), // one block per query
