@@ -132,7 +132,10 @@ async fn store_memory(
         if emb.len() != dim {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("Embedding dimension mismatch: expected {dim}, got {}", emb.len()),
+                format!(
+                    "Embedding dimension mismatch: expected {dim}, got {}",
+                    emb.len()
+                ),
             ));
         }
         if emb.len() > MAX_EMBEDDING_DIM {
@@ -143,14 +146,12 @@ async fn store_memory(
         }
     }
 
-    let embedding = req.embedding.unwrap_or_else(|| simple_hash_embedding(&req.text, dim));
+    let embedding = req
+        .embedding
+        .unwrap_or_else(|| simple_hash_embedding(&req.text, dim));
 
-    let arr = Array2::from_shape_vec((1, dim), embedding).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("Bad embedding shape: {e}"),
-        )
-    })?;
+    let arr = Array2::from_shape_vec((1, dim), embedding)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Bad embedding shape: {e}")))?;
 
     let added = store.add_splat(&arr);
     if !added {
@@ -197,12 +198,17 @@ async fn search_memories(
         if emb.len() != dim {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("Embedding dimension mismatch: expected {dim}, got {}", emb.len()),
+                format!(
+                    "Embedding dimension mismatch: expected {dim}, got {}",
+                    emb.len()
+                ),
             ));
         }
     }
 
-    let embedding = req.embedding.unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
+    let embedding = req
+        .embedding
+        .unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
     let query = Array1::from_vec(embedding);
     let neighbors = store.find_neighbors(&query.view(), k);
 
@@ -286,10 +292,7 @@ pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
             "http://localhost".parse().unwrap(),
             "http://127.0.0.1".parse().unwrap(),
         ])
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-        ])
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
