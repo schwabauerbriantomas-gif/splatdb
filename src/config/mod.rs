@@ -454,7 +454,13 @@ mod tests {
         assert_eq!(config.knn_k, 256);
     }
 
-    /// Validate each preset can create a SplatStore and run add_splat + find_neighbors
+    /// Validate each preset can create a SplatStore and run add_splat + find_neighbors.
+    ///
+    /// NOTE: We cap `max_splats` to a small value (100) for ALL presets so that
+    /// SplatStore::new (which allocates `max_splats * latent_dim * 4` bytes) stays
+    /// within reasonable memory.  Without this cap the `distributed` preset would
+    /// allocate 10 M × 640 × 4 = 25.6 GB and the `gpu` preset 5 M × 640 × 4 =
+    /// 12.8 GB, causing an OOM on machines with ≤ 8 GB RAM.
     #[test]
     fn test_all_presets_runtime() {
         use crate::splats::SplatStore;
@@ -475,6 +481,9 @@ mod tests {
             config.enable_cuda = false;
             config.enable_vulkan = false;
             config.enable_gpu_search = false;
+            // Cap max_splats to prevent OOM — the test only adds 2 vectors.
+            config.max_splats = 100;
+            config.n_splats_init = config.n_splats_init.min(100);
             config.finalize();
 
             let mut store = SplatStore::new(config);
@@ -698,12 +707,17 @@ mod tests {
 
     // ─── Subsystem initialization tests per preset ───
 
-    /// Helper: create a store with CPU-forced config from a preset
+    /// Helper: create a store with CPU-forced config from a preset.
+    /// Caps `max_splats` to prevent OOM on presets with huge defaults (10M, 5M).
     fn store_from_preset(mut config: SplatDBConfig) -> crate::splats::SplatStore {
         config.device = "cpu".to_string();
         config.enable_cuda = false;
         config.enable_vulkan = false;
         config.enable_gpu_search = false;
+        // Cap max_splats for all presets — subsystem tests don't add data,
+        // they only check which subsystems are initialized.
+        config.max_splats = 100;
+        config.n_splats_init = config.n_splats_init.min(100);
         config.finalize();
         crate::splats::SplatStore::new(config)
     }

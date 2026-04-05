@@ -1,8 +1,10 @@
 //! CLI command handlers — extracted from main.rs
 
 mod data_cmds;
+mod graph_cmds;
 mod helpers;
 mod index_cmds;
+mod ml_cmds;
 mod search_cmds;
 
 use clap::Subcommand;
@@ -208,6 +210,86 @@ pub enum Commands {
     },
     /// Start MCP server (stdio transport for AI agent integration)
     Mcp,
+    // ── Graph Splat Commands ───────────────────────────────────────────
+    /// Add a document node to the graph store
+    GraphAddDoc {
+        #[arg(short, long)]
+        text: String,
+        #[arg(short, long)]
+        embedding: String,
+    },
+    /// Add an entity node to the graph store
+    GraphAddEntity {
+        #[arg(short, long)]
+        name: String,
+        #[arg(short, long)]
+        embedding: String,
+        #[arg(short = 't', long, default_value = "default")]
+        entity_type: String,
+    },
+    /// Add a relation edge between two graph nodes
+    GraphAddRelation {
+        #[arg(long)]
+        source_id: usize,
+        #[arg(long)]
+        target_id: usize,
+        #[arg(short = 't', long)]
+        relation_type: String,
+        #[arg(short, long, default_value = "1.0")]
+        weight: f64,
+    },
+    /// BFS traversal from a start node (or add doc first with --add-doc)
+    GraphTraverse {
+        #[arg(short, long)]
+        text: String,
+        #[arg(short, long)]
+        embedding: Option<String>,
+        #[arg(short, long, default_value = "3")]
+        max_depth: usize,
+        #[arg(long, default_value = "false")]
+        add_doc: bool,
+    },
+    /// Hybrid or entity search on the graph store
+    GraphSearch {
+        #[arg(short, long)]
+        query: String,
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+        #[arg(short = 't', long, default_value = "hybrid")]
+        search_type: String,
+    },
+    /// Print graph store statistics
+    GraphStats,
+    // ── ML / Entity / Data Lake Commands ──────────────────────────────
+    /// Extract entities from text using structural patterns and n-grams
+    ExtractEntities {
+        #[arg(short, long)]
+        text: String,
+        #[arg(short, long, default_value = "0.3")]
+        min_score: f64,
+    },
+    /// List datasets in the data lake
+    LakeList,
+    /// Register a dataset in the data lake
+    LakeRegister {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "0")]
+        n_vectors: usize,
+        #[arg(long, default_value = "640")]
+        dim: usize,
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+    /// Evaluate embedding quality with synthetic benchmark
+    EvalEmbeddings {
+        #[arg(short, long, default_value = "64")]
+        dim: usize,
+        #[arg(short = 'q', long, default_value = "10")]
+        n_queries: usize,
+    },
 }
 
 pub fn dispatch(cli: Cli) {
@@ -243,5 +325,24 @@ pub fn dispatch(cli: Cli) {
         Commands::BenchGpuIngest { n_vectors, dim, n_clusters, n_queries } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
         Commands::Serve { port, host } => data_cmds::cmd_serve(port, &host),
         Commands::Mcp => splatdb::mcp_server::run_mcp_server(),
+        // ── Graph Splat ──
+        Commands::GraphAddDoc { text, embedding } => graph_cmds::cmd_graph_add_doc(text, embedding),
+        Commands::GraphAddEntity { name, embedding, entity_type } => graph_cmds::cmd_graph_add_entity(name, embedding, entity_type),
+        Commands::GraphAddRelation { source_id, target_id, relation_type, weight } => {
+            graph_cmds::cmd_graph_add_relation(source_id, target_id, relation_type, weight)
+        }
+        Commands::GraphTraverse { text, embedding, max_depth, add_doc } => {
+            let emb_str = embedding.unwrap_or_default();
+            graph_cmds::cmd_graph_traverse(text, emb_str, max_depth, add_doc)
+        }
+        Commands::GraphSearch { query, k, search_type } => graph_cmds::cmd_graph_search(query, k, search_type),
+        Commands::GraphStats => graph_cmds::cmd_graph_stats(),
+        // ── ML / Entity / Data Lake ──
+        Commands::ExtractEntities { text, min_score } => ml_cmds::cmd_extract_entities(text, min_score),
+        Commands::LakeList => ml_cmds::cmd_lake_list(cli.data_dir),
+        Commands::LakeRegister { id, name, n_vectors, dim, description } => {
+            ml_cmds::cmd_lake_register(cli.data_dir, id, name, n_vectors, dim, description)
+        }
+        Commands::EvalEmbeddings { dim, n_queries } => ml_cmds::cmd_eval_embeddings(dim, n_queries),
     }
 }
