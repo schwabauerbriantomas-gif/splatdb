@@ -134,7 +134,7 @@ pub fn cmd_ingest_leader(data_dir: String, backend: String, config: SplatDBConfi
     }
 }
 
-pub fn cmd_bench_gpu(_n_vectors: usize, _dim: usize, _n_queries: usize, _top_k: usize, _metric: String) {
+pub fn cmd_bench_gpu(n_vectors: usize, dim: usize, n_queries: usize, top_k: usize, metric: String) {
     #[cfg(not(feature = "cuda"))]
     {
         eprintln!("[splatdb] bench-gpu requires --features cuda");

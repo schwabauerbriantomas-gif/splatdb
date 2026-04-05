@@ -230,6 +230,50 @@ impl SplatDBConfig {
         config
     }
 
+    /// Creates an 'MCP' configuration optimized for AI agent memory workloads.
+    ///
+    /// GPU-accelerated when available, moderate capacity, all smart features on.
+    /// Designed for the MCP server use case: store/search/recall with embeddings.
+    pub fn mcp(device: Option<&str>) -> Self {
+        let mut config = Self::default();
+
+        config.device = device.unwrap_or("auto").to_string();
+        config.finalize();
+
+        // GPU acceleration when available
+        config.enable_gpu_search = config.enable_cuda;
+        config.gpu_batch_size = 1024;
+        config.gpu_auto_tune = true;
+
+        // Moderate capacity for agent memory
+        config.max_splats = 100_000;
+        config.n_splats_init = 10_000;
+        config.knn_k = 64;
+
+        // HRM2 for fast approximate search
+        config.hrm2_n_coarse = 32;
+        config.hrm2_n_fine = 128;
+        config.hrm2_n_probe = 8;
+
+        // Quantization for memory efficiency
+        config.enable_quantization = true;
+        config.quant_algorithm = QuantAlgorithm::TurboQuant;
+        config.quant_bits = 8;
+
+        // Knowledge graph for semantic connections
+        config.enable_graph = true;
+        config.graph_max_neighbors = 20;
+        config.graph_traverse_depth = 5;
+
+        // Semantic memory with hybrid search
+        config.enable_semantic_memory = true;
+        config.semantic_fusion = FusionMethod::Rrf;
+        config.semantic_vector_weight = 0.6;
+        config.semantic_bm25_weight = 0.4;
+
+        config
+    }
+
     /// Creates a 'GPU' configuration for CUDA-accelerated search.
     ///
     /// Enables GPU search backends, auto-tuning, and large batch operations.
