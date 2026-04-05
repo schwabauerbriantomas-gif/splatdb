@@ -4,19 +4,34 @@
 use std::collections::HashMap;
 
 use crate::bm25_index::BM25Index;
+use crate::config::SplatDBConfig;
 use crate::embedding_model::Encoder;
 use crate::splats::SplatStore;
-use crate::config::SplatDBConfig;
 use ndarray::Array1;
 use serde::Serialize;
 
 /// Category keywords for auto-categorization.
 const CATEGORY_KEYWORDS: &[(&str, &[&str])] = &[
-    ("decision", &["decided", "decision", "chose", "elected", "agreed", "plan"]),
-    ("preference", &["prefers", "likes", "loves", "favorite", "default"]),
-    ("project", &["project", "implement", "build", "feature", "sprint"]),
-    ("error", &["error", "bug", "failed", "crash", "exception", "broken"]),
-    ("learning", &["learned", "lesson", "discovered", "realized", "insight"]),
+    (
+        "decision",
+        &["decided", "decision", "chose", "elected", "agreed", "plan"],
+    ),
+    (
+        "preference",
+        &["prefers", "likes", "loves", "favorite", "default"],
+    ),
+    (
+        "project",
+        &["project", "implement", "build", "feature", "sprint"],
+    ),
+    (
+        "error",
+        &["error", "bug", "failed", "crash", "exception", "broken"],
+    ),
+    (
+        "learning",
+        &["learned", "lesson", "discovered", "realized", "insight"],
+    ),
     ("task", &["todo", "task", "pending", "reminder", "need to"]),
 ];
 
@@ -27,14 +42,21 @@ pub fn auto_categorize(text: &str) -> Option<&'static str> {
     let mut best_count = 0;
 
     for (cat, keywords) in CATEGORY_KEYWORDS {
-        let count = keywords.iter().filter(|kw| text_lower.contains(*kw)).count();
+        let count = keywords
+            .iter()
+            .filter(|kw| text_lower.contains(*kw))
+            .count();
         if count > best_count {
             best_count = count;
             best_cat = Some(cat);
         }
     }
 
-    if best_count > 0 { best_cat.copied() } else { None }
+    if best_count > 0 {
+        best_cat.copied()
+    } else {
+        None
+    }
 }
 
 /// A single memory search result.
@@ -126,7 +148,11 @@ impl SemanticMemoryDB {
     }
 
     /// Store a memory with automatic embedding.
-    pub fn store(&mut self, text: &str, metadata: Option<serde_json::Value>) -> Result<String, String> {
+    pub fn store(
+        &mut self,
+        text: &str,
+        metadata: Option<serde_json::Value>,
+    ) -> Result<String, String> {
         if text.trim().is_empty() {
             return Err("text must be non-empty".into());
         }
@@ -162,7 +188,8 @@ impl SemanticMemoryDB {
         self.store.add_splat(&vec2d);
 
         self.documents.insert(id.clone(), text.to_string());
-        self.doc_metadata.insert(id.clone(), metadata.unwrap_or(serde_json::Value::Null));
+        self.doc_metadata
+            .insert(id.clone(), metadata.unwrap_or(serde_json::Value::Null));
         self.bm25.add(&id, text);
         self.timestamps.insert(id.clone(), Self::now_secs());
         self.deleted.remove(&id);
@@ -186,7 +213,9 @@ impl SemanticMemoryDB {
             let results = self.store.find_neighbors(&query_vec.view(), k * 3);
             for r in results.iter() {
                 let doc_id = format!("vec_{}", r.index);
-                if self.deleted.contains(&doc_id) { continue; }
+                if self.deleted.contains(&doc_id) {
+                    continue;
+                }
                 let score = 1.0 - r.distance;
                 vector_score_map.insert(doc_id.clone(), score.into());
             }
@@ -197,15 +226,19 @@ impl SemanticMemoryDB {
         if self.fusion_method != FusionMethod::VectorOnly {
             let bm25_results = self.bm25.search(query, k * 3);
             for (doc_id, score) in &bm25_results {
-                if self.deleted.contains(doc_id) { continue; }
+                if self.deleted.contains(doc_id) {
+                    continue;
+                }
                 bm25_score_map.insert(doc_id.clone(), *score);
             }
         }
 
         // Fusion
         let mut fused_scores: HashMap<String, f64> = HashMap::new();
-        let all_ids: std::collections::HashSet<&String> =
-            vector_score_map.keys().chain(bm25_score_map.keys()).collect();
+        let all_ids: std::collections::HashSet<&String> = vector_score_map
+            .keys()
+            .chain(bm25_score_map.keys())
+            .collect();
 
         match self.fusion_method {
             FusionMethod::VectorOnly => {
@@ -218,11 +251,19 @@ impl SemanticMemoryDB {
                 let rrf_k = 60.0;
                 let mut v_ranked: Vec<_> = vector_score_map.iter().collect();
                 v_ranked.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let v_rank_map: HashMap<&String, usize> = v_ranked.iter().enumerate().map(|(r, (id, _))| (*id, r)).collect();
+                let v_rank_map: HashMap<&String, usize> = v_ranked
+                    .iter()
+                    .enumerate()
+                    .map(|(r, (id, _))| (*id, r))
+                    .collect();
 
                 let mut b_ranked: Vec<_> = bm25_score_map.iter().collect();
                 b_ranked.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let b_rank_map: HashMap<&String, usize> = b_ranked.iter().enumerate().map(|(r, (id, _))| (*id, r)).collect();
+                let b_rank_map: HashMap<&String, usize> = b_ranked
+                    .iter()
+                    .enumerate()
+                    .map(|(r, (id, _))| (*id, r))
+                    .collect();
 
                 for id in &all_ids {
                     let v_rank = v_rank_map.get(id).copied().unwrap_or(v_ranked.len());
@@ -236,7 +277,10 @@ impl SemanticMemoryDB {
                 for id in &all_ids {
                     let v = vector_score_map.get(*id).copied().unwrap_or(0.0);
                     let b = bm25_score_map.get(*id).copied().unwrap_or(0.0);
-                    fused_scores.insert((*id).to_string(), self.hybrid_weight * v + (1.0 - self.hybrid_weight) * b);
+                    fused_scores.insert(
+                        (*id).to_string(),
+                        self.hybrid_weight * v + (1.0 - self.hybrid_weight) * b,
+                    );
                 }
             }
         }
@@ -252,10 +296,17 @@ impl SemanticMemoryDB {
                 let v_score = vector_score_map.get(&id).copied().unwrap_or(0.0);
                 let b_score = bm25_score_map.get(&id).copied().unwrap_or(0.0);
 
-                let doc_text = self.documents.get(&id).cloned()
+                let doc_text = self
+                    .documents
+                    .get(&id)
+                    .cloned()
                     .or_else(|| self.bm25.get_doc(&id).map(|s| s.to_string()));
 
-                let meta = self.doc_metadata.get(&id).cloned().unwrap_or(serde_json::Value::Null);
+                let meta = self
+                    .doc_metadata
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
 
                 MemoryResult {
                     id,
@@ -326,7 +377,10 @@ impl SemanticMemoryDB {
     }
 
     /// Store multiple memories at once.
-    pub fn batch_store(&mut self, items: &[(String, Option<serde_json::Value>)]) -> Result<Vec<String>, String> {
+    pub fn batch_store(
+        &mut self,
+        items: &[(String, Option<serde_json::Value>)],
+    ) -> Result<Vec<String>, String> {
         let mut ids = Vec::with_capacity(items.len());
         for (text, meta) in items {
             let id = self.store(text, meta.clone())?;
@@ -345,7 +399,9 @@ impl SemanticMemoryDB {
         let mut affected = 0;
         let ids: Vec<String> = self.timestamps.keys().cloned().collect();
         for id in ids {
-            if self.deleted.contains(&id) { continue; }
+            if self.deleted.contains(&id) {
+                continue;
+            }
             if let Some(&ts) = self.timestamps.get(&id) {
                 let age = now - ts;
                 let decay = (-decay_constant * age).exp(); // 1.0 for fresh, ~0 for old
@@ -379,7 +435,11 @@ impl SemanticMemoryDB {
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(k);
         Ok(results)
     }
@@ -425,7 +485,9 @@ mod tests {
     #[test]
     fn test_store_and_search() {
         let mut db = make_test_db();
-        let _id = db.store("The team decided to use Rust for the project", None).unwrap();
+        let _id = db
+            .store("The team decided to use Rust for the project", None)
+            .unwrap();
         let results = db.search("Rust project decision", 5).unwrap();
         assert!(!results.is_empty());
     }
@@ -440,7 +502,10 @@ mod tests {
 
     #[test]
     fn test_auto_categorize() {
-        assert_eq!(auto_categorize("We decided to use SplatDB"), Some("decision"));
+        assert_eq!(
+            auto_categorize("We decided to use SplatDB"),
+            Some("decision")
+        );
         assert_eq!(auto_categorize("There is a bug in the code"), Some("error"));
         assert!(auto_categorize("random text xyz").is_none());
     }
@@ -464,7 +529,10 @@ mod tests {
         let mut db = make_test_db();
         let items = vec![
             ("First memory".into(), None),
-            ("Second memory".into(), Some(serde_json::json!({"category": "test"}))),
+            (
+                "Second memory".into(),
+                Some(serde_json::json!({"category": "test"})),
+            ),
         ];
         let ids = db.batch_store(&items).unwrap();
         assert_eq!(ids.len(), 2);
@@ -475,8 +543,16 @@ mod tests {
     #[test]
     fn test_categories() {
         let mut db = make_test_db();
-        db.store("We decided to use Rust", Some(serde_json::json!({"category": "decision"}))).unwrap();
-        db.store("Bug in the code", Some(serde_json::json!({"category": "error"}))).unwrap();
+        db.store(
+            "We decided to use Rust",
+            Some(serde_json::json!({"category": "decision"})),
+        )
+        .unwrap();
+        db.store(
+            "Bug in the code",
+            Some(serde_json::json!({"category": "error"})),
+        )
+        .unwrap();
         let cats = db.categories();
         assert!(cats.contains(&"decision".to_string()));
         assert!(cats.contains(&"error".to_string()));
@@ -485,9 +561,18 @@ mod tests {
     #[test]
     fn test_count_by_category() {
         let mut db = make_test_db();
-        db.store("Decision one", Some(serde_json::json!({"category": "decision"}))).unwrap();
-        db.store("Decision two", Some(serde_json::json!({"category": "decision"}))).unwrap();
-        db.store("Bug found", Some(serde_json::json!({"category": "error"}))).unwrap();
+        db.store(
+            "Decision one",
+            Some(serde_json::json!({"category": "decision"})),
+        )
+        .unwrap();
+        db.store(
+            "Decision two",
+            Some(serde_json::json!({"category": "decision"})),
+        )
+        .unwrap();
+        db.store("Bug found", Some(serde_json::json!({"category": "error"})))
+            .unwrap();
         let counts = db.count_by_category();
         assert_eq!(*counts.get("decision").unwrap(), 2);
         assert_eq!(*counts.get("error").unwrap(), 1);

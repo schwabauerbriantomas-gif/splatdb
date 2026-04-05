@@ -62,16 +62,15 @@ pub enum GraphError {
 impl std::fmt::Display for GraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EmbeddingTooLarge { dim, max } =>
-                write!(f, "embedding dim {dim} exceeds max {max}"),
-            Self::ContentTooLong { len, max } =>
-                write!(f, "content length {len} exceeds max {max}"),
-            Self::NodeNotFound { id } =>
-                write!(f, "node {id} not found"),
-            Self::ResultCapHit { cap } =>
-                write!(f, "result set hit safety cap of {cap}"),
-            Self::InvalidWeight =>
-                write!(f, "weight must be finite"),
+            Self::EmbeddingTooLarge { dim, max } => {
+                write!(f, "embedding dim {dim} exceeds max {max}")
+            }
+            Self::ContentTooLong { len, max } => {
+                write!(f, "content length {len} exceeds max {max}")
+            }
+            Self::NodeNotFound { id } => write!(f, "node {id} not found"),
+            Self::ResultCapHit { cap } => write!(f, "result set hit safety cap of {cap}"),
+            Self::InvalidWeight => write!(f, "weight must be finite"),
         }
     }
 }
@@ -142,15 +141,21 @@ impl GaussianGraphStore {
 
         let id = self.next_id;
         self.next_id += 1;
-        self.nodes.insert(id, GraphNode {
+        self.nodes.insert(
             id,
-            node_type: NodeType::Document,
-            content: text.to_string(),
-            embedding: embedding.to_vec(),
-            alpha: 1.0,
-            kappa: 10.0,
-        });
-        self.type_index.entry(NodeType::Document).or_default().insert(id);
+            GraphNode {
+                id,
+                node_type: NodeType::Document,
+                content: text.to_string(),
+                embedding: embedding.to_vec(),
+                alpha: 1.0,
+                kappa: 10.0,
+            },
+        );
+        self.type_index
+            .entry(NodeType::Document)
+            .or_default()
+            .insert(id);
         Ok(id)
     }
 
@@ -198,7 +203,10 @@ impl GaussianGraphStore {
         }
 
         self.nodes.insert(id, node);
-        self.type_index.entry(NodeType::Entity).or_default().insert(id);
+        self.type_index
+            .entry(NodeType::Entity)
+            .or_default()
+            .insert(id);
         self.entity_name_index.insert(key, id);
         Ok(id)
     }
@@ -252,12 +260,7 @@ impl GaussianGraphStore {
     pub fn get_outgoing(&self, id: usize) -> Vec<&GraphEdge> {
         self.outgoing
             .get(&id)
-            .map(|indices| {
-                indices
-                    .iter()
-                    .filter_map(|&i| self.edges.get(i))
-                    .collect()
-            })
+            .map(|indices| indices.iter().filter_map(|&i| self.edges.get(i)).collect())
             .unwrap_or_default()
     }
 
@@ -394,9 +397,21 @@ impl GaussianGraphStore {
         GraphStats {
             total_nodes: self.nodes.len(),
             total_edges: self.edges.len(),
-            documents: self.type_index.get(&NodeType::Document).map(|s| s.len()).unwrap_or(0),
-            entities: self.type_index.get(&NodeType::Entity).map(|s| s.len()).unwrap_or(0),
-            concepts: self.type_index.get(&NodeType::Concept).map(|s| s.len()).unwrap_or(0),
+            documents: self
+                .type_index
+                .get(&NodeType::Document)
+                .map(|s| s.len())
+                .unwrap_or(0),
+            entities: self
+                .type_index
+                .get(&NodeType::Entity)
+                .map(|s| s.len())
+                .unwrap_or(0),
+            concepts: self
+                .type_index
+                .get(&NodeType::Concept)
+                .map(|s| s.len())
+                .unwrap_or(0),
         }
     }
 
@@ -503,7 +518,7 @@ mod tests {
         g.add_entity("Dog", &[0.9, 0.1], "animal").unwrap();
         g.add_entity("Car", &[0.0, 1.0], "vehicle").unwrap();
         let r = g.search_entities(&[1.0, 0.0], 2);
-        assert!(r.len() >= 1);
+        assert!(!r.is_empty());
         assert_eq!(r[0].content, "Cat");
     }
 
@@ -554,7 +569,9 @@ mod tests {
     #[test]
     fn test_hybrid_search() {
         let mut g = GaussianGraphStore::new();
-        let d = g.add_document("Python programming", &[1.0, 0.0, 0.0]).unwrap();
+        let d = g
+            .add_document("Python programming", &[1.0, 0.0, 0.0])
+            .unwrap();
         let e = g.add_entity("Python", &[0.9, 0.1, 0.0], "lang").unwrap();
         g.add_relation(d, e, "MENTIONS", 0.9).unwrap();
         let r = g.hybrid_search(&[1.0, 0.0, 0.0], 5);

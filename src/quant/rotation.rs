@@ -11,7 +11,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, StandardNormal};
 use serde::{Deserialize, Serialize};
 
-use super::error::{Result, QuantError};
+use super::error::{QuantError, Result};
 
 /// A full d×d orthogonal rotation matrix generated via Modified Gram-Schmidt.
 ///
@@ -63,9 +63,15 @@ impl StoredRotation {
         Ok(())
     }
 
-    pub fn dim(&self) -> usize { self.dim }
-    pub fn seed(&self) -> u64 { self.seed }
-    pub fn memory_bytes(&self) -> usize { self.dim * self.dim * 4 }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+    pub fn memory_bytes(&self) -> usize {
+        self.dim * self.dim * 4
+    }
 }
 
 /// Generate d×d orthogonal matrix via Modified Gram-Schmidt on random Gaussian.
@@ -82,7 +88,10 @@ fn generate_orthogonal(dim: usize, seed: u64) -> Result<Vec<f32>> {
         // Normalize column i
         let norm: f32 = columns[i].iter().map(|v| v * v).sum::<f32>().sqrt();
         if norm < 1e-10 {
-            return Err(QuantError::RotationFailed(format!("zero norm at column {}", i)));
+            return Err(QuantError::RotationFailed(format!(
+                "zero norm at column {}",
+                i
+            )));
         }
         for v in columns[i].iter_mut() {
             *v /= norm;
@@ -90,7 +99,11 @@ fn generate_orthogonal(dim: usize, seed: u64) -> Result<Vec<f32>> {
 
         // Remove projection from remaining columns
         for j in (i + 1)..dim {
-            let dot: f32 = columns[i].iter().zip(columns[j].iter()).map(|(a, b)| a * b).sum();
+            let dot: f32 = columns[i]
+                .iter()
+                .zip(columns[j].iter())
+                .map(|(a, b)| a * b)
+                .sum();
             #[allow(clippy::needless_range_loop)]
             for k in 0..dim {
                 columns[j][k] -= dot * columns[i][k];
@@ -143,7 +156,10 @@ mod tests {
                     dot += r.matrix[k * d + i] * r.matrix[k * d + j];
                 }
                 let expected = if i == j { 1.0f32 } else { 0.0f32 };
-                assert!((dot - expected).abs() < 1e-4, "R^TR[{i},{j}] = {dot}, expected {expected}");
+                assert!(
+                    (dot - expected).abs() < 1e-4,
+                    "R^TR[{i},{j}] = {dot}, expected {expected}"
+                );
             }
         }
     }
@@ -172,6 +188,9 @@ mod tests {
         r.apply(&y, &mut ry).unwrap();
         let ip_orig: f32 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
         let ip_rot: f32 = rx.iter().zip(ry.iter()).map(|(a, b)| a * b).sum();
-        assert!((ip_orig - ip_rot).abs() < 1e-3, "orig={ip_orig}, rotated={ip_rot}");
+        assert!(
+            (ip_orig - ip_rot).abs() < 1e-3,
+            "orig={ip_orig}, rotated={ip_rot}"
+        );
     }
 }

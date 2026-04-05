@@ -168,7 +168,10 @@ impl BM25Index {
 
     /// Search returning only doc IDs.
     pub fn search_ids(&self, query: &str, k: usize) -> Vec<String> {
-        self.search(query, k).into_iter().map(|(id, _)| id).collect()
+        self.search(query, k)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Number of indexed documents.

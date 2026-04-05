@@ -3,8 +3,8 @@
 
 use ndarray::{Array2, ArrayView1};
 use rand::Rng;
-use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
 
 /// LSH configuration.
@@ -44,7 +44,9 @@ pub struct CrossPolytopeLSH {
 impl CrossPolytopeLSH {
     /// New.
     pub fn new(config: LSHConfig) -> Self {
-        let k = (config.n_bits as f64 / (2.0 * config.dim as f64).log2()).ceil().max(1.0).min(10000.0) as usize;
+        let k = (config.n_bits as f64 / (2.0 * config.dim as f64).log2())
+            .ceil()
+            .clamp(1.0, 10000.0) as usize;
         let n_tables = config.n_tables;
         let dim = config.dim;
         let seed = config.seed;
@@ -108,21 +110,35 @@ impl CrossPolytopeLSH {
 
         let mut candidates: Vec<usize> = candidate_set.into_iter().collect();
         if candidates.len() < k {
-            let extra: Vec<usize> = (0..self.n_vectors).filter(|i| !candidates.contains(i)).take(k * 10).collect();
+            let extra: Vec<usize> = (0..self.n_vectors)
+                .filter(|i| !candidates.contains(i))
+                .take(k * 10)
+                .collect();
             candidates.extend(extra);
         }
         candidates.truncate(self.config.n_candidates);
 
-        let mut scored: Vec<(f32, usize)> = candidates.iter().map(|&idx| {
-            let row = vectors.row(idx);
-            let dist: f32 = row.iter().zip(q.iter()).map(|(a, b)| (a - b) * (a - b)).sum::<f32>().sqrt();
-            (dist, idx)
-        }).collect();
+        let mut scored: Vec<(f32, usize)> = candidates
+            .iter()
+            .map(|&idx| {
+                let row = vectors.row(idx);
+                let dist: f32 = row
+                    .iter()
+                    .zip(q.iter())
+                    .map(|(a, b)| (a - b) * (a - b))
+                    .sum::<f32>()
+                    .sqrt();
+                (dist, idx)
+            })
+            .collect();
 
         scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(k);
 
-        (scored.iter().map(|(_, i)| *i).collect(), scored.iter().map(|(d, _)| *d).collect())
+        (
+            scored.iter().map(|(_, i)| *i).collect(),
+            scored.iter().map(|(d, _)| *d).collect(),
+        )
     }
 
     /// Get recall.
@@ -141,48 +157,77 @@ impl CrossPolytopeLSH {
             }
         }
 
-        if total_expected == 0 { return 0.0; }
+        if total_expected == 0 {
+            return 0.0;
+        }
         total_found as f32 / total_expected as f32
     }
 
     fn compute_hash(&self, vector: &[f32], table_idx: usize) -> Vec<i64> {
-        self.rotations[table_idx].iter().map(|rotation| {
-            let rotated: Vec<f32> = mat_vec_mul(rotation, vector);
-            let (max_idx, max_val) = rotated.iter().enumerate()
-                .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap_or(std::cmp::Ordering::Equal))
-                .expect("rotated vector should not be empty");
-            let sign_bit = if *max_val >= 0.0 { 0i64 } else { 1i64 };
-            max_idx as i64 * 2 + sign_bit
-        }).collect()
+        self.rotations[table_idx]
+            .iter()
+            .map(|rotation| {
+                let rotated: Vec<f32> = mat_vec_mul(rotation, vector);
+                let (max_idx, max_val) = rotated
+                    .iter()
+                    .enumerate()
+                    .max_by(|a, b| {
+                        a.1.abs()
+                            .partial_cmp(&b.1.abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .expect("rotated vector should not be empty");
+                let sign_bit = if *max_val >= 0.0 { 0i64 } else { 1i64 };
+                max_idx as i64 * 2 + sign_bit
+            })
+            .collect()
     }
 
     fn multi_probe_hashes(&self, vector: &[f32], table_idx: usize) -> Vec<Vec<i64>> {
-        let m = 2.max((self.config.n_probes as f64).powf(1.0 / self.k as f64).ceil() as usize * 2);
+        let m = 2.max(
+            (self.config.n_probes as f64)
+                .powf(1.0 / self.k as f64)
+                .ceil() as usize
+                * 2,
+        );
 
-        let parts: Vec<Vec<(i64, f32)>> = self.rotations[table_idx].iter().map(|rotation| {
-            let rotated = mat_vec_mul(rotation, vector);
+        let parts: Vec<Vec<(i64, f32)>> = self.rotations[table_idx]
+            .iter()
+            .map(|rotation| {
+                let rotated = mat_vec_mul(rotation, vector);
 
-            let mut indexed: Vec<(usize, f32)> = rotated.iter().enumerate()
-                .map(|(i, &v)| (i, v.abs())).collect();
-            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            indexed.truncate(m);
+                let mut indexed: Vec<(usize, f32)> = rotated
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &v)| (i, v.abs()))
+                    .collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.truncate(m);
 
-            indexed.iter().map(|&(idx, _)| {
-                let val = rotated[idx];
-                let sign_bit = if val >= 0.0 { 0i64 } else { 1i64 };
-                (idx as i64 * 2 + sign_bit, rotated[idx].abs())
-            }).collect()
-        }).collect();
+                indexed
+                    .iter()
+                    .map(|&(idx, _)| {
+                        let val = rotated[idx];
+                        let sign_bit = if val >= 0.0 { 0i64 } else { 1i64 };
+                        (idx as i64 * 2 + sign_bit, rotated[idx].abs())
+                    })
+                    .collect()
+            })
+            .collect();
 
         // Enumerate cartesian product combinations (limited)
         let mut probe_candidates: Vec<(f32, Vec<i64>)> = Vec::new();
         let mut current = vec![0usize; self.k];
 
         loop {
-            let hash: Vec<i64> = current.iter().enumerate()
+            let hash: Vec<i64> = current
+                .iter()
+                .enumerate()
                 .map(|(part_i, &idx)| parts[part_i][idx.min(parts[part_i].len() - 1)].0)
                 .collect();
-            let score: f32 = current.iter().enumerate()
+            let score: f32 = current
+                .iter()
+                .enumerate()
                 .map(|(part_i, &idx)| parts[part_i][idx.min(parts[part_i].len() - 1)].1)
                 .sum();
 
@@ -199,7 +244,9 @@ impl CrossPolytopeLSH {
                     }
                 }
             }
-            if carry || probe_candidates.len() >= self.config.n_probes * 10 { break; }
+            if carry || probe_candidates.len() >= self.config.n_probes * 10 {
+                break;
+            }
         }
 
         probe_candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -217,6 +264,35 @@ fn mat_vec_mul(mat: &Array2<f32>, vec: &[f32]) -> Vec<f32> {
         result.push(dot);
     }
     result
+}
+
+fn random_rotation(dim: usize, rng: &mut ChaCha8Rng) -> Array2<f32> {
+    let mut a = Array2::zeros((dim, dim));
+    for i in 0..dim {
+        for j in 0..dim {
+            a[[i, j]] = rng.gen::<f32>() * 2.0 - 1.0;
+        }
+    }
+
+    let mut q = Array2::zeros((dim, dim));
+    for j in 0..dim {
+        for i in 0..dim {
+            q[[i, j]] = a[[i, j]];
+        }
+        for k in 0..j {
+            let dot: f32 = (0..dim).map(|i| q[[i, j]] * q[[i, k]]).sum();
+            for i in 0..dim {
+                q[[i, j]] -= dot * q[[i, k]];
+            }
+        }
+        let norm: f32 = (0..dim).map(|i| q[[i, j]] * q[[i, j]]).sum::<f32>().sqrt();
+        if norm > 1e-10 {
+            for i in 0..dim {
+                q[[i, j]] /= norm;
+            }
+        }
+    }
+    q
 }
 
 #[cfg(test)]
@@ -241,14 +317,28 @@ mod tests {
 
     #[test]
     fn test_lsh_creation() {
-        let cfg = LSHConfig { dim: 4, n_tables: 3, n_bits: 4, n_probes: 5, n_candidates: 50, seed: 42 };
+        let cfg = LSHConfig {
+            dim: 4,
+            n_tables: 3,
+            n_bits: 4,
+            n_probes: 5,
+            n_candidates: 50,
+            seed: 42,
+        };
         let lsh = CrossPolytopeLSH::new(cfg);
         assert_eq!(lsh.n_vectors, 0);
     }
 
     #[test]
     fn test_index_and_query() {
-        let cfg = LSHConfig { dim: 4, n_tables: 5, n_bits: 4, n_probes: 10, n_candidates: 100, seed: 42 };
+        let cfg = LSHConfig {
+            dim: 4,
+            n_tables: 5,
+            n_bits: 4,
+            n_probes: 10,
+            n_candidates: 100,
+            seed: 42,
+        };
         let mut lsh = CrossPolytopeLSH::new(cfg);
         let data = small_random_data(50, 4, 123);
 
@@ -270,7 +360,14 @@ mod tests {
 
     #[test]
     fn test_query_without_index() {
-        let cfg = LSHConfig { dim: 4, n_tables: 3, n_bits: 4, n_probes: 5, n_candidates: 50, seed: 42 };
+        let cfg = LSHConfig {
+            dim: 4,
+            n_tables: 3,
+            n_bits: 4,
+            n_probes: 5,
+            n_candidates: 50,
+            seed: 42,
+        };
         let lsh = CrossPolytopeLSH::new(cfg);
         let query = array![1.0f32, 0.0, 0.0, 0.0];
         let (indices, distances) = lsh.query(&query.view(), 5);
@@ -280,47 +377,40 @@ mod tests {
 
     #[test]
     fn test_recall() {
-        let cfg = LSHConfig { dim: 8, n_tables: 8, n_bits: 6, n_probes: 20, n_candidates: 200, seed: 42 };
+        let cfg = LSHConfig {
+            dim: 8,
+            n_tables: 8,
+            n_bits: 6,
+            n_probes: 20,
+            n_candidates: 200,
+            seed: 42,
+        };
         let mut lsh = CrossPolytopeLSH::new(cfg);
         let data = small_random_data(100, 8, 456);
         lsh.index(data.clone());
 
         let queries = data.slice(ndarray::s![0..10, ..]).to_owned();
-        let ground_truth: Vec<Vec<usize>> = (0..10).map(|i| {
-            let q = queries.row(i);
-            let mut scored: Vec<(f32, usize)> = (0..100).map(|j| {
-                let r = data.row(j);
-                let dist: f32 = r.iter().zip(q.iter()).map(|(a, b)| (a - b) * (a - b)).sum::<f32>().sqrt();
-                (dist, j)
-            }).collect();
-            scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            scored.into_iter().take(5).map(|(_, i)| i).collect()
-        }).collect();
+        let ground_truth: Vec<Vec<usize>> = (0..10)
+            .map(|i| {
+                let q = queries.row(i);
+                let mut scored: Vec<(f32, usize)> = (0..100)
+                    .map(|j| {
+                        let r = data.row(j);
+                        let dist: f32 = r
+                            .iter()
+                            .zip(q.iter())
+                            .map(|(a, b)| (a - b) * (a - b))
+                            .sum::<f32>()
+                            .sqrt();
+                        (dist, j)
+                    })
+                    .collect();
+                scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                scored.into_iter().take(5).map(|(_, i)| i).collect()
+            })
+            .collect();
 
         let recall = lsh.get_recall(&queries, &ground_truth, 5);
         assert!(recall > 0.0, "Recall should be > 0, got {}", recall);
     }
-}
-
-fn random_rotation(dim: usize, rng: &mut ChaCha8Rng) -> Array2<f32> {
-    let mut a = Array2::zeros((dim, dim));
-    for i in 0..dim {
-        for j in 0..dim {
-            a[[i, j]] = rng.gen::<f32>() * 2.0 - 1.0;
-        }
-    }
-
-    let mut q = Array2::zeros((dim, dim));
-    for j in 0..dim {
-        for i in 0..dim { q[[i, j]] = a[[i, j]]; }
-        for k in 0..j {
-            let dot: f32 = (0..dim).map(|i| q[[i, j]] * q[[i, k]]).sum();
-            for i in 0..dim { q[[i, j]] -= dot * q[[i, k]]; }
-        }
-        let norm: f32 = (0..dim).map(|i| q[[i, j]] * q[[i, j]]).sum::<f32>().sqrt();
-        if norm > 1e-10 {
-            for i in 0..dim { q[[i, j]] /= norm; }
-        }
-    }
-    q
 }

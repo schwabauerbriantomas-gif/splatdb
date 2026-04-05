@@ -9,10 +9,10 @@
 //!
 //! License: MIT (adapted from github.com/RecursiveIntell/turbo-quant)
 
-use std::f32::consts::PI;
 use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
 
-use super::error::{Result, QuantError};
+use super::error::{QuantError, Result};
 use super::rotation::StoredRotation;
 
 /// A compressed vector in polar form.
@@ -27,7 +27,9 @@ pub struct PolarCode {
 }
 
 impl PolarCode {
-    pub fn pair_count(&self) -> usize { self.dim / 2 }
+    pub fn pair_count(&self) -> usize {
+        self.dim / 2
+    }
 
     pub fn dequantize_angle(&self, i: usize) -> f32 {
         let levels = 1u32 << self.bits;
@@ -49,19 +51,36 @@ pub struct PolarQuantizer {
 
 impl PolarQuantizer {
     pub fn new(dim: usize, bits: u8, seed: u64) -> Result<Self> {
-        if dim == 0 { return Err(QuantError::ZeroDimension); }
-        if !dim.is_multiple_of(2) { return Err(QuantError::OddDimension { got: dim }); }
-        if bits == 0 || bits > 16 { return Err(QuantError::InvalidBitWidth { got: bits }); }
+        if dim == 0 {
+            return Err(QuantError::ZeroDimension);
+        }
+        if !dim.is_multiple_of(2) {
+            return Err(QuantError::OddDimension { got: dim });
+        }
+        if bits == 0 || bits > 16 {
+            return Err(QuantError::InvalidBitWidth { got: bits });
+        }
         let rotation = StoredRotation::new(dim, seed)?;
-        Ok(Self { dim, bits, rotation })
+        Ok(Self {
+            dim,
+            bits,
+            rotation,
+        })
     }
 
-    pub fn dim(&self) -> usize { self.dim }
-    pub fn bits(&self) -> u8 { self.bits }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+    pub fn bits(&self) -> u8 {
+        self.bits
+    }
 
     pub fn encode(&self, vector: &[f32]) -> Result<PolarCode> {
         if vector.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: vector.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: vector.len(),
+            });
         }
         let mut rotated = vec![0.0f32; self.dim];
         self.rotation.apply(vector, &mut rotated)?;
@@ -76,7 +95,12 @@ impl PolarQuantizer {
             radii.push(r);
             angle_indices.push(idx);
         }
-        Ok(PolarCode { dim: self.dim, bits: self.bits, radii, angle_indices })
+        Ok(PolarCode {
+            dim: self.dim,
+            bits: self.bits,
+            radii,
+            angle_indices,
+        })
     }
 
     pub fn decode(&self, code: &PolarCode) -> Result<Vec<f32>> {
@@ -95,7 +119,10 @@ impl PolarQuantizer {
 
     pub fn inner_product_estimate(&self, code: &PolarCode, query: &[f32]) -> Result<f32> {
         if query.len() != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: query.len() });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: query.len(),
+            });
         }
         self.validate_code(code)?;
         let mut rotated_query = vec![0.0f32; self.dim];
@@ -115,10 +142,16 @@ impl PolarQuantizer {
 
     fn validate_code(&self, code: &PolarCode) -> Result<()> {
         if code.dim != self.dim {
-            return Err(QuantError::DimensionMismatch { expected: self.dim, got: code.dim });
+            return Err(QuantError::DimensionMismatch {
+                expected: self.dim,
+                got: code.dim,
+            });
         }
         if code.bits != self.bits {
-            return Err(QuantError::MalformedCode(format!("code bits={}, quantizer bits={}", code.bits, self.bits)));
+            return Err(QuantError::MalformedCode(format!(
+                "code bits={}, quantizer bits={}",
+                code.bits, self.bits
+            )));
         }
         Ok(())
     }
@@ -152,7 +185,10 @@ mod tests {
         let code = q.encode(&x).unwrap();
         let decoded = q.decode(&code).unwrap();
         for (orig, dec) in x.iter().zip(decoded.iter()) {
-            assert!((orig - dec).abs() < 0.01, "orig={orig:.4}, decoded={dec:.4}");
+            assert!(
+                (orig - dec).abs() < 0.01,
+                "orig={orig:.4}, decoded={dec:.4}"
+            );
         }
     }
 
@@ -165,7 +201,10 @@ mod tests {
         let estimated = q.inner_product_estimate(&code, &y).unwrap();
         let exact: f32 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
         let rel_error = (estimated - exact).abs() / (exact.abs() + 1e-6);
-        assert!(rel_error < 0.02, "rel_error={rel_error:.4}, est={estimated:.4}, exact={exact:.4}");
+        assert!(
+            rel_error < 0.02,
+            "rel_error={rel_error:.4}, est={estimated:.4}, exact={exact:.4}"
+        );
     }
 
     #[test]
@@ -179,5 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn odd_dim_rejected() { assert!(PolarQuantizer::new(7, 8, 0).is_err()); }
+    fn odd_dim_rejected() {
+        assert!(PolarQuantizer::new(7, 8, 0).is_err());
+    }
 }

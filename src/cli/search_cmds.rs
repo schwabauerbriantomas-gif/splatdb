@@ -6,27 +6,51 @@ use splatdb::SplatDBConfig;
 
 use super::helpers::*;
 
-pub fn cmd_search(data_dir: String, config: SplatDBConfig, query: String, k: usize, format: String) {
+pub fn cmd_search(
+    data_dir: String,
+    config: SplatDBConfig,
+    query: String,
+    k: usize,
+    format: String,
+) {
     let q = match parse_query(&query) {
         Ok(v) => v,
-        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     };
     let (store, _) = load_or_create_store(&data_dir, &config);
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
 
-pub fn cmd_search_file(data_dir: String, config: SplatDBConfig, input: PathBuf, k: usize, format: String) {
+pub fn cmd_search_file(
+    data_dir: String,
+    config: SplatDBConfig,
+    input: PathBuf,
+    k: usize,
+    format: String,
+) {
     let q = match load_query_bin(&input) {
         Ok(v) => v,
-        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     };
     let (store, _) = load_or_create_store(&data_dir, &config);
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
 
-pub fn cmd_fused_search(data_dir: String, config: SplatDBConfig, query: Option<String>, query_file: Option<PathBuf>, k: usize) {
+pub fn cmd_fused_search(
+    data_dir: String,
+    config: SplatDBConfig,
+    query: Option<String>,
+    query_file: Option<PathBuf>,
+    k: usize,
+) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
     eprintln!("[splatdb] Query dim: {}", q.len());
     let (store, _) = load_or_create_store(&data_dir, &config);
@@ -37,11 +61,22 @@ pub fn cmd_fused_search(data_dir: String, config: SplatDBConfig, query: Option<S
     let elapsed = t0.elapsed();
     eprintln!("[splatdb] Search complete");
     let formatted = format_neighbors(&results, "json");
-    eprintln!("[splatdb] Fused search: {} results in {:?}", results.len(), elapsed);
+    eprintln!(
+        "[splatdb] Fused search: {} results in {:?}",
+        results.len(),
+        elapsed
+    );
     println!("{}", formatted);
 }
 
-pub fn cmd_hnsw_search(data_dir: String, dim: usize, max_splats: usize, query: Option<String>, query_file: Option<PathBuf>, k: usize) {
+pub fn cmd_hnsw_search(
+    data_dir: String,
+    dim: usize,
+    max_splats: usize,
+    query: Option<String>,
+    query_file: Option<PathBuf>,
+    k: usize,
+) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
     let mut cfg = SplatDBConfig::advanced(None);
     cfg.latent_dim = dim;
@@ -62,11 +97,22 @@ pub fn cmd_hnsw_search(data_dir: String, dim: usize, max_splats: usize, query: O
     let t0 = std::time::Instant::now();
     let results = store.find_neighbors_fused(&q.view(), k);
     let elapsed = t0.elapsed();
-    eprintln!("[splatdb] HNSW search: {} results in {:?}", results.len(), elapsed);
+    eprintln!(
+        "[splatdb] HNSW search: {} results in {:?}",
+        results.len(),
+        elapsed
+    );
     println!("{}", format_neighbors(&results, "json"));
 }
 
-pub fn cmd_lsh_search(data_dir: String, dim: usize, max_splats: usize, query: Option<String>, query_file: Option<PathBuf>, k: usize) {
+pub fn cmd_lsh_search(
+    data_dir: String,
+    dim: usize,
+    max_splats: usize,
+    query: Option<String>,
+    query_file: Option<PathBuf>,
+    k: usize,
+) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
     let mut cfg = SplatDBConfig {
         latent_dim: dim,
@@ -87,22 +133,37 @@ pub fn cmd_lsh_search(data_dir: String, dim: usize, max_splats: usize, query: Op
     let t0 = std::time::Instant::now();
     let results = store.find_neighbors_fused(&q.view(), k);
     let elapsed = t0.elapsed();
-    eprintln!("[splatdb] LSH search: {} results in {:?}", results.len(), elapsed);
+    eprintln!(
+        "[splatdb] LSH search: {} results in {:?}",
+        results.len(),
+        elapsed
+    );
     println!("{}", format_neighbors(&results, "json"));
 }
 
-pub fn cmd_quant_search(data_dir: String, backend: String, _dim: usize, query: String, top_k: usize) {
+pub fn cmd_quant_search(
+    data_dir: String,
+    backend: String,
+    _dim: usize,
+    query: String,
+    top_k: usize,
+) {
     use splatdb::quantization::{QuantConfig, QuantizedStore};
 
     let q_vec = match parse_query(&query) {
         Ok(v) => v,
-        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     };
 
     let persist = make_persistence(&data_dir, &backend, false).ok();
     let vectors = if let Some(ref p) = persist {
         p.load_vectors("default").ok().flatten()
-    } else { None };
+    } else {
+        None
+    };
 
     let vectors = match vectors {
         Some(v) => v,
@@ -121,16 +182,22 @@ pub fn cmd_quant_search(data_dir: String, backend: String, _dim: usize, query: S
     let results = qstore.search(&q_vec.view(), top_k);
     let elapsed = t0.elapsed();
 
-    let entries: Vec<serde_json::Value> = results.iter().map(|(id, score)| {
-        serde_json::json!({
-            "id": id,
-            "score": (score * 10000.0).round() / 10000.0,
+    let entries: Vec<serde_json::Value> = results
+        .iter()
+        .map(|(id, score)| {
+            serde_json::json!({
+                "id": id,
+                "score": (score * 10000.0).round() / 10000.0,
+            })
         })
-    }).collect();
+        .collect();
 
-    println!("{}", serde_json::json!({
-        "query_time_ms": elapsed.as_millis() as u64,
-        "n_results": entries.len(),
-        "results": entries,
-    }));
+    println!(
+        "{}",
+        serde_json::json!({
+            "query_time_ms": elapsed.as_millis() as u64,
+            "n_results": entries.len(),
+            "results": entries,
+        })
+    );
 }

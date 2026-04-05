@@ -14,7 +14,9 @@ pub enum QuantError {
 impl std::fmt::Display for QuantError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DimensionMismatch { expected, got } => write!(f, "dimension mismatch: expected {}, got {}", expected, got),
+            Self::DimensionMismatch { expected, got } => {
+                write!(f, "dimension mismatch: expected {}, got {}", expected, got)
+            }
             Self::OddDimension { got } => write!(f, "dimension must be even, got {}", got),
             Self::ZeroDimension => write!(f, "dimension must be non-zero"),
             Self::InvalidBitWidth { got } => write!(f, "bits must be 1-16, got {}", got),

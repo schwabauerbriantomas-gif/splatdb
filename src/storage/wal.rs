@@ -75,7 +75,9 @@ impl WriteAheadLog {
         };
 
         let serialized = serde_json::to_vec(&entry)?;
-        let len: u32 = serialized.len().try_into()
+        let len: u32 = serialized
+            .len()
+            .try_into()
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
         inner.file.write_all(&len.to_be_bytes())?;
         inner.file.write_all(&serialized)?;
@@ -105,7 +107,9 @@ impl WriteAheadLog {
         };
 
         let serialized = serde_json::to_vec(&entry)?;
-        let len: u32 = serialized.len().try_into()
+        let len: u32 = serialized
+            .len()
+            .try_into()
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
         inner.file.write_all(&len.to_be_bytes())?;
         inner.file.write_all(&serialized)?;
@@ -128,15 +132,22 @@ impl WriteAheadLog {
         let mut inner = self.inner.lock();
         // Close current file
         inner.file.flush()?;
-        drop(std::mem::replace(&mut inner.file, BufWriter::new(File::open("/dev/null")?)));
+        drop(std::mem::replace(
+            &mut inner.file,
+            BufWriter::new(File::open("/dev/null")?),
+        ));
 
         // Rewrite with remaining entries
-        let file = OpenOptions::new().write(true).truncate(true).open(&self.path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.path)?;
         let mut writer = BufWriter::new(file);
         for entry in remaining {
             let serialized = serde_json::to_vec(entry)?;
-            let len: u32 = serialized.len().try_into()
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
+            let len: u32 = serialized.len().try_into().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large")
+            })?;
             writer.write_all(&len.to_be_bytes())?;
             writer.write_all(&serialized)?;
         }

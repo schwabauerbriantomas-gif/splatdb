@@ -42,11 +42,7 @@ impl SplatDBClusterClient {
     }
 
     /// Distributed search across the cluster.
-    pub fn search(
-        &mut self,
-        query: &[f32],
-        k: usize,
-    ) -> Result<Vec<(usize, f64)>, ClusterError> {
+    pub fn search(&mut self, query: &[f32], k: usize) -> Result<Vec<(usize, f64)>, ClusterError> {
         let edge_ids = if let Some(ref mut router) = self.in_memory_router {
             router.route_query(query, k, "broadcast")
         } else if self.coordinator_url.is_some() {
@@ -71,11 +67,7 @@ impl SplatDBClusterClient {
     }
 
     /// Ingest documents to cluster using shard strategy.
-    pub fn ingest_sharded(
-        &mut self,
-        doc_ids: &[String],
-        edge_ids: &[String],
-    ) -> usize {
+    pub fn ingest_sharded(&mut self, doc_ids: &[String], edge_ids: &[String]) -> usize {
         if edge_ids.is_empty() {
             return 0;
         }

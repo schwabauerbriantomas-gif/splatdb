@@ -118,7 +118,9 @@ mod tests {
         let actions = q.take_pending();
         // Simulate 6 retries
         let mut failed = actions;
-        for a in &mut failed { a.retries = 6; }
+        for a in &mut failed {
+            a.retries = 6;
+        }
         q.requeue_failed(failed);
         assert_eq!(q.pending_count(), 0); // exceeded max_retries=5
     }

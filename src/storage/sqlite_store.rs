@@ -1,7 +1,7 @@
 //! SQLite implementation of MetadataStore.
 
 use super::metadata_store::{DocumentRecord, MetadataStore};
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 
 /// SQLite-backed metadata store.
@@ -25,7 +25,7 @@ impl SqliteMetadataStore {
                  created_at REAL,
                  updated_at REAL
              );
-             CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted);"
+             CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted);",
         )?;
         drop(conn);
         Ok(Self { db_path })
@@ -51,7 +51,10 @@ impl SqliteMetadataStore {
 }
 
 impl MetadataStore for SqliteMetadataStore {
-    fn upsert(&self, record: &DocumentRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn upsert(
+        &self,
+        record: &DocumentRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let conn = self.conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO documents (id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at)
@@ -70,11 +73,14 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    fn get(&self, doc_id: &str) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at
-             FROM documents WHERE id=?1 AND deleted=0"
+             FROM documents WHERE id=?1 AND deleted=0",
         )?;
         let result = stmt.query_row(params![doc_id], |row| self.row_to_record(row));
         match result {
@@ -85,7 +91,9 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     fn soft_delete(&self, doc_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs_f64();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64();
         let conn = self.conn()?;
         let affected = conn.execute(
             "UPDATE documents SET deleted=1, updated_at=?1 WHERE id=?2",
@@ -100,7 +108,10 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(affected > 0)
     }
 
-    fn list_ids(&self, include_deleted: bool) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    fn list_ids(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
         let conn = self.conn()?;
         let sql = if include_deleted {
             "SELECT id FROM documents"
@@ -108,11 +119,17 @@ impl MetadataStore for SqliteMetadataStore {
             "SELECT id FROM documents WHERE deleted=0"
         };
         let mut stmt = conn.prepare(sql)?;
-        let ids: Vec<String> = stmt.query_map([], |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
         Ok(ids)
     }
 
-    fn count(&self, include_deleted: bool) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    fn count(
+        &self,
+        include_deleted: bool,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let conn = self.conn()?;
         let sql = if include_deleted {
             "SELECT COUNT(*) FROM documents"
@@ -129,5 +146,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    fn backend_name(&self) -> &'static str { "sqlite" }
+    fn backend_name(&self) -> &'static str {
+        "sqlite"
+    }
 }

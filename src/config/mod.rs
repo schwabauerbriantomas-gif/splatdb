@@ -2,8 +2,8 @@
 //!
 //! Centralized configuration for SplatDB system with auto-detection of devices.
 
-pub mod types;
 pub mod presets;
+pub mod types;
 pub use types::*;
 
 use serde::{Deserialize, Serialize};
@@ -360,6 +360,7 @@ impl SplatDBConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -511,10 +512,16 @@ mod tests {
         // Simple should have heavy features DISABLED
         assert!(!c.enable_quantization, "simple: quantization should be off");
         assert!(!c.enable_graph, "simple: graph should be off");
-        assert!(!c.enable_semantic_memory, "simple: semantic memory should be off");
+        assert!(
+            !c.enable_semantic_memory,
+            "simple: semantic memory should be off"
+        );
         assert!(!c.enable_hnsw, "simple: hnsw should be off");
         assert!(!c.enable_lsh, "simple: lsh should be off");
-        assert!(!c.enable_3_tier_memory, "simple: 3-tier memory should be off");
+        assert!(
+            !c.enable_3_tier_memory,
+            "simple: 3-tier memory should be off"
+        );
         assert!(!c.enable_auto_scaling, "simple: auto-scaling should be off");
         assert!(!c.enable_mapreduce, "simple: mapreduce should be off");
         // Compact footprint
@@ -530,12 +537,21 @@ mod tests {
         // Advanced should have EVERYTHING enabled
         assert!(c.enable_quantization, "advanced: quantization should be on");
         assert!(c.enable_graph, "advanced: graph should be on");
-        assert!(c.enable_semantic_memory, "advanced: semantic memory should be on");
+        assert!(
+            c.enable_semantic_memory,
+            "advanced: semantic memory should be on"
+        );
         assert!(c.enable_hnsw, "advanced: hnsw should be on");
-        assert!(c.enable_3_tier_memory, "advanced: 3-tier memory should be on");
+        assert!(
+            c.enable_3_tier_memory,
+            "advanced: 3-tier memory should be on"
+        );
         assert!(c.enable_auto_scaling, "advanced: auto-scaling should be on");
         assert!(c.enable_mapreduce, "advanced: mapreduce should be on");
-        assert!(c.enable_quality_reflection, "advanced: quality reflection should be on");
+        assert!(
+            c.enable_quality_reflection,
+            "advanced: quality reflection should be on"
+        );
         // Quantization specifics
         assert_eq!(c.quant_algorithm, QuantAlgorithm::TurboQuant);
         assert_eq!(c.quant_bits, 4);
@@ -553,29 +569,59 @@ mod tests {
         let c = SplatDBConfig::training(None);
         // Training-specific features
         assert!(c.enable_training, "training: training should be on");
-        assert!(c.training_noise_augmentation, "training: noise augmentation should be on");
-        assert!(c.training_distillation, "training: distillation should be on");
+        assert!(
+            c.training_noise_augmentation,
+            "training: noise augmentation should be on"
+        );
+        assert!(
+            c.training_distillation,
+            "training: distillation should be on"
+        );
         assert!(c.enable_data_lake, "training: data lake should be on");
-        assert!(c.enable_entity_extraction, "training: entity extraction should be on");
+        assert!(
+            c.enable_entity_extraction,
+            "training: entity extraction should be on"
+        );
         // Search features off during training
-        assert!(!c.enable_quantization, "training: quantization should be off");
+        assert!(
+            !c.enable_quantization,
+            "training: quantization should be off"
+        );
         assert!(!c.enable_graph, "training: graph should be off");
-        assert!(!c.enable_semantic_memory, "training: semantic memory should be off");
+        assert!(
+            !c.enable_semantic_memory,
+            "training: semantic memory should be off"
+        );
         // Matryoshka dims
         assert_eq!(c.training_matryoshka_dims, vec![32, 64, 128, 256, 640]);
         // Noise levels for augmentation
-        assert!(!c.noise_levels.is_empty(), "training: should have noise levels");
+        assert!(
+            !c.noise_levels.is_empty(),
+            "training: should have noise levels"
+        );
     }
 
     #[test]
     fn test_distributed_preset_features() {
         let c = SplatDBConfig::distributed(None);
         // Distributed-specific
-        assert!(c.enable_auto_scaling, "distributed: auto-scaling should be on");
+        assert!(
+            c.enable_auto_scaling,
+            "distributed: auto-scaling should be on"
+        );
         assert!(c.enable_mapreduce, "distributed: mapreduce should be on");
-        assert!(c.enable_quantization, "distributed: quantization should be on");
-        assert!(c.enable_quality_reflection, "distributed: quality reflection should be on");
-        assert!(c.enable_semantic_memory, "distributed: semantic memory should be on");
+        assert!(
+            c.enable_quantization,
+            "distributed: quantization should be on"
+        );
+        assert!(
+            c.enable_quality_reflection,
+            "distributed: quality reflection should be on"
+        );
+        assert!(
+            c.enable_semantic_memory,
+            "distributed: semantic memory should be on"
+        );
         // Scale
         assert_eq!(c.max_splats, 10_000_000);
         assert!(c.autoscale_max_nodes >= 10);
@@ -591,7 +637,10 @@ mod tests {
         assert!(c.enable_hnsw, "gpu: hnsw should be on");
         assert!(c.enable_quantization, "gpu: quantization should be on");
         assert!(c.enable_graph, "gpu: graph should be on");
-        assert!(c.enable_semantic_memory, "gpu: semantic memory should be on");
+        assert!(
+            c.enable_semantic_memory,
+            "gpu: semantic memory should be on"
+        );
         // GPU tuning
         assert_eq!(c.gpu_batch_size, 4096);
         assert!(c.gpu_auto_tune);
@@ -605,7 +654,6 @@ mod tests {
 
     #[test]
     fn test_ingest_with_transformer() {
-        use crate::dataset_transformer::{DatasetTransformer, TransformConfig};
         use crate::splats::SplatStore;
         use ndarray::Array2;
 
@@ -622,20 +670,35 @@ mod tests {
         let data = Array2::from_shape_vec((90, 4), {
             let mut v = Vec::new();
             // Cluster A: around (1,0,0,0)
-            for i in 0..30 { v.extend_from_slice(&[1.0 + i as f32 * 0.01, 0.0, 0.0, 0.0]); }
+            for i in 0..30 {
+                v.extend_from_slice(&[1.0 + i as f32 * 0.01, 0.0, 0.0, 0.0]);
+            }
             // Cluster B: around (0,1,0,0)
-            for i in 0..30 { v.extend_from_slice(&[0.0, 1.0 + i as f32 * 0.01, 0.0, 0.0]); }
+            for i in 0..30 {
+                v.extend_from_slice(&[0.0, 1.0 + i as f32 * 0.01, 0.0, 0.0]);
+            }
             // Cluster C: around (0,0,1,0)
-            for i in 0..30 { v.extend_from_slice(&[0.0, 0.0, 1.0 + i as f32 * 0.01, 0.0]); }
+            for i in 0..30 {
+                v.extend_from_slice(&[0.0, 0.0, 1.0 + i as f32 * 0.01, 0.0]);
+            }
             v
-        }).unwrap();
+        })
+        .unwrap();
 
         let result = store.ingest_with_transformer(&data, 3, 42);
-        assert!(result.is_ok(), "ingest_with_transformer failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ingest_with_transformer failed: {:?}",
+            result.err()
+        );
 
         let (n_splats, compression, stats) = result.unwrap();
         assert!(n_splats > 0, "Should produce splats");
-        assert!(n_splats <= 3, "Should produce at most 3 clusters, got {}", n_splats);
+        assert!(
+            n_splats <= 3,
+            "Should produce at most 3 clusters, got {}",
+            n_splats
+        );
         assert!(stats.original_count == 90);
         assert!(compression > 0.0);
 
@@ -643,7 +706,10 @@ mod tests {
         store.build_index();
         let query = ndarray::Array1::from_vec(vec![1.0, 0.0, 0.0, 0.0]);
         let results = store.find_neighbors(&query.view(), n_splats);
-        assert!(!results.is_empty(), "Should find neighbors after transformer ingest");
+        assert!(
+            !results.is_empty(),
+            "Should find neighbors after transformer ingest"
+        );
     }
 
     #[test]
@@ -677,10 +743,15 @@ mod tests {
                 }
             }
             v
-        }).unwrap();
+        })
+        .unwrap();
 
         let result = store.ingest_hierarchical(&data, 10, 2, 42);
-        assert!(result.is_ok(), "ingest_hierarchical failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ingest_hierarchical failed: {:?}",
+            result.err()
+        );
 
         let (n_splats, _, stats) = result.unwrap();
         assert!(n_splats > 0);
@@ -725,7 +796,10 @@ mod tests {
     #[test]
     fn test_simple_preset_no_subsystems() {
         let store = store_from_preset(SplatDBConfig::simple(None));
-        assert!(!store.has_quantization(), "simple: no quantization subsystem");
+        assert!(
+            !store.has_quantization(),
+            "simple: no quantization subsystem"
+        );
         assert!(!store.has_hnsw(), "simple: no HNSW subsystem");
         assert!(!store.has_lsh(), "simple: no LSH subsystem");
         assert!(!store.has_semantic_memory(), "simple: no semantic memory");
@@ -734,10 +808,16 @@ mod tests {
     #[test]
     fn test_advanced_preset_subsystems() {
         let store = store_from_preset(SplatDBConfig::advanced(None));
-        assert!(store.has_quantization(), "advanced: should have quantization");
+        assert!(
+            store.has_quantization(),
+            "advanced: should have quantization"
+        );
         assert!(store.has_hnsw(), "advanced: should have HNSW");
         assert!(!store.has_lsh(), "advanced: LSH not in advanced preset");
-        assert!(store.has_semantic_memory(), "advanced: should have semantic memory");
+        assert!(
+            store.has_semantic_memory(),
+            "advanced: should have semantic memory"
+        );
     }
 
     #[test]
@@ -752,9 +832,18 @@ mod tests {
     #[test]
     fn test_distributed_preset_subsystems() {
         let store = store_from_preset(SplatDBConfig::distributed(None));
-        assert!(store.has_quantization(), "distributed: should have quantization");
-        assert!(!store.has_hnsw(), "distributed: no HNSW (not in distributed config)");
-        assert!(store.has_semantic_memory(), "distributed: should have semantic memory");
+        assert!(
+            store.has_quantization(),
+            "distributed: should have quantization"
+        );
+        assert!(
+            !store.has_hnsw(),
+            "distributed: no HNSW (not in distributed config)"
+        );
+        assert!(
+            store.has_semantic_memory(),
+            "distributed: should have semantic memory"
+        );
     }
 
     #[test]
@@ -762,13 +851,16 @@ mod tests {
         let store = store_from_preset(SplatDBConfig::gpu(None));
         assert!(store.has_quantization(), "gpu: should have quantization");
         assert!(store.has_hnsw(), "gpu: should have HNSW");
-        assert!(store.has_semantic_memory(), "gpu: should have semantic memory");
+        assert!(
+            store.has_semantic_memory(),
+            "gpu: should have semantic memory"
+        );
     }
 
     #[test]
     fn test_fused_search_uses_hnsw() {
         use crate::splats::SplatStore;
-        use ndarray::{Array1, Array2};
+        use ndarray::Array2;
 
         let mut config = SplatDBConfig::advanced(None);
         config.device = "cpu".to_string();

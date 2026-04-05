@@ -18,8 +18,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
-use crate::splats::SplatStore;
 use crate::config::SplatDBConfig;
+use crate::splats::SplatStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -108,31 +108,38 @@ async fn store_memory(
         let store = state.store.lock().await;
         store.get_statistics().embedding_dim
     };
-    
-    let embedding = req.embedding.unwrap_or_else(|| {
-        simple_hash_embedding(&req.text, dim)
-    });
-    
+
+    let embedding = req
+        .embedding
+        .unwrap_or_else(|| simple_hash_embedding(&req.text, dim));
+
     let mut store = state.store.lock().await;
-    let arr = Array2::from_shape_vec((1, dim), embedding.clone())
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Bad embedding shape: {}", e)))?;
-    
+    let arr = Array2::from_shape_vec((1, dim), embedding.clone()).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Bad embedding shape: {}", e),
+        )
+    })?;
+
     let added = store.add_splat(&arr);
     if !added {
         return Err((StatusCode::INSUFFICIENT_STORAGE, "Store full".into()));
     }
-    
+
     // Build index after insert for consistency
     store.build_index();
-    
+
     let mut id_counter = state.next_id.lock().await;
     *id_counter += 1;
     let id = req.id.unwrap_or_else(|| format!("mem_{}", *id_counter));
-    
-    Ok((StatusCode::OK, Json(StoreResponse {
-        id,
-        status: "stored".into(),
-    })))
+
+    Ok((
+        StatusCode::OK,
+        Json(StoreResponse {
+            id,
+            status: "stored".into(),
+        }),
+    ))
 }
 
 async fn search_memories(
@@ -143,18 +150,18 @@ async fn search_memories(
         let store = state.store.lock().await;
         let dim = store.get_statistics().embedding_dim;
         let k = req.top_k.unwrap_or(10).min(store.n_active());
-        
+
         if store.n_active() == 0 {
             return Ok(Json(SearchResponse { results: vec![] }));
         }
-        
-        let embedding = req.embedding.unwrap_or_else(|| {
-            simple_hash_embedding(&req.query, dim)
-        });
-        
+
+        let embedding = req
+            .embedding
+            .unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
+
         let query = Array1::from_vec(embedding);
         let neighbors = store.find_neighbors(&query.view(), k);
-        
+
         let search_results: Vec<SearchResult> = neighbors
             .into_iter()
             .map(|n| SearchResult {
@@ -163,10 +170,10 @@ async fn search_memories(
                 metadata: None,
             })
             .collect();
-        
+
         (store, search_results)
     };
-    
+
     Ok(Json(SearchResponse { results }))
 }
 
@@ -176,7 +183,7 @@ async fn search_memories(
 fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    
+
     let mut result = Vec::with_capacity(dim);
     for i in 0..dim {
         let mut hasher = DefaultHasher::new();
@@ -199,7 +206,7 @@ fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
 pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
     let config = SplatDBConfig::default();
     let store = SplatStore::new(config);
-    
+
     let state = AppState {
         store: Arc::new(Mutex::new(store)),
         next_id: Arc::new(Mutex::new(0)),

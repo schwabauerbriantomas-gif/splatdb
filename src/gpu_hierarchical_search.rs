@@ -17,7 +17,11 @@ pub struct HierarchicalConfig {
 
 impl Default for HierarchicalConfig {
     fn default() -> Self {
-        Self { n_clusters: 100, n_probe: 5, metric: Metric::L2 }
+        Self {
+            n_clusters: 100,
+            n_probe: 5,
+            metric: Metric::L2,
+        }
     }
 }
 
@@ -46,7 +50,13 @@ impl HierarchicalSearch {
     pub fn new(config: HierarchicalConfig) -> Self {
         let n_probe = config.n_probe.min(config.n_clusters);
         let config = HierarchicalConfig { n_probe, ..config };
-        Self { config, built: false, centroid_searcher: None, clusters: Vec::new(), dim: 0 }
+        Self {
+            config,
+            built: false,
+            centroid_searcher: None,
+            clusters: Vec::new(),
+            dim: 0,
+        }
     }
 
     /// Build the hierarchical index from vectors.
@@ -72,44 +82,54 @@ impl HierarchicalSearch {
             if members_data.is_empty() {
                 continue;
             }
-            let members = Array2::from_shape_vec((members_data.len(), d), members_data.into_iter().flatten().collect())
-                .unwrap_or_else(|_| Array2::zeros((0, d)));
+            let members = Array2::from_shape_vec(
+                (members_data.len(), d),
+                members_data.into_iter().flatten().collect(),
+            )
+            .unwrap_or_else(|_| Array2::zeros((0, d)));
             let searcher = BruteForceSearcher::new(members.view(), self.config.metric);
-            self.clusters.push(ClusterData { _members: members, original_ids: members_indices, searcher });
+            self.clusters.push(ClusterData {
+                _members: members,
+                original_ids: members_indices,
+                searcher,
+            });
         }
 
         // Build centroid index
-        self.centroid_searcher = Some(BruteForceSearcher::new(centroids.view(), self.config.metric));
+        self.centroid_searcher = Some(BruteForceSearcher::new(
+            centroids.view(),
+            self.config.metric,
+        ));
         self.built = true;
     }
 
     /// Search for k nearest neighbors using two-stage approach.
     pub fn search(&self, query: &[f32], k: usize) -> HierarchicalResult {
         if !self.built {
-            return HierarchicalResult { indices: vec![], distances: vec![] };
+            return HierarchicalResult {
+                indices: vec![],
+                distances: vec![],
+            };
         }
 
         let centroid_searcher = self.centroid_searcher.as_ref().unwrap();
         let n_probe = self.clusters.len().min(self.config.n_probe);
 
         // Stage 1: Coarse — find n_probe closest clusters
-        let coarse = centroid_searcher.search(
-            Array1::from_vec(query.to_vec()).view(),
-            n_probe,
-        );
+        let coarse = centroid_searcher.search(Array1::from_vec(query.to_vec()).view(), n_probe);
 
         // Stage 2: Fine — search within probed clusters
-        let mut candidates: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+        let mut candidates: std::collections::HashMap<usize, f32> =
+            std::collections::HashMap::new();
 
         for &cluster_idx in &coarse.indices {
             if cluster_idx >= self.clusters.len() {
                 continue;
             }
             let cluster = &self.clusters[cluster_idx];
-            let local_result = cluster.searcher.search(
-                Array1::from_vec(query.to_vec()).view(),
-                k,
-            );
+            let local_result = cluster
+                .searcher
+                .search(Array1::from_vec(query.to_vec()).view(), k);
 
             for (i, &local_id) in local_result.indices.iter().enumerate() {
                 let global_id = cluster.original_ids[local_id];
@@ -140,11 +160,17 @@ impl HierarchicalSearch {
     }
 
     /// Is built.
-    pub fn is_built(&self) -> bool { self.built }
+    pub fn is_built(&self) -> bool {
+        self.built
+    }
     /// N clusters.
-    pub fn n_clusters(&self) -> usize { self.clusters.len() }
+    pub fn n_clusters(&self) -> usize {
+        self.clusters.len()
+    }
     /// Dim.
-    pub fn dim(&self) -> usize { self.dim }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
 }
 
 /// Hierarchical search result.
@@ -155,7 +181,11 @@ pub struct HierarchicalResult {
 }
 
 /// Simple KMeans clustering (CPU, for build time).
-fn kmeans(vectors: ArrayView2<f32>, n_clusters: usize, max_iter: usize) -> (Array2<f32>, Vec<usize>) {
+fn kmeans(
+    vectors: ArrayView2<f32>,
+    n_clusters: usize,
+    max_iter: usize,
+) -> (Array2<f32>, Vec<usize>) {
     let (n, d) = (vectors.nrows(), vectors.ncols());
     let n_clusters = n_clusters.min(n);
 
@@ -262,17 +292,27 @@ mod tests {
 
     fn make_data() -> Array2<f32> {
         array![
-            [1.0, 0.0], [1.1, 0.1], [0.9, -0.1],
-            [0.0, 1.0], [0.1, 1.1], [-0.1, 0.9],
-            [5.0, 5.0], [5.1, 4.9], [4.9, 5.1],
-        ].into_shape_with_order((9, 2)).unwrap()
+            [1.0, 0.0],
+            [1.1, 0.1],
+            [0.9, -0.1],
+            [0.0, 1.0],
+            [0.1, 1.1],
+            [-0.1, 0.9],
+            [5.0, 5.0],
+            [5.1, 4.9],
+            [4.9, 5.1],
+        ]
+        .into_shape_with_order((9, 2))
+        .unwrap()
     }
 
     #[test]
     fn test_hierarchical_search() {
         let data = make_data();
         let mut hs = HierarchicalSearch::new(HierarchicalConfig {
-            n_clusters: 3, n_probe: 2, metric: Metric::L2,
+            n_clusters: 3,
+            n_probe: 2,
+            metric: Metric::L2,
         });
         hs.build(data.view());
         assert!(hs.is_built());
@@ -288,7 +328,9 @@ mod tests {
     fn test_batch_search() {
         let data = make_data();
         let mut hs = HierarchicalSearch::new(HierarchicalConfig {
-            n_clusters: 3, n_probe: 2, metric: Metric::L2,
+            n_clusters: 3,
+            n_probe: 2,
+            metric: Metric::L2,
         });
         hs.build(data.view());
         let queries = array![[1.0, 0.0], [5.0, 5.0]];
@@ -305,5 +347,3 @@ mod tests {
         assert_eq!(result.indices.len(), 1);
     }
 }
-
-

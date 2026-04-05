@@ -93,7 +93,12 @@ pub struct LRScheduler {
 impl LRScheduler {
     /// New.
     pub fn new(base_lr: f64, warmup_steps: usize) -> Self {
-        Self { base_lr, warmup_steps, current_step: 0, min_lr: 1e-7 }
+        Self {
+            base_lr,
+            warmup_steps,
+            current_step: 0,
+            min_lr: 1e-7,
+        }
     }
 
     /// Linear warmup + cosine decay.
@@ -102,16 +107,23 @@ impl LRScheduler {
             self.base_lr * (self.current_step + 1) as f64 / self.warmup_steps as f64
         } else {
             let progress = (self.current_step - self.warmup_steps) as f64 / 10_000.0;
-            self.min_lr + 0.5 * (self.base_lr - self.min_lr) * (1.0 + (progress * std::f64::consts::PI).cos())
+            self.min_lr
+                + 0.5
+                    * (self.base_lr - self.min_lr)
+                    * (1.0 + (progress * std::f64::consts::PI).cos())
         };
         self.current_step += 1;
         lr
     }
 
     /// Current lr.
-    pub fn current_lr(&self) -> f64 { self.base_lr }
+    pub fn current_lr(&self) -> f64 {
+        self.base_lr
+    }
     /// Reset.
-    pub fn reset(&mut self) { self.current_step = 0; }
+    pub fn reset(&mut self) {
+        self.current_step = 0;
+    }
 }
 
 /// Training state tracker.
@@ -126,7 +138,13 @@ pub struct TrainingState {
 impl TrainingState {
     /// New.
     pub fn new(config: TrainingConfig) -> Self {
-        Self { config, current_epoch: 0, best_val_loss: f64::MAX, history: Vec::new(), checkpoint: None }
+        Self {
+            config,
+            current_epoch: 0,
+            best_val_loss: f64::MAX,
+            history: Vec::new(),
+            checkpoint: None,
+        }
     }
 
     /// Record epoch.
@@ -150,7 +168,13 @@ impl TrainingState {
         if self.history.len() < patience + 1 {
             return false;
         }
-        let recent: Vec<f64> = self.history.iter().rev().take(patience + 1).map(|s| s.val_loss).collect();
+        let recent: Vec<f64> = self
+            .history
+            .iter()
+            .rev()
+            .take(patience + 1)
+            .map(|s| s.val_loss)
+            .collect();
         recent.windows(2).all(|w| w[0] <= w[1])
     }
 }
@@ -187,7 +211,11 @@ impl SyntheticDataset {
             "Ocean currents affect global climate patterns".into(),
             "Traditional ceramics require kiln firing above 1000 degrees".into(),
         ];
-        Self { templates_similar, templates_dissimilar, size }
+        Self {
+            templates_similar,
+            templates_dissimilar,
+            size,
+        }
     }
 
     /// Generate training samples.
@@ -199,7 +227,10 @@ impl SyntheticDataset {
                 let idx = i % self.templates_similar.len();
                 samples.push(TrainingSample {
                     text_a: self.templates_similar[idx].to_string(),
-                    text_b: format!("{} is a key concept in AI", &self.templates_similar[idx][..20.min(self.templates_similar[idx].len())]),
+                    text_b: format!(
+                        "{} is a key concept in AI",
+                        &self.templates_similar[idx][..20.min(self.templates_similar[idx].len())]
+                    ),
                     label: 1.0,
                     teacher_emb_a: None,
                     teacher_emb_b: None,
@@ -244,7 +275,9 @@ pub fn evaluate_embeddings(
         let relevant = &relevant_ids[qi];
 
         // Compute similarities
-        let scores: Vec<(usize, f64)> = corpus_embs.iter().enumerate()
+        let scores: Vec<(usize, f64)> = corpus_embs
+            .iter()
+            .enumerate()
             .map(|(ci, corpus)| {
                 let sim = cosine_similarity(query, corpus);
                 cosine_sims.push(sim);
@@ -257,9 +290,15 @@ pub fn evaluate_embeddings(
 
         // Recall@k
         let top_ids: Vec<usize> = sorted.iter().take(10).map(|(id, _)| *id).collect();
-        if !top_ids.is_empty() && relevant.contains(&top_ids[0]) { recall_1 += 1.0; }
-        if top_ids.len() > 4 && top_ids[..5].iter().any(|id| relevant.contains(id)) { recall_5 += 1.0; }
-        if top_ids.iter().any(|id| relevant.contains(id)) { recall_10 += 1.0; }
+        if !top_ids.is_empty() && relevant.contains(&top_ids[0]) {
+            recall_1 += 1.0;
+        }
+        if top_ids.len() > 4 && top_ids[..5].iter().any(|id| relevant.contains(id)) {
+            recall_5 += 1.0;
+        }
+        if top_ids.iter().any(|id| relevant.contains(id)) {
+            recall_10 += 1.0;
+        }
 
         // MRR
         for (rank, (id, _)) in sorted.iter().enumerate() {
@@ -270,19 +309,34 @@ pub fn evaluate_embeddings(
         }
 
         // NDCG@10
-        let dcg: f64 = sorted.iter().take(10).enumerate()
+        let dcg: f64 = sorted
+            .iter()
+            .take(10)
+            .enumerate()
             .map(|(rank, (id, _))| {
-                if relevant.contains(id) { 1.0 / (rank as f64 + 2.0).log2() } else { 0.0 }
+                if relevant.contains(id) {
+                    1.0 / (rank as f64 + 2.0).log2()
+                } else {
+                    0.0
+                }
             })
             .sum();
         let ideal_relevant = relevant.len().min(10);
-        let idcg: f64 = (0..ideal_relevant).map(|r| 1.0 / (r as f64 + 2.0).log2()).sum();
-        if idcg > 0.0 { ndcg_sum += dcg / idcg; }
+        let idcg: f64 = (0..ideal_relevant)
+            .map(|r| 1.0 / (r as f64 + 2.0).log2())
+            .sum();
+        if idcg > 0.0 {
+            ndcg_sum += dcg / idcg;
+        }
     }
 
     let n = n_queries as f64;
     let mean_sim = cosine_sims.iter().sum::<f64>() / cosine_sims.len() as f64;
-    let variance = cosine_sims.iter().map(|&s| (s - mean_sim).powi(2)).sum::<f64>() / cosine_sims.len() as f64;
+    let variance = cosine_sims
+        .iter()
+        .map(|&s| (s - mean_sim).powi(2))
+        .sum::<f64>()
+        / cosine_sims.len() as f64;
 
     EvalMetrics {
         cosine_sim_mean: mean_sim,
@@ -296,11 +350,19 @@ pub fn evaluate_embeddings(
 }
 
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    let dot: f64 = a.iter().zip(b.iter()).map(|(&x, &y)| x as f64 * y as f64).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| x as f64 * y as f64)
+        .sum();
     let norm_a: f64 = a.iter().map(|&v| v as f64 * v as f64).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|&v| v as f64 * v as f64).sum::<f64>().sqrt();
     let denom = norm_a * norm_b;
-    if denom < 1e-8 { 0.0 } else { dot / denom }
+    if denom < 1e-8 {
+        0.0
+    } else {
+        dot / denom
+    }
 }
 
 #[cfg(test)]
@@ -328,7 +390,12 @@ mod tests {
     #[test]
     fn test_training_state() {
         let mut state = TrainingState::new(TrainingConfig::default());
-        state.record_epoch(EpochStats { epoch: 1, train_loss: 0.5, val_loss: 0.3, ..Default::default() });
+        state.record_epoch(EpochStats {
+            epoch: 1,
+            train_loss: 0.5,
+            val_loss: 0.3,
+            ..Default::default()
+        });
         assert_eq!(state.best_val_loss, 0.3);
         assert!(!state.should_stop_early(3));
     }
@@ -336,7 +403,11 @@ mod tests {
     #[test]
     fn test_evaluate_embeddings() {
         let query = vec![vec![1.0, 0.0, 0.0]];
-        let corpus = vec![vec![0.9, 0.1, 0.0], vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]];
+        let corpus = vec![
+            vec![0.9, 0.1, 0.0],
+            vec![0.0, 1.0, 0.0],
+            vec![0.0, 0.0, 1.0],
+        ];
         let relevant = vec![vec![0]]; // first corpus item is relevant
         let metrics = evaluate_embeddings(&query, &corpus, &relevant);
         assert!(metrics.recall_at_1 > 0.9);

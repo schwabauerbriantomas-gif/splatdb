@@ -85,13 +85,7 @@ pub fn cmd_lake_register(
     if let Err(e) = lake.load() {
         eprintln!("Warning: could not load lake: {}", e);
     }
-    lake.register(
-        &id,
-        &name,
-        n_vectors,
-        dim,
-        description.as_deref(),
-    );
+    lake.register(&id, &name, n_vectors, dim, description.as_deref());
     if let Err(e) = lake.save() {
         eprintln!("Error saving lake: {}", e);
         std::process::exit(1);
@@ -121,8 +115,7 @@ pub fn cmd_eval_embeddings(dim: usize, n_queries: usize) {
             raw.push(val);
         }
     }
-    let embeddings = Array2::from_shape_vec((n, dim), raw)
-        .expect("valid shape");
+    let embeddings = Array2::from_shape_vec((n, dim), raw).expect("valid shape");
     let labels: Vec<String> = (0..n).map(|i| format!("label_{}", i % 5)).collect();
 
     let report = EmbeddingEvaluator::evaluate(&embeddings, &labels, n_queries);

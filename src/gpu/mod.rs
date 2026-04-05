@@ -11,9 +11,7 @@ pub mod cuda_kernel;
 #[cfg(feature = "cuda")]
 pub fn is_cuda_available() -> bool {
     use cudarc::driver::CudaContext;
-    CudaContext::device_count()
-        .map(|c| c > 0)
-        .unwrap_or(false)
+    CudaContext::device_count().map(|c| c > 0).unwrap_or(false)
 }
 
 /// Check if CUDA is available at runtime.
@@ -39,7 +37,12 @@ pub fn batch_l2_distances(query: &[f32], dataset: &[f32], n_rows: usize, dim: us
 }
 
 /// GPU-accelerated batch cosine distance computation.
-pub fn batch_cosine_distances(query: &[f32], dataset: &[f32], n_rows: usize, dim: usize) -> Vec<f32> {
+pub fn batch_cosine_distances(
+    query: &[f32],
+    dataset: &[f32],
+    n_rows: usize,
+    dim: usize,
+) -> Vec<f32> {
     #[cfg(feature = "cuda")]
     {
         if is_cuda_available() {
@@ -88,7 +91,9 @@ pub fn gpu_info() -> Option<String> {
     let free_mem = ctx.mem_get_info().map(|(free, _)| free).unwrap_or(0);
     Some(format!(
         "{} (sm_{}{}), {:.1} GB total, {:.1} GB free",
-        name, major, minor,
+        name,
+        major,
+        minor,
         total_mem as f64 / 1e9,
         free_mem as f64 / 1e9,
     ))
@@ -106,7 +111,8 @@ fn cpu_l2_distances(query: &[f32], dataset: &[f32], n_rows: usize, dim: usize) -
     let mut distances = Vec::with_capacity(n_rows);
     for i in 0..n_rows {
         let row = &dataset[i * dim..(i + 1) * dim];
-        let dist: f32 = query.iter()
+        let dist: f32 = query
+            .iter()
             .zip(row.iter())
             .map(|(a, b)| (a - b).powi(2))
             .sum();
@@ -160,7 +166,7 @@ mod tests {
     #[test]
     fn test_cpu_l2_distances() {
         let query = vec![1.0f32, 0.0];
-        let dataset = vec![1.0, 0.0,  0.0, 1.0,  1.0, 1.0];
+        let dataset = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let dists = cpu_l2_distances(&query, &dataset, 3, 2);
         assert!((dists[0] - 0.0).abs() < 1e-6);
         assert!((dists[1] - 2.0).abs() < 1e-6);
@@ -170,7 +176,7 @@ mod tests {
     #[test]
     fn test_cpu_cosine_distances() {
         let query = vec![1.0f32, 0.0];
-        let dataset = vec![1.0, 0.0,  0.0, 1.0];
+        let dataset = vec![1.0, 0.0, 0.0, 1.0];
         let dists = cpu_cosine_distances(&query, &dataset, 2, 2);
         assert!((dists[0] - 0.0).abs() < 1e-6);
         assert!((dists[1] - 1.0).abs() < 1e-6);
@@ -179,7 +185,7 @@ mod tests {
     #[test]
     fn test_cpu_batch_search() {
         let queries = vec![1.0f32, 0.0];
-        let dataset = vec![0.0, 1.0,  1.0, 0.0,  0.5, 0.5];
+        let dataset = vec![0.0, 1.0, 1.0, 0.0, 0.5, 0.5];
         let results = cpu_batch_search(&queries, 1, &dataset, 3, 2, 2, "l2");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0[0], 1);
@@ -188,7 +194,7 @@ mod tests {
     #[test]
     fn test_batch_l2_distances_public_api() {
         let query = vec![1.0f32, 0.0];
-        let dataset = vec![1.0, 0.0,  0.0, 1.0];
+        let dataset = vec![1.0, 0.0, 0.0, 1.0];
         let dists = batch_l2_distances(&query, &dataset, 2, 2);
         assert_eq!(dists.len(), 2);
         assert!((dists[0] - 0.0).abs() < 1e-6);
@@ -197,7 +203,7 @@ mod tests {
     #[test]
     fn test_batch_search_public_api() {
         let queries = vec![1.0f32, 0.0];
-        let dataset = vec![1.0, 0.0,  0.0, 1.0];
+        let dataset = vec![1.0, 0.0, 0.0, 1.0];
         let results = batch_search(&queries, 1, &dataset, 2, 2, 2, "l2");
         assert_eq!(results.len(), 1);
     }
@@ -258,7 +264,9 @@ mod tests {
         let mut dataset = vec![0.0f32; n * dim];
         let mut state = 42u64;
         for val in dataset.iter_mut() {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             *val = ((state >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0;
         }
         let query = vec![0.5f32; dim];
@@ -267,7 +275,11 @@ mod tests {
         let cpu_l2: Vec<f32> = (0..n)
             .map(|i| {
                 let row = &dataset[i * dim..(i + 1) * dim];
-                query.iter().zip(row.iter()).map(|(a, b)| (a - b).powi(2)).sum()
+                query
+                    .iter()
+                    .zip(row.iter())
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum()
             })
             .collect();
 
@@ -292,14 +304,28 @@ mod tests {
         // Verify GPU matches CPU within floating point tolerance
         for (gpu, cpu) in gpu_l2.iter().zip(cpu_l2.iter()) {
             let diff = (gpu - cpu).abs();
-            assert!(diff < 1e-2, "L2 mismatch: GPU={} CPU={} diff={}", gpu, cpu, diff);
+            assert!(
+                diff < 1e-2,
+                "L2 mismatch: GPU={} CPU={} diff={}",
+                gpu,
+                cpu,
+                diff
+            );
         }
 
         // Test cosine
-        let gpu_cos = idx.cosine_distances(&query).expect("Cosine distances failed");
+        let gpu_cos = idx
+            .cosine_distances(&query)
+            .expect("Cosine distances failed");
         for (gpu, cpu) in gpu_cos.iter().zip(cpu_cos.iter()) {
             let diff = (gpu - cpu).abs();
-            assert!(diff < 1e-2, "Cosine mismatch: GPU={} CPU={} diff={}", gpu, cpu, diff);
+            assert!(
+                diff < 1e-2,
+                "Cosine mismatch: GPU={} CPU={} diff={}",
+                gpu,
+                cpu,
+                diff
+            );
         }
     }
 
@@ -308,8 +334,8 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_ptx_kernel_performance() {
-        use std::time::Instant;
         use cuda_kernel::GpuIndex;
+        use std::time::Instant;
 
         if !is_cuda_available() {
             return;
@@ -322,7 +348,9 @@ mod tests {
         let mut dataset = vec![0.0f32; n * dim];
         let mut state = 12345u64;
         for val in dataset.iter_mut() {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             *val = ((state >> 33) as f32) / (u32::MAX as f32) * 2.0 - 1.0;
         }
         let queries = vec![0.3f32; n_queries * dim];
@@ -334,7 +362,11 @@ mod tests {
             let mut _dists: Vec<f32> = (0..n)
                 .map(|i| {
                     let row = &dataset[i * dim..(i + 1) * dim];
-                    q_slice.iter().zip(row.iter()).map(|(a, b)| (a - b).powi(2)).sum()
+                    q_slice
+                        .iter()
+                        .zip(row.iter())
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum()
                 })
                 .collect();
         }
@@ -345,7 +377,9 @@ mod tests {
         assert!(idx.upload_dataset(&dataset, n, dim));
 
         let t1 = Instant::now();
-        let gpu_batch = idx.batch_l2_distances(&queries, n_queries).expect("batch L2 failed");
+        let gpu_batch = idx
+            .batch_l2_distances(&queries, n_queries)
+            .expect("batch L2 failed");
         let gpu_ms = t1.elapsed().as_millis();
         assert_eq!(gpu_batch.len(), n_queries);
         assert_eq!(gpu_batch[0].len(), n);

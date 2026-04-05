@@ -59,11 +59,7 @@ impl M2MOptimized {
         cache_memory_mb: usize,
         enable_autoscale: bool,
     ) -> Self {
-        let gpu_config = if enable_gpu {
-            Self::detect_gpu()
-        } else {
-            None
-        };
+        let gpu_config = if enable_gpu { Self::detect_gpu() } else { None };
 
         let optimizer = if enable_cache {
             Some(QueryOptimizer::new(cache_entries, cache_memory_mb, true))

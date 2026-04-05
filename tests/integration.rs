@@ -1,13 +1,14 @@
 //! Integration tests for M2M Vector Search.
 
+use ndarray::{Array1, Array2};
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use splatdb::config::SplatDBConfig;
 use splatdb::encoding::FullEmbeddingBuilder;
 use splatdb::splats::SplatStore;
-use ndarray::{Array1, Array2};
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
-use rand::Rng;
 
+#[allow(clippy::field_reassign_with_default)]
 fn test_config() -> SplatDBConfig {
     let mut c = SplatDBConfig::default();
     c.max_splats = 2000;
@@ -42,7 +43,11 @@ fn test_splat_store_workflow() {
     let results = store.find_neighbors(&query.view(), 10);
 
     assert_eq!(results.len(), 10);
-    assert!(results[0].distance < 0.01, "First neighbor distance too high: {}", results[0].distance);
+    assert!(
+        results[0].distance < 0.01,
+        "First neighbor distance too high: {}",
+        results[0].distance
+    );
     assert_eq!(results[0].index, 0);
 
     // Distances should be increasing
@@ -117,7 +122,12 @@ fn test_encoding_roundtrip() {
         &[colors[[0, 0]], colors[[0, 1]], colors[[0, 2]]],
         opacities[0],
         &[scales[[0, 0]], scales[[0, 1]], scales[[0, 2]]],
-        &[rotations[[0, 0]], rotations[[0, 1]], rotations[[0, 2]], rotations[[0, 3]]],
+        &[
+            rotations[[0, 0]],
+            rotations[[0, 1]],
+            rotations[[0, 2]],
+            rotations[[0, 3]],
+        ],
     );
     assert_eq!(single.len(), 640);
     assert!(single.iter().all(|&v| v.is_finite()));

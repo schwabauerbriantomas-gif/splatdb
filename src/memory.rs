@@ -125,7 +125,10 @@ impl SplatMemoryManager {
     /// Prefetch splats from cold to warm storage.
     pub fn prefetch_to_warm(&mut self, splat_ids: &[u64]) {
         for &id in splat_ids {
-            if self.cold.contains_key(&id) && !self.ram.contains_key(&id) && !self.vram.contains_key(&id) {
+            if self.cold.contains_key(&id)
+                && !self.ram.contains_key(&id)
+                && !self.vram.contains_key(&id)
+            {
                 self.load_to_ram(id);
             }
         }
@@ -135,7 +138,8 @@ impl SplatMemoryManager {
         if !self.ram.contains_key(&splat_id) {
             return;
         }
-        if self.vram.len() as f64 >= self.config.vram_limit as f64 * self.config.eviction_threshold {
+        if self.vram.len() as f64 >= self.config.vram_limit as f64 * self.config.eviction_threshold
+        {
             self.evict_from_vram();
         }
         if let Some(splat) = self.ram.remove(&splat_id) {
@@ -162,7 +166,8 @@ impl SplatMemoryManager {
         if self.vram.is_empty() {
             return;
         }
-        let lru_id = self.vram
+        let lru_id = self
+            .vram
             .keys()
             .copied()
             .min_by_key(|&id| self.last_access.get(&id).copied().unwrap_or(0.0) as u64)
@@ -180,7 +185,8 @@ impl SplatMemoryManager {
         if self.ram.is_empty() {
             return;
         }
-        let lru_id = self.ram
+        let lru_id = self
+            .ram
             .keys()
             .copied()
             .min_by_key(|&id| self.last_access.get(&id).copied().unwrap_or(0.0) as u64)
@@ -213,17 +219,22 @@ impl SplatMemoryManager {
     }
 
     /// Vram size.
-    pub fn vram_size(&self) -> usize { self.vram.len() }
+    pub fn vram_size(&self) -> usize {
+        self.vram.len()
+    }
     /// Ram size.
-    pub fn ram_size(&self) -> usize { self.ram.len() }
+    pub fn ram_size(&self) -> usize {
+        self.ram.len()
+    }
     /// Cold size.
-    pub fn cold_size(&self) -> usize { self.cold.len() }
+    pub fn cold_size(&self) -> usize {
+        self.cold.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     fn make_splat(id: u64) -> GaussianSplat {
         GaussianSplat {

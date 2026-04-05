@@ -37,14 +37,34 @@ mod tests {
         let cases = vec![
             (SplatDBError::IndexNotBuilt, "index has not been built"),
             (SplatDBError::NoBackends, "no search backends available"),
-            (SplatDBError::InvalidConfig("bad param".into()), "invalid config: bad param"),
-            (SplatDBError::StorageError("disk full".into()), "storage error: disk full"),
-            (SplatDBError::SearchError("timeout".into()), "search error: timeout"),
-            (SplatDBError::DimensionMismatch { expected: 128, got: 64 }, "dimension mismatch: expected 128, got 64"),
+            (
+                SplatDBError::InvalidConfig("bad param".into()),
+                "invalid config: bad param",
+            ),
+            (
+                SplatDBError::StorageError("disk full".into()),
+                "storage error: disk full",
+            ),
+            (
+                SplatDBError::SearchError("timeout".into()),
+                "search error: timeout",
+            ),
+            (
+                SplatDBError::DimensionMismatch {
+                    expected: 128,
+                    got: 64,
+                },
+                "dimension mismatch: expected 128, got 64",
+            ),
         ];
         for (err, expected_substring) in cases {
             let msg = format!("{}", err);
-            assert!(msg.contains(expected_substring), "Expected '{}' in '{}'", expected_substring, msg);
+            assert!(
+                msg.contains(expected_substring),
+                "Expected '{}' in '{}'",
+                expected_substring,
+                msg
+            );
         }
     }
 
@@ -56,7 +76,10 @@ mod tests {
 
     #[test]
     fn test_error_debug_format() {
-        let err = SplatDBError::DimensionMismatch { expected: 64, got: 32 };
+        let err = SplatDBError::DimensionMismatch {
+            expected: 64,
+            got: 32,
+        };
         let debug = format!("{:?}", err);
         assert!(debug.contains("DimensionMismatch"));
         assert!(debug.contains("expected: 64"));

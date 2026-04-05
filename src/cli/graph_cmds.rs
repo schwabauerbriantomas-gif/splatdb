@@ -201,7 +201,10 @@ pub fn cmd_graph_search(query: String, k: usize, search_type: String) {
             );
         }
         _ => {
-            eprintln!("Unknown search type '{}'. Use 'hybrid' or 'entities'.", search_type);
+            eprintln!(
+                "Unknown search type '{}'. Use 'hybrid' or 'entities'.",
+                search_type
+            );
             std::process::exit(1);
         }
     }

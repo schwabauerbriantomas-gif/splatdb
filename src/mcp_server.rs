@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use crate::config::SplatDBConfig;
 use crate::splats::SplatStore;
@@ -83,6 +83,7 @@ struct McpState {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct JsonRpcRequest {
     jsonrpc: String,
     id: Option<Value>,
@@ -331,7 +332,11 @@ fn simcos_embedding(text: &str, dim: usize) -> Vec<f32> {
             (idx as u64).hash(&mut hasher2);
             let sign_hash = hasher2.finish();
 
-            let sign = if sign_hash % 2 == 0 { 1.0f32 } else { -1.0f32 };
+            let sign = if sign_hash.is_multiple_of(2) {
+                1.0f32
+            } else {
+                -1.0f32
+            };
             result[idx] += sign;
         }
     }
@@ -355,7 +360,9 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
     let text = params["text"].as_str().ok_or("missing 'text' field")?;
     let category = params["category"].as_str();
     let embedding_opt = params["embedding"].as_array().map(|arr| {
-        arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect::<Vec<_>>()
+        arr.iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect::<Vec<_>>()
     });
 
     let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
@@ -375,7 +382,8 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
     s.store.build_index();
 
     s.next_id += 1;
-    let id = params["id"].as_str()
+    let id = params["id"]
+        .as_str()
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("mem_{}", s.next_id));
 
@@ -410,7 +418,12 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
         eprintln!("[mcp] warning: SQLite upsert failed: {}", e);
     }
 
-    eprintln!("[mcp] store: id={}, vec_idx={}, text_len={}", id, vector_idx, text.len());
+    eprintln!(
+        "[mcp] store: id={}, vec_idx={}, text_len={}",
+        id,
+        vector_idx,
+        text.len()
+    );
     Ok(json!({ "id": id, "status": "stored" }))
 }
 
@@ -434,40 +447,47 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
 
     let k = top_k.min(n_active);
     let embedding_opt = params["embedding"].as_array().map(|arr| {
-        arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect::<Vec<_>>()
+        arr.iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect::<Vec<_>>()
     });
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(query, dim));
 
     let query_vec = Array1::from_vec(embedding);
     let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
 
-    let results: Vec<Value> = neighbors.into_iter().map(|n| {
-        // Look up doc_id from vector index
-        let doc_id = s.vector_to_doc.get(&n.index)
-            .cloned()
-            .unwrap_or_else(|| format!("vec_{}", n.index));
-        let text = s.doc_texts.get(&doc_id)
-            .cloned()
-            .unwrap_or_default();
+    let results: Vec<Value> = neighbors
+        .into_iter()
+        .map(|n| {
+            // Look up doc_id from vector index
+            let doc_id = s
+                .vector_to_doc
+                .get(&n.index)
+                .cloned()
+                .unwrap_or_else(|| format!("vec_{}", n.index));
+            let text = s.doc_texts.get(&doc_id).cloned().unwrap_or_default();
 
-        // Try to get metadata from SQLite
-        let metadata: Value = match s.doc_store.get(&doc_id) {
-            Ok(Some(record)) => {
-                record.metadata.clone().unwrap_or(json!(null))
-            },
-            _ => json!(null),
-        };
+            // Try to get metadata from SQLite
+            let metadata: Value = match s.doc_store.get(&doc_id) {
+                Ok(Some(record)) => record.metadata.clone().unwrap_or(json!(null)),
+                _ => json!(null),
+            };
 
-        json!({
-            "id": doc_id,
-            "index": n.index,
-            "score": n.distance,
-            "text": text,
-            "metadata": metadata,
+            json!({
+                "id": doc_id,
+                "index": n.index,
+                "score": n.distance,
+                "text": text,
+                "metadata": metadata,
+            })
         })
-    }).collect();
+        .collect();
 
-    eprintln!("[mcp] search: query='{}', results={}", &query[..query.len().min(50)], results.len());
+    eprintln!(
+        "[mcp] search: query='{}', results={}",
+        &query[..query.len().min(50)],
+        results.len()
+    );
     Ok(json!({ "results": results }))
 }
 
@@ -536,10 +556,17 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
         updated_at: now,
     };
 
-    s.doc_store.upsert(&record)
+    s.doc_store
+        .upsert(&record)
         .map_err(|e| format!("SQLite error: {}", e))?;
 
-    eprintln!("[mcp] doc_add: id={}, vec_idx={}, text_len={}, has_meta={}", id, vector_idx, text.len(), metadata.is_some());
+    eprintln!(
+        "[mcp] doc_add: id={}, vec_idx={}, text_len={}, has_meta={}",
+        id,
+        vector_idx,
+        text.len(),
+        metadata.is_some()
+    );
     Ok(json!({ "ok": true, "id": id }))
 }
 
@@ -558,7 +585,7 @@ fn handle_doc_get(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
                 "vector_idx": record.vector_idx,
                 "created_at": record.created_at,
             }))
-        },
+        }
         Ok(None) => Err(format!("document not found: {}", id)),
         Err(e) => Err(format!("SQLite error: {}", e)),
     }
@@ -576,7 +603,7 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
             s.doc_texts.remove(id);
             eprintln!("[mcp] doc_del: id={} (soft deleted)", id);
             Ok(json!({ "ok": true, "id": id }))
-        },
+        }
         Ok(false) => Err(format!("document not found: {}", id)),
         Err(e) => Err(format!("SQLite error: {}", e)),
     }
@@ -587,9 +614,7 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 // ============================================================================
 
 fn handle_graph_add_doc(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
-    let text = params["text"]
-        .as_str()
-        .ok_or("missing 'text' field")?;
+    let text = params["text"].as_str().ok_or("missing 'text' field")?;
 
     let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
     let dim = s.store.get_statistics().embedding_dim;
@@ -609,9 +634,7 @@ fn handle_graph_add_doc(state: &Mutex<McpState>, params: &Value) -> Result<Value
 }
 
 fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
-    let name = params["name"]
-        .as_str()
-        .ok_or("missing 'name' field")?;
+    let name = params["name"].as_str().ok_or("missing 'name' field")?;
     let entity_type = params["entity_type"]
         .as_str()
         .ok_or("missing 'entity_type' field")?;
@@ -633,12 +656,8 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
 }
 
 fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
-    let source_id = params["source_id"]
-        .as_u64()
-        .ok_or("missing 'source_id'")? as usize;
-    let target_id = params["target_id"]
-        .as_u64()
-        .ok_or("missing 'target_id'")? as usize;
+    let source_id = params["source_id"].as_u64().ok_or("missing 'source_id'")? as usize;
+    let target_id = params["target_id"].as_u64().ok_or("missing 'target_id'")? as usize;
     let relation_type = params["relation_type"]
         .as_str()
         .ok_or("missing 'relation_type'")?;
@@ -663,9 +682,7 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
 }
 
 fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
-    let start_id = params["start_id"]
-        .as_u64()
-        .ok_or("missing 'start_id'")? as usize;
+    let start_id = params["start_id"].as_u64().ok_or("missing 'start_id'")? as usize;
     let max_depth = params["max_depth"].as_u64().unwrap_or(3) as usize;
 
     let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
@@ -699,9 +716,7 @@ fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Valu
 }
 
 fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
-    let query = params["query"]
-        .as_str()
-        .ok_or("missing 'query' field")?;
+    let query = params["query"].as_str().ok_or("missing 'query' field")?;
     let k = params["k"].as_u64().unwrap_or(10) as usize;
 
     let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
@@ -730,13 +745,8 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
     Ok(json!({ "results": out }))
 }
 
-fn handle_graph_search_entities(
-    state: &Mutex<McpState>,
-    params: &Value,
-) -> Result<Value, String> {
-    let query = params["query"]
-        .as_str()
-        .ok_or("missing 'query' field")?;
+fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let query = params["query"].as_str().ok_or("missing 'query' field")?;
     let k = params["k"].as_u64().unwrap_or(10) as usize;
 
     let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
@@ -799,14 +809,12 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
             error: None,
         },
 
-        "notifications/initialized" => {
-            return JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                id: None,
-                result: None,
-                error: None,
-            };
-        }
+        "notifications/initialized" => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: None,
+            result: None,
+            error: None,
+        },
 
         "tools/list" => JsonRpcResponse {
             jsonrpc: "2.0".into(),
@@ -817,9 +825,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
 
         "tools/call" => {
             let params = req.params.as_ref();
-            let tool_name = params
-                .and_then(|p| p["name"].as_str())
-                .unwrap_or("");
+            let tool_name = params.and_then(|p| p["name"].as_str()).unwrap_or("");
 
             let arguments = params
                 .and_then(|p| p.get("arguments"))
@@ -838,9 +844,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 "splatdb_graph_add_relation" => handle_graph_add_relation(state, &arguments),
                 "splatdb_graph_traverse" => handle_graph_traverse(state, &arguments),
                 "splatdb_graph_search" => handle_graph_search(state, &arguments),
-                "splatdb_graph_search_entities" => {
-                    handle_graph_search_entities(state, &arguments)
-                }
+                "splatdb_graph_search_entities" => handle_graph_search_entities(state, &arguments),
                 "splatdb_graph_stats" => handle_graph_stats(state),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
@@ -897,7 +901,10 @@ pub fn run_mcp_server() {
             ds
         }
         Err(e) => {
-            eprintln!("[splatdb] WARNING: SQLite init failed ({}), docs won't persist", e);
+            eprintln!(
+                "[splatdb] WARNING: SQLite init failed ({}), docs won't persist",
+                e
+            );
             SqliteMetadataStore::new(std::path::PathBuf::from(":memory:"))
                 .expect("in-memory SQLite should always work")
         }
@@ -926,9 +933,10 @@ pub fn run_mcp_server() {
                             vector_to_doc.insert(vector_idx, doc_id.clone());
                             doc_texts.insert(doc_id.clone(), text);
                             next_id = next_id.max(
-                                doc_id.strip_prefix("mem_")
+                                doc_id
+                                    .strip_prefix("mem_")
                                     .and_then(|s| s.parse::<usize>().ok())
-                                    .unwrap_or(0)
+                                    .unwrap_or(0),
                             );
                         }
                     }
@@ -936,7 +944,10 @@ pub fn run_mcp_server() {
             }
             if !ids.is_empty() {
                 store.build_index();
-                eprintln!("[splatdb] Warm start: reloaded {} documents from SQLite", ids.len());
+                eprintln!(
+                    "[splatdb] Warm start: reloaded {} documents from SQLite",
+                    ids.len()
+                );
             }
         }
         Err(e) => eprintln!("[splatdb] Warm start: could not list docs: {}", e),
@@ -965,7 +976,14 @@ pub fn run_mcp_server() {
                     continue;
                 }
 
-                eprintln!("[splatdb] <- {}", if line.len() > 200 { &line[..200] } else { &line });
+                eprintln!(
+                    "[splatdb] <- {}",
+                    if line.len() > 200 {
+                        &line[..200]
+                    } else {
+                        &line
+                    }
+                );
 
                 let req: JsonRpcRequest = match serde_json::from_str(&line) {
                     Ok(r) => r,
@@ -993,7 +1011,10 @@ pub fn run_mcp_server() {
 
                 if !is_notification && resp.id.is_some() {
                     let out = serde_json::to_string(&resp).unwrap();
-                    eprintln!("[splatdb] -> {}", if out.len() > 200 { &out[..200] } else { &out });
+                    eprintln!(
+                        "[splatdb] -> {}",
+                        if out.len() > 200 { &out[..200] } else { &out }
+                    );
                     writeln!(stdout, "{}", out).ok();
                     stdout.flush().ok();
                 }

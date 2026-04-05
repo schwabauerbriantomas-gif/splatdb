@@ -7,7 +7,7 @@
 //!
 //! Optimized: vectorized batch computation, avoids per-element loops where possible.
 
-use ndarray::{Array1, Array2, s};
+use ndarray::{s, Array1, Array2};
 
 /// Configuration weights for energy computation.
 #[derive(Debug, Clone)]
@@ -75,16 +75,23 @@ impl EnergyFunction {
 
         for row in x.outer_iter() {
             // Vectorized: compute all squared distances at once
-            let total: f32 = mu_view.outer_iter().zip(alpha_view.iter()).zip(kappa_view.iter())
-                .map(|((mu_row, &a), &k): ((ndarray::ArrayView1<f32>, &f32), &f32)| {
-                    let dist_sq: f32 = mu_row.iter().zip(row.iter())
-                        .map(|(m, xi)| {
-                            let d = m - xi;
-                            d * d
-                        })
-                        .sum();
-                    a * (-k * dist_sq).exp()
-                })
+            let total: f32 = mu_view
+                .outer_iter()
+                .zip(alpha_view.iter())
+                .zip(kappa_view.iter())
+                .map(
+                    |((mu_row, &a), &k): ((ndarray::ArrayView1<f32>, &f32), &f32)| {
+                        let dist_sq: f32 = mu_row
+                            .iter()
+                            .zip(row.iter())
+                            .map(|(m, xi)| {
+                                let d = m - xi;
+                                d * d
+                            })
+                            .sum();
+                        a * (-k * dist_sq).exp()
+                    },
+                )
                 .sum();
 
             energies.push(if total < 1e-10 { 10.0 } else { -total.ln() });
@@ -123,7 +130,8 @@ impl EnergyFunction {
             // dist_sq: [N]
             let dist_sq = diff.map_axis(ndarray::Axis(1), |r: ndarray::ArrayView1<f32>| r.dot(&r));
 
-            let total: f32 = dist_sq.iter()
+            let total: f32 = dist_sq
+                .iter()
                 .zip(alpha[..n].iter())
                 .zip(kappa[..n].iter())
                 .map(|((&ds, &a), &k)| a * (-k * ds).exp())
@@ -176,7 +184,9 @@ impl EnergyFunction {
         e_s.into_iter()
             .zip(e_g)
             .zip(e_c)
-            .map(|((es, eg), ec)| es + self.weights.geom_weight * eg + self.weights.comp_weight * ec)
+            .map(|((es, eg), ec)| {
+                es + self.weights.geom_weight * eg + self.weights.comp_weight * ec
+            })
             .collect()
     }
 }

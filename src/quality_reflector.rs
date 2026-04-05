@@ -10,11 +10,11 @@ use std::collections::HashMap;
 /// Quality levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum QualityLevel {
-    Excellent, // score >= 0.9
-    Good,      // score >= 0.7
+    Excellent,  // score >= 0.9
+    Good,       // score >= 0.7
     Acceptable, // score >= 0.5
-    Poor,      // score >= 0.3
-    Critical,  // score < 0.3
+    Poor,       // score >= 0.3
+    Critical,   // score < 0.3
 }
 
 /// Quality report for a search evaluation.
@@ -91,7 +91,10 @@ impl QualityReflector {
         // Duplicate detection
         let unique: std::collections::HashSet<&String> = result_ids.iter().collect();
         if unique.len() < result_ids.len() {
-            anomalies.push(format!("{} duplicate IDs found", result_ids.len() - unique.len()));
+            anomalies.push(format!(
+                "{} duplicate IDs found",
+                result_ids.len() - unique.len()
+            ));
         }
 
         // Fewer results than k
@@ -196,7 +199,8 @@ impl QualityReflector {
         // Too uniform distances
         if distances.len() > 5 {
             let mean = distances.iter().sum::<f64>() / distances.len() as f64;
-            let variance = distances.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / distances.len() as f64;
+            let variance =
+                distances.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / distances.len() as f64;
             let std = variance.sqrt();
             let cv = if mean > 0.0 { std / mean } else { 0.0 };
             if cv < 0.01 {
@@ -213,14 +217,21 @@ impl QualityReflector {
         }
 
         let recent = &self.quality_history[self.quality_history.len() - DEGRADATION_WINDOW..];
-        let avg_prec: f64 = recent.iter().map(|r| r.precision_at_k).sum::<f64>() / recent.len() as f64;
+        let avg_prec: f64 =
+            recent.iter().map(|r| r.precision_at_k).sum::<f64>() / recent.len() as f64;
         let avg_rec: f64 = recent.iter().map(|r| r.recall_at_k).sum::<f64>() / recent.len() as f64;
 
         if precision < avg_prec * 0.7 && avg_prec > 0.5 {
-            return Some(format!("Precision degradation: current={:.2} vs recent_avg={:.2}", precision, avg_prec));
+            return Some(format!(
+                "Precision degradation: current={:.2} vs recent_avg={:.2}",
+                precision, avg_prec
+            ));
         }
         if recall < avg_rec * 0.7 && avg_rec > 0.5 {
-            return Some(format!("Recall degradation: current={:.2} vs recent_avg={:.2}", recall, avg_rec));
+            return Some(format!(
+                "Recall degradation: current={:.2} vs recent_avg={:.2}",
+                recall, avg_rec
+            ));
         }
 
         None
@@ -228,14 +239,25 @@ impl QualityReflector {
 
     fn classify_quality(precision: f64, recall: f64) -> QualityLevel {
         let score = (precision + recall) / 2.0;
-        if score >= 0.9 { QualityLevel::Excellent }
-        else if score >= 0.7 { QualityLevel::Good }
-        else if score >= 0.5 { QualityLevel::Acceptable }
-        else if score >= 0.3 { QualityLevel::Poor }
-        else { QualityLevel::Critical }
+        if score >= 0.9 {
+            QualityLevel::Excellent
+        } else if score >= 0.7 {
+            QualityLevel::Good
+        } else if score >= 0.5 {
+            QualityLevel::Acceptable
+        } else if score >= 0.3 {
+            QualityLevel::Poor
+        } else {
+            QualityLevel::Critical
+        }
     }
 
-    fn generate_suggestions(&mut self, level: QualityLevel, precision: f64, recall: f64) -> Vec<String> {
+    fn generate_suggestions(
+        &mut self,
+        level: QualityLevel,
+        precision: f64,
+        recall: f64,
+    ) -> Vec<String> {
         let mut suggestions = Vec::new();
         match level {
             QualityLevel::Critical => {
@@ -262,7 +284,8 @@ impl QualityReflector {
     fn update_stats(&mut self, report: &QualityReport) {
         self.stats.total_evaluations += 1;
         let n = self.stats.total_evaluations as f64;
-        self.stats.avg_precision = (self.stats.avg_precision * (n - 1.0) + report.precision_at_k) / n;
+        self.stats.avg_precision =
+            (self.stats.avg_precision * (n - 1.0) + report.precision_at_k) / n;
         self.stats.avg_recall = (self.stats.avg_recall * (n - 1.0) + report.recall_at_k) / n;
         self.stats.anomalies_detected += report.anomalies.len() as u64;
 
@@ -310,7 +333,9 @@ mod tests {
         let report = r.evaluate(
             &["1".into(), "2".into(), "3".into(), "4".into(), "5".into()],
             Some(&["1".into(), "2".into(), "3".into(), "4".into(), "5".into()]),
-            5, "cpu", None,
+            5,
+            "cpu",
+            None,
         );
         assert_eq!(report.quality_level, QualityLevel::Excellent);
         assert_eq!(report.precision_at_k, 1.0);
@@ -323,7 +348,9 @@ mod tests {
         let report = r.evaluate(
             &["1".into(), "2".into(), "x".into(), "y".into(), "z".into()],
             Some(&["1".into(), "2".into(), "3".into(), "4".into(), "5".into()]),
-            5, "cpu", None,
+            5,
+            "cpu",
+            None,
         );
         assert_eq!(report.quality_level, QualityLevel::Poor);
     }
@@ -335,7 +362,9 @@ mod tests {
         let report = r.evaluate(
             &["a".into(), "b".into(), "c".into()],
             Some(&["a".into(), "b".into(), "c".into()]),
-            3, "cpu", Some(&distances),
+            3,
+            "cpu",
+            Some(&distances),
         );
         assert!(!report.anomalies.is_empty());
     }
@@ -346,7 +375,9 @@ mod tests {
         let report = r.evaluate(
             &["a".into(), "a".into(), "b".into()],
             Some(&["a".into(), "b".into()]),
-            3, "cpu", None,
+            3,
+            "cpu",
+            None,
         );
         assert!(report.anomalies.iter().any(|a| a.contains("duplicate")));
     }
@@ -354,10 +385,7 @@ mod tests {
     #[test]
     fn test_no_ground_truth() {
         let mut r = QualityReflector::new();
-        let report = r.evaluate(
-            &["1".into(), "2".into()],
-            None, 2, "cpu", None,
-        );
+        let report = r.evaluate(&["1".into(), "2".into()], None, 2, "cpu", None);
         assert_eq!(report.precision_at_k, 1.0);
         assert_eq!(report.quality_level, QualityLevel::Excellent);
     }
@@ -377,10 +405,14 @@ mod tests {
     fn test_should_reindex() {
         let mut r = QualityReflector::new();
         for _ in 0..15 {
-            r.evaluate(&["x".into()], Some(&["1".into(), "2".into(), "3".into(), "4".into(), "5".into()]), 5, "cpu", None);
+            r.evaluate(
+                &["x".into()],
+                Some(&["1".into(), "2".into(), "3".into(), "4".into(), "5".into()]),
+                5,
+                "cpu",
+                None,
+            );
         }
         assert!(r.should_reindex());
     }
 }
-
-
