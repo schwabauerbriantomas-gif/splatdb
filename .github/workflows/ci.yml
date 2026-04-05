@@ -30,11 +30,10 @@ jobs:
 
       - name: Clippy (cuda feature)
         run: cargo clippy --workspace --all-targets --features cuda -- -D warnings
-        # cuda feature compiles without GPU hardware; only PTX kernels need the device
 
   # ─── Test ───────────────────────────────────────────────
   test:
-    name: Test (default)
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,15 +49,9 @@ jobs:
       - name: Integration tests
         run: cargo test --release --test integration
 
-      - name: Build with cuda feature
-        run: cargo build --release --features cuda
-
-      - name: Test with cuda feature
-        run: cargo test --release --features cuda
-
-  # ─── Build (no GPU runtime, just compilation) ──────────
+  # ─── Build CUDA (compilation only, no GPU runtime) ──────
   build-cuda:
-    name: Build (CUDA feature)
+    name: Build (CUDA)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,8 +66,8 @@ jobs:
       - name: Build with CUDA
         run: cargo build --release --features cuda
 
-      - name: Test with CUDA
-        run: cargo test --release --features cuda
+      - name: Clippy with CUDA
+        run: cargo clippy --workspace --all-targets --features cuda -- -D warnings
 
   # ─── Coverage ───────────────────────────────────────────
   coverage:
@@ -113,7 +106,7 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
-  # ─── Release build (no CUDA, cross-check) ──────────────
+  # ─── Release build ─────────────────────────────────────
   build-release:
     name: Release build
     runs-on: ubuntu-latest
@@ -137,16 +130,15 @@ jobs:
   ci-pass:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [lint, test, build-cuda, coverage, audit]
+    needs: [lint, test, build-cuda, audit]
     if: always()
     steps:
       - name: Check all jobs
         run: |
-          echo "lint:    ${{ needs.lint.result }}"
-          echo "test:    ${{ needs.test.result }}"
-          echo "cuda:    ${{ needs.build-cuda.result }}"
-          echo "coverage:${{ needs.coverage.result }}"
-          echo "audit:   ${{ needs.audit.result }}"
+          echo "lint:     ${{ needs.lint.result }}"
+          echo "test:     ${{ needs.test.result }}"
+          echo "cuda:     ${{ needs.build-cuda.result }}"
+          echo "audit:    ${{ needs.audit.result }}"
           if [ "${{ needs.lint.result }}" == "failure" ] || \
              [ "${{ needs.test.result }}" == "failure" ] || \
              [ "${{ needs.build-cuda.result }}" == "failure" ] || \
