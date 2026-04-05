@@ -81,7 +81,10 @@ impl SplatMemoryManager {
             } else {
                 // Enforce RAM limit before inserting
                 if self.ram.len() >= self.config.ram_limit {
-                    eprintln!("[memory] WARN: RAM limit ({}) reached, skipping splat {}", self.config.ram_limit, id);
+                    eprintln!(
+                        "[memory] WARN: RAM limit ({}) reached, skipping splat {}",
+                        self.config.ram_limit, id
+                    );
                     break;
                 }
                 self.ram.insert(id, splat);

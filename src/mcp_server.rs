@@ -376,7 +376,10 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(text, dim));
 
     if embedding.len() != dim {
-        return Err(format!("Embedding dimension mismatch: expected {dim}, got {}", embedding.len()));
+        return Err(format!(
+            "Embedding dimension mismatch: expected {dim}, got {}",
+            embedding.len()
+        ));
     }
 
     let arr = Array2::from_shape_vec((1, dim), embedding)
@@ -462,7 +465,10 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(query, dim));
 
     if embedding.len() != dim {
-        return Err(format!("Embedding dimension mismatch: expected {dim}, got {}", embedding.len()));
+        return Err(format!(
+            "Embedding dimension mismatch: expected {dim}, got {}",
+            embedding.len()
+        ));
     }
 
     let query_vec = Array1::from_vec(embedding);
@@ -662,7 +668,9 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
 
     eprintln!(
         "[mcp] graph_add_entity: node_id={}, name_len={}, type='{}'",
-        node_id, name.len(), entity_type
+        node_id,
+        name.len(),
+        entity_type
     );
     Ok(json!({ "node_id": node_id, "name": name, "entity_type": entity_type }))
 }

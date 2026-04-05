@@ -129,8 +129,12 @@ impl GpuIndex {
         let func: CudaFunction = module.load_function("l2_distance_kernel").ok()?;
 
         // Bounds checks before i32 casts
-        if n > i32::MAX as usize { return None; }
-        if dim > i32::MAX as usize { return None; }
+        if n > i32::MAX as usize {
+            return None;
+        }
+        if dim > i32::MAX as usize {
+            return None;
+        }
 
         // Allocate GPU buffers
         let query_gpu = self.stream.clone_htod(query).ok()?;
@@ -222,10 +226,18 @@ impl GpuIndex {
         let mut output_gpu = self.stream.alloc_zeros::<f32>(total_output).ok()?;
 
         // Bounds checks before i32/u32 casts
-        if n > i32::MAX as usize { return None; }
-        if dim > i32::MAX as usize { return None; }
-        if n_queries > i32::MAX as usize { return None; }
-        if n_queries > u32::MAX as usize { return None; }
+        if n > i32::MAX as usize {
+            return None;
+        }
+        if dim > i32::MAX as usize {
+            return None;
+        }
+        if n_queries > i32::MAX as usize {
+            return None;
+        }
+        if n_queries > u32::MAX as usize {
+            return None;
+        }
 
         let block_dim = 256;
         let grid_x = (n.div_ceil(block_dim)) as u32;
@@ -304,8 +316,12 @@ impl GpuIndex {
         let mut output_gpu = self.stream.alloc_zeros::<f32>(n).ok()?;
 
         // Bounds checks before i32/u32 casts
-        if n > i32::MAX as usize { return None; }
-        if dim > i32::MAX as usize { return None; }
+        if n > i32::MAX as usize {
+            return None;
+        }
+        if dim > i32::MAX as usize {
+            return None;
+        }
 
         let shared_mem_bytes = dim * 4 + 256 * 4; // query + reduction workspace
         let block_dim = 256;
@@ -417,11 +433,21 @@ impl GpuIndex {
         let func: CudaFunction = module.load_function(kernel_name).ok()?;
 
         // Bounds checks before i32/u32 casts
-        if n_queries > i32::MAX as usize { return None; }
-        if n_queries > u32::MAX as usize { return None; }
-        if n > i32::MAX as usize { return None; }
-        if dim > i32::MAX as usize { return None; }
-        if k > i32::MAX as usize { return None; }
+        if n_queries > i32::MAX as usize {
+            return None;
+        }
+        if n_queries > u32::MAX as usize {
+            return None;
+        }
+        if n > i32::MAX as usize {
+            return None;
+        }
+        if dim > i32::MAX as usize {
+            return None;
+        }
+        if k > i32::MAX as usize {
+            return None;
+        }
 
         let queries_gpu = self.stream.clone_htod(queries).ok()?;
         let nq_k = n_queries.checked_mul(k)?;
