@@ -424,7 +424,7 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
         return Err("top_k exceeds maximum value of 1000".into());
     }
 
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
     let dim = s.store.get_statistics().embedding_dim;
     let n_active = s.store.n_active();
 
@@ -439,7 +439,7 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(query, dim));
 
     let query_vec = Array1::from_vec(embedding);
-    let neighbors = s.store.find_neighbors(&query_vec.view(), k);
+    let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
 
     let results: Vec<Value> = neighbors.into_iter().map(|n| {
         // Look up doc_id from vector index

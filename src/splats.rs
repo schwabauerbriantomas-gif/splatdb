@@ -290,6 +290,47 @@ impl SplatStore {
         (0..queries.nrows()).map(|i| self.find_neighbors(&queries.row(i), k)).collect()
     }
 
+    /// Find k nearest neighbors using HRM2 engine (fast path).
+    ///
+    /// Uses the HRM2 hierarchical index with LOD 2 (exact within probed clusters)
+    /// for approximate search. Falls back to linear scan if:
+    /// - Dataset has fewer than 100 active vectors (not worth the overhead)
+    /// - HRM2 engine is not indexed
+    /// - HRM2 query returns an error
+    pub fn find_neighbors_fast(&mut self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
+        let n = self.n_active;
+        if n == 0 || k == 0 {
+            return Vec::new();
+        }
+        let k = k.min(n);
+
+        // For small datasets, linear scan is cheaper than HRM2 overhead
+        if n < 100 {
+            return self.find_neighbors(query, k);
+        }
+
+        // Try HRM2 fast path with LOD 2 (exact within probed clusters)
+        match self.engine.query(query, k, 2) {
+            Ok(candidates) if !candidates.is_empty() => {
+                let index_data = self.mu.slice(ndarray::s![..n, ..]);
+                candidates
+                    .into_iter()
+                    .map(|(idx, dist)| NeighborResult {
+                        mu: index_data.row(idx).to_vec(),
+                        alpha: self.alpha[idx],
+                        kappa: self.kappa[idx],
+                        index: idx,
+                        distance: dist,
+                    })
+                    .collect()
+            }
+            _ => {
+                // HRM2 not indexed or query failed — fall back to linear scan
+                self.find_neighbors(query, k)
+            }
+        }
+    }
+
     /// Find neighbors with validation. Returns error on invalid input.
     pub fn find_neighbors_validated(
         &self,
