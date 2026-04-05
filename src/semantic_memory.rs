@@ -149,7 +149,14 @@ impl SemanticMemoryDB {
             return Err("text must be non-empty".into());
         }
 
-        let id = doc_id.unwrap_or(&format!("{:016x}", rand::random::<u64>())).to_string();
+        if self.documents.len() >= 1_000_000 {
+            return Err("capacity limit reached".into());
+        }
+
+        let id = match doc_id {
+            Some(id) => id.to_string(),
+            None => format!("{:016x}", rand::random::<u64>()),
+        };
 
         let vec2d = vector.view().insert_axis(ndarray::Axis(0)).to_owned();
         self.store.add_splat(&vec2d);

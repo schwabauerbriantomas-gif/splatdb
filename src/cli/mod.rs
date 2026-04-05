@@ -203,6 +203,8 @@ pub enum Commands {
     Serve {
         #[arg(short, long, default_value = "8199")]
         port: u16,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
     },
     /// Start MCP server (stdio transport for AI agent integration)
     Mcp,
@@ -239,7 +241,7 @@ pub fn dispatch(cli: Cli) {
         Commands::HnswSearch { query, query_file, k } => search_cmds::cmd_hnsw_search(cli.data_dir, cli.dim, cli.max_splats, query, query_file, k),
         Commands::LshSearch { query, query_file, k } => search_cmds::cmd_lsh_search(cli.data_dir, cli.dim, cli.max_splats, query, query_file, k),
         Commands::BenchGpuIngest { n_vectors, dim, n_clusters, n_queries } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
-        Commands::Serve { port } => data_cmds::cmd_serve(port),
+        Commands::Serve { port, host } => data_cmds::cmd_serve(port, &host),
         Commands::Mcp => splatdb::mcp_server::run_mcp_server(),
     }
 }

@@ -332,7 +332,13 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
 
 fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    if query.len() > 10_000 {
+        return Err("query text exceeds maximum length of 10000 characters".into());
+    }
     let top_k = params["top_k"].as_u64().unwrap_or(10) as usize;
+    if top_k > 1000 {
+        return Err("top_k exceeds maximum value of 1000".into());
+    }
 
     let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
     let dim = s.store.get_statistics().embedding_dim;

@@ -1,15 +1,15 @@
 //! Integration tests for M2M Vector Search.
 
-use m2m_vector_search::config::M2MConfig;
-use m2m_vector_search::encoding::FullEmbeddingBuilder;
-use m2m_vector_search::splats::SplatStore;
+use splatdb::config::SplatDBConfig;
+use splatdb::encoding::FullEmbeddingBuilder;
+use splatdb::splats::SplatStore;
 use ndarray::{Array1, Array2};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand::Rng;
 
-fn test_config() -> M2MConfig {
-    let mut c = M2MConfig::default();
+fn test_config() -> SplatDBConfig {
+    let mut c = SplatDBConfig::default();
     c.max_splats = 2000;
     c.latent_dim = 64;
     c

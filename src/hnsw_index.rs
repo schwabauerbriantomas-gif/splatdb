@@ -89,7 +89,7 @@ impl HNSWIndex {
 
     fn random_level(&mut self) -> usize {
         let r: f64 = self.rng.gen();
-        (-(r.ln()) * self.level_mult) as usize
+        (-(r.ln()) * self.level_mult).max(0.0).min(16.0) as usize
     }
 
     #[inline]
@@ -183,6 +183,9 @@ impl HNSWIndex {
     }
 
     fn insert(&mut self, vector: &[f32]) {
+        if self.vectors.len() >= 10_000_000 {
+            return;
+        }
         let idx = self.vectors.len();
         let level = self.random_level();
         let mut neighbors = Vec::with_capacity(level + 1);

@@ -43,6 +43,10 @@ impl GpuIndex {
 
     /// Upload dataset to GPU memory (persists until next upload or drop).
     pub fn upload_dataset(&mut self, dataset: &[f32], n_vectors: usize, dim: usize) -> bool {
+        // Validate dimensions match dataset size
+        if dim == 0 || n_vectors == 0 { return false; }
+        let expected = n_vectors.checked_mul(dim);
+        if expected != Some(dataset.len()) { return false; }
         self.data_gpu = self.stream.clone_htod(dataset).ok();
         if self.data_gpu.is_some() {
             self.n_vectors = n_vectors;
@@ -348,7 +352,7 @@ impl GpuIndex {
 
         let block_dim: u32 = 256;
         // Shared memory: D floats (query) + blockDim*K floats (dist) + blockDim*K ints (idx)
-        let shared_mem_bytes = (dim + (block_dim as usize) * k * 2) * 4;
+        let shared_mem_bytes = dim.checked_add((block_dim as usize).checked_mul(k).unwrap_or(0).checked_mul(2).unwrap_or(0)).unwrap_or(usize::MAX).checked_mul(4).unwrap_or(usize::MAX);
 
         let cfg = LaunchConfig {
             grid_dim: (n_queries as u32, 1, 1),  // one block per query

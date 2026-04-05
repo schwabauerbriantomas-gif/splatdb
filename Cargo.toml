@@ -27,6 +27,8 @@ axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
 anyhow = "1"
 ureq = { version = "3", features = ["json"] }
+bytemuck = "1"
+parking_lot = "0.12"
 
 [dev-dependencies]
 approx = "0.5"

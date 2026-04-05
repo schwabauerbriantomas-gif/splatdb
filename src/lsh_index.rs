@@ -44,7 +44,7 @@ pub struct CrossPolytopeLSH {
 impl CrossPolytopeLSH {
     /// New.
     pub fn new(config: LSHConfig) -> Self {
-        let k = (config.n_bits as f64 / (2.0 * config.dim as f64).log2()).ceil().max(1.0) as usize;
+        let k = (config.n_bits as f64 / (2.0 * config.dim as f64).log2()).ceil().max(1.0).min(10000.0) as usize;
         let n_tables = config.n_tables;
         let dim = config.dim;
         let seed = config.seed;
