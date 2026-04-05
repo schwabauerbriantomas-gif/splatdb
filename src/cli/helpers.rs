@@ -85,21 +85,17 @@ pub fn load_query_bin(path: &PathBuf) -> Result<Array1<f32>, String> {
     let mut buf8 = [0u8; 8];
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let rows = u64::from_le_bytes(buf8) as usize;
+    let rows = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "rows overflow")?;
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let cols = u64::from_le_bytes(buf8) as usize;
+    let cols = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "cols overflow")?;
 
     if rows != 1 {
         return Err(format!("Query file must have exactly 1 row, got {}", rows));
     }
 
     let mut data = vec![0.0f32; cols];
-    // SAFETY: `data` is a valid Vec<f32> with `cols` elements. Casting to &mut [u8] of length
-    // `cols * 4` is valid because f32 has no padding (size == 4, align == 4) and the slice does
-    // not outlive `data`. We read exactly `cols * 4` bytes, filling the entire buffer.
-    let bytes: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, cols * 4) };
+    let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
     file.read_exact(bytes)
         .map_err(|e| format!("Read error: {}", e))?;
     Ok(Array1::from(data))
@@ -112,17 +108,14 @@ pub fn load_vectors_bin(path: &PathBuf) -> Result<Array2<f32>, String> {
     let mut buf8 = [0u8; 8];
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let rows = u64::from_le_bytes(buf8) as usize;
+    let rows = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "rows overflow")?;
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let cols = u64::from_le_bytes(buf8) as usize;
+    let cols = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "cols overflow")?;
 
-    let mut data = vec![0.0f32; rows * cols];
-    // SAFETY: `data` is a valid Vec<f32> with `rows * cols` elements. Casting to &mut [u8] of
-    // length `data.len() * 4` is valid because f32 is 4 bytes with no padding. The slice does not
-    // outlive `data` and we read exactly that many bytes.
-    let bytes: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, data.len() * 4) };
+    let total = rows.checked_mul(cols).ok_or("overflow in rows*cols")?;
+    let mut data = vec![0.0f32; total];
+    let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
     file.read_exact(bytes)
         .map_err(|e| format!("Read error: {}", e))?;
     Array2::from_shape_vec((rows, cols), data).map_err(|e| format!("Shape error: {}", e))

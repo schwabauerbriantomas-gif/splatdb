@@ -126,10 +126,13 @@ impl WriteAheadLog {
 
     /// Truncate entries before the given LSN.
     pub fn truncate(&self, before_lsn: u64) -> std::io::Result<()> {
+        // Acquire lock FIRST to prevent TOCTOU: no entries can be logged
+        // between reading and rewriting while we hold the lock.
+        let mut inner = self.inner.lock();
+
         let entries = self.read_entries()?;
         let remaining: Vec<&WALEntry> = entries.iter().filter(|e| e.lsn >= before_lsn).collect();
 
-        let mut inner = self.inner.lock();
         // Close current file
         inner.file.flush()?;
         drop(std::mem::replace(

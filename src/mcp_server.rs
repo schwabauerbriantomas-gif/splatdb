@@ -358,6 +358,10 @@ fn simcos_embedding(text: &str, dim: usize) -> Vec<f32> {
 
 fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let text = params["text"].as_str().ok_or("missing 'text' field")?;
+    const MAX_TEXT_LEN: usize = 100_000;
+    if text.len() > MAX_TEXT_LEN {
+        return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
+    }
     let category = params["category"].as_str();
     let embedding_opt = params["embedding"].as_array().map(|arr| {
         arr.iter()
@@ -370,6 +374,10 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
 
     // Use provided embedding, or get real embedding (MiniLM or SimCos fallback)
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(text, dim));
+
+    if embedding.len() != dim {
+        return Err(format!("Embedding dimension mismatch: expected {dim}, got {}", embedding.len()));
+    }
 
     let arr = Array2::from_shape_vec((1, dim), embedding)
         .map_err(|e| format!("bad embedding shape: {}", e))?;
@@ -453,6 +461,10 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
     });
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(query, dim));
 
+    if embedding.len() != dim {
+        return Err(format!("Embedding dimension mismatch: expected {dim}, got {}", embedding.len()));
+    }
+
     let query_vec = Array1::from_vec(embedding);
     let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
 
@@ -484,8 +496,8 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
         .collect();
 
     eprintln!(
-        "[mcp] search: query='{}', results={}",
-        &query[..query.len().min(50)],
+        "[mcp] search: query_len={}, results={}",
+        query.len(),
         results.len()
     );
     Ok(json!({ "results": results }))
@@ -649,8 +661,8 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
         .map_err(|e| e.to_string())?;
 
     eprintln!(
-        "[mcp] graph_add_entity: node_id={}, name='{}', type='{}'",
-        node_id, name, entity_type
+        "[mcp] graph_add_entity: node_id={}, name_len={}, type='{}'",
+        node_id, name.len(), entity_type
     );
     Ok(json!({ "node_id": node_id, "name": name, "entity_type": entity_type }))
 }
@@ -683,7 +695,7 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
 
 fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let start_id = params["start_id"].as_u64().ok_or("missing 'start_id'")? as usize;
-    let max_depth = params["max_depth"].as_u64().unwrap_or(3) as usize;
+    let max_depth = params["max_depth"].as_u64().unwrap_or(3).min(20) as usize;
 
     let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
 
@@ -738,8 +750,8 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
         .collect();
 
     eprintln!(
-        "[mcp] graph_search: query='{}', results={}",
-        &query[..query.len().min(50)],
+        "[mcp] graph_search: query_len={}, results={}",
+        query.len(),
         out.len()
     );
     Ok(json!({ "results": out }))
@@ -767,8 +779,8 @@ fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Resu
         .collect();
 
     eprintln!(
-        "[mcp] graph_search_entities: query='{}', results={}",
-        &query[..query.len().min(50)],
+        "[mcp] graph_search_entities: query_len={}, results={}",
+        query.len(),
         out.len()
     );
     Ok(json!({ "results": out }))
@@ -894,7 +906,12 @@ pub fn run_mcp_server() {
     let mut store = SplatStore::new(config);
 
     // Initialize SQLite doc store
-    let db_path = std::path::PathBuf::from("/root/.hermes/splatdb_docs.db");
+    let db_path = std::env::var("SPLATDB_DOC_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+            std::path::PathBuf::from(format!("{home}/.hermes/splatdb_docs.db"))
+        });
     let doc_store = match SqliteMetadataStore::new(db_path.clone()) {
         Ok(ds) => {
             eprintln!("[splatdb] SQLite doc store: {:?}", db_path);
@@ -976,17 +993,11 @@ pub fn run_mcp_server() {
                     continue;
                 }
 
-                eprintln!(
-                    "[splatdb] <- {}",
-                    if line.len() > 200 {
-                        &line[..200]
-                    } else {
-                        &line
+                let req: JsonRpcRequest = match serde_json::from_str::<JsonRpcRequest>(&line) {
+                    Ok(r) => {
+                        eprintln!("[splatdb] <- method={}", r.method);
+                        r
                     }
-                );
-
-                let req: JsonRpcRequest = match serde_json::from_str(&line) {
-                    Ok(r) => r,
                     Err(e) => {
                         eprintln!("[splatdb] parse error: {}", e);
                         let resp = JsonRpcResponse {

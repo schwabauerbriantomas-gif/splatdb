@@ -5,15 +5,22 @@
 //!   POST /search  - Search memories (query text, top-k)
 //!   POST /status  - Get store stats
 //!   GET  /health  - Health check
+//!
+//! Security:
+//!   - API key authentication via SPLATDB_API_KEY env var (optional)
+//!   - CORS restricted to localhost by default
+//!   - Input size limits enforced
 
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
     routing::{get, post},
     Json, Router,
 };
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
@@ -21,10 +28,15 @@ use tower_http::cors::CorsLayer;
 use crate::config::SplatDBConfig;
 use crate::splats::SplatStore;
 
+// ─── Security constants ──────────────────────────────────
+const MAX_TEXT_LEN: usize = 100_000; // 100KB max text input
+const MAX_EMBEDDING_DIM: usize = 8192; // Max embedding dimension
+const MAX_TOP_K: usize = 1000;
+
 #[derive(Clone)]
 pub struct AppState {
     pub store: Arc<Mutex<SplatStore>>,
-    pub next_id: Arc<Mutex<usize>>,
+    pub next_id: Arc<AtomicUsize>,
 }
 
 #[derive(Deserialize)]
@@ -82,7 +94,7 @@ pub struct HealthResponse {
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".into(),
-        version: "2.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
     })
 }
 
@@ -104,20 +116,39 @@ async fn store_memory(
     State(state): State<AppState>,
     Json(req): Json<StoreRequest>,
 ) -> Result<(StatusCode, Json<StoreResponse>), (StatusCode, String)> {
-    let dim = {
-        let store = state.store.lock().await;
-        store.get_statistics().embedding_dim
-    };
-
-    let embedding = req
-        .embedding
-        .unwrap_or_else(|| simple_hash_embedding(&req.text, dim));
+    // Input validation
+    if req.text.len() > MAX_TEXT_LEN {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("Text exceeds max length ({MAX_TEXT_LEN})"),
+        ));
+    }
 
     let mut store = state.store.lock().await;
-    let arr = Array2::from_shape_vec((1, dim), embedding.clone()).map_err(|e| {
+    let dim = store.get_statistics().embedding_dim;
+
+    // Validate user-supplied embedding dimension
+    if let Some(ref emb) = req.embedding {
+        if emb.len() != dim {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Embedding dimension mismatch: expected {dim}, got {}", emb.len()),
+            ));
+        }
+        if emb.len() > MAX_EMBEDDING_DIM {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Embedding dimension exceeds max ({MAX_EMBEDDING_DIM})"),
+            ));
+        }
+    }
+
+    let embedding = req.embedding.unwrap_or_else(|| simple_hash_embedding(&req.text, dim));
+
+    let arr = Array2::from_shape_vec((1, dim), embedding).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            format!("Bad embedding shape: {}", e),
+            format!("Bad embedding shape: {e}"),
         )
     })?;
 
@@ -126,12 +157,10 @@ async fn store_memory(
         return Err((StatusCode::INSUFFICIENT_STORAGE, "Store full".into()));
     }
 
-    // Build index after insert for consistency
     store.build_index();
 
-    let mut id_counter = state.next_id.lock().await;
-    *id_counter += 1;
-    let id = req.id.unwrap_or_else(|| format!("mem_{}", *id_counter));
+    let id_num = state.next_id.fetch_add(1, Ordering::SeqCst);
+    let id = req.id.unwrap_or_else(|| format!("mem_{id_num}"));
 
     Ok((
         StatusCode::OK,
@@ -146,33 +175,45 @@ async fn search_memories(
     State(state): State<AppState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, (StatusCode, String)> {
-    let (_store, results) = {
-        let store = state.store.lock().await;
-        let dim = store.get_statistics().embedding_dim;
-        let k = req.top_k.unwrap_or(10).min(store.n_active());
+    // Input validation
+    if req.query.len() > MAX_TEXT_LEN {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("Query exceeds max length ({MAX_TEXT_LEN})"),
+        ));
+    }
 
-        if store.n_active() == 0 {
-            return Ok(Json(SearchResponse { results: vec![] }));
+    let store = state.store.lock().await;
+    let dim = store.get_statistics().embedding_dim;
+
+    if store.n_active() == 0 {
+        return Ok(Json(SearchResponse { results: vec![] }));
+    }
+
+    let k = req.top_k.unwrap_or(10).min(store.n_active()).min(MAX_TOP_K);
+
+    // Validate user-supplied embedding dimension
+    if let Some(ref emb) = req.embedding {
+        if emb.len() != dim {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Embedding dimension mismatch: expected {dim}, got {}", emb.len()),
+            ));
         }
+    }
 
-        let embedding = req
-            .embedding
-            .unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
+    let embedding = req.embedding.unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
+    let query = Array1::from_vec(embedding);
+    let neighbors = store.find_neighbors(&query.view(), k);
 
-        let query = Array1::from_vec(embedding);
-        let neighbors = store.find_neighbors(&query.view(), k);
-
-        let search_results: Vec<SearchResult> = neighbors
-            .into_iter()
-            .map(|n| SearchResult {
-                index: n.index,
-                score: n.distance,
-                metadata: None,
-            })
-            .collect();
-
-        (store, search_results)
-    };
+    let results: Vec<SearchResult> = neighbors
+        .into_iter()
+        .map(|n| SearchResult {
+            index: n.index,
+            score: n.distance,
+            metadata: None,
+        })
+        .collect();
 
     Ok(Json(SearchResponse { results }))
 }
@@ -203,25 +244,68 @@ fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
     result
 }
 
+// ─── API Key Authentication Middleware ────────────────────
+async fn api_key_auth(
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<axum::response::Response, StatusCode> {
+    // Skip auth for health endpoint
+    if request.uri().path() == "/health" {
+        return Ok(next.run(request).await);
+    }
+
+    // If no SPLATDB_API_KEY env var set, skip auth (localhost dev mode)
+    let Ok(expected_key) = std::env::var("SPLATDB_API_KEY") else {
+        return Ok(next.run(request).await);
+    };
+
+    let provided = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    match provided {
+        Some(key) if key == expected_key => Ok(next.run(request).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
 pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
     let config = SplatDBConfig::default();
     let store = SplatStore::new(config);
 
     let state = AppState {
         store: Arc::new(Mutex::new(store)),
-        next_id: Arc::new(Mutex::new(0)),
+        next_id: Arc::new(AtomicUsize::new(0)),
     };
+
+    // CORS: restrict to localhost by default
+    let cors = CorsLayer::new()
+        .allow_origin([
+            "http://localhost".parse().unwrap(),
+            "http://127.0.0.1".parse().unwrap(),
+        ])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ]);
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/status", post(status))
         .route("/store", post(store_memory))
         .route("/search", post(search_memories))
-        .layer(CorsLayer::permissive())
+        .layer(cors)
+        .layer(middleware::from_fn(api_key_auth))
         .with_state(state);
 
-    let bind_addr = format!("{}:{}", addr, port);
-    println!("SplatDB server listening on {}", bind_addr);
+    let bind_addr = format!("{addr}:{port}");
+    println!("SplatDB server listening on {bind_addr}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     Ok(axum::serve(listener, app).await?)
 }
