@@ -2,7 +2,7 @@
 
 A native Rust vector search engine powered by Gaussian Splatting embeddings and hierarchical retrieval.
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb-rust)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-226%20passing-brightgreen.svg)]()
@@ -78,7 +78,7 @@ cargo run --release -- search --query "0.1,0.2,0.3,...,-0.5" -k 10
 use splatdb::{SplatDBConfig, SplatStore};
 
 fn main() {
-    let config = SplatDBConfig::default();  // or: simple(), advanced(), gpu()
+    let config = SplatDBConfig::default();  // or: simple(), mcp(), advanced(), gpu()
     let mut store = SplatStore::new(config);
 
     let id = store.insert(&vec![0.1f32; 640]);
@@ -124,12 +124,13 @@ An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 1
 
 ## Configuration Presets
 
-Six presets cover edge devices to GPU clusters:
+Seven presets cover edge devices to GPU clusters:
 
 | Preset | Use Case | Memory | Key Features |
 |--------|----------|--------|--------------|
 | `default` | General purpose | 100K splats | TurboQuant 8-bit, GraphSplat, BM25+Vector RRF |
 | `simple` | Edge / IoT | 10K splats | Minimal footprint, no compression, RAM-only |
+| `mcp` | AI agent memory | 100K splats | GPU auto-detect, TurboQuant, GraphSplat, semantic RRF |
 | `advanced` | AI agents | 1M splats | 4-bit quant, HNSW secondary, auto-scaling, EBM |
 | `training` | Model research | 500K splats | Matryoshka, distillation, noise robustness |
 | `distributed` | Multi-node | 10M splats | MapReduce 32-chunk, 3–50 nodes, sharding |
@@ -137,6 +138,7 @@ Six presets cover edge devices to GPU clusters:
 
 ```rust
 let edge  = SplatDBConfig::simple(None);           // Raspberry Pi
+let mcp   = SplatDBConfig::mcp(None);              // AI agent (auto GPU)
 let agent = SplatDBConfig::advanced(Some("cuda")); // LLM tool
 let gpu   = SplatDBConfig::gpu(None);              // RTX 3090+
 ```
@@ -249,7 +251,7 @@ Options:
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence, WAL, JSON store |
 | `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server |
-| `config` | `src/config/` | 6 presets, device auto-detection |
+| `config` | `src/config/` | 7 presets, device auto-detection |
 
 ## Dependencies
 
