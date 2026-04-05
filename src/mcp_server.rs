@@ -4,7 +4,7 @@
 //! Uses JSON-RPC 2.0 over stdin/stdout (stdio transport).
 //! All logs go to stderr to keep the protocol channel clean.
 //!
-//! v2.4: Real embeddings via HTTP embedding service (MiniLM-L6-v2) with SimCos fallback.
+//! v2.5: Graph Splat tools — knowledge graph over Gaussian splats.
 
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
@@ -78,6 +78,8 @@ struct McpState {
     /// Maps doc_id → text content (in-memory cache of document text)
     doc_texts: HashMap<String, String>,
     next_id: usize,
+    /// Knowledge graph store (Gaussian splat graph)
+    graph: crate::graph_splat::GaussianGraphStore,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +181,88 @@ fn tool_definitions() -> Vec<Value> {
                     "id": { "type": "string", "description": "Document ID to delete" }
                 },
                 "required": ["id"]
+            }
+        }),
+        // ── Graph Splat tools ──────────────────────────────────────────────
+        json!({
+            "name": "splatdb_graph_add_doc",
+            "description": "Add a document node to the knowledge graph. Auto-embeds the text.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Document text content" }
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_add_entity",
+            "description": "Add an entity node to the knowledge graph. Auto-embeds the name.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Entity name" },
+                    "entity_type": { "type": "string", "description": "Entity type (e.g. person, organization, location, concept)" }
+                },
+                "required": ["name", "entity_type"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_add_relation",
+            "description": "Add a directed edge between two nodes in the knowledge graph.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source_id": { "type": "number", "description": "Source node ID" },
+                    "target_id": { "type": "number", "description": "Target node ID" },
+                    "relation_type": { "type": "string", "description": "Relation type (e.g. MENTIONS, RELATED_TO)" },
+                    "weight": { "type": "number", "description": "Edge weight (default: 1.0)" }
+                },
+                "required": ["source_id", "target_id", "relation_type"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_traverse",
+            "description": "BFS traversal from a start node in the knowledge graph.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "start_id": { "type": "number", "description": "Start node ID" },
+                    "max_depth": { "type": "number", "description": "Maximum traversal depth (default: 3)" }
+                },
+                "required": ["start_id"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_search",
+            "description": "Hybrid search over the knowledge graph (vector similarity + graph context boost). Auto-embeds query.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search query text" },
+                    "k": { "type": "number", "description": "Number of results (default: 10)" }
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_search_entities",
+            "description": "Search entity nodes by embedding similarity. Auto-embeds query.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search query text" },
+                    "k": { "type": "number", "description": "Number of results (default: 10)" }
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "splatdb_graph_stats",
+            "description": "Get knowledge graph statistics (node counts, edge counts, etc.).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         }),
     ]
@@ -499,6 +583,201 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 }
 
 // ============================================================================
+// Graph Splat tool handlers
+// ============================================================================
+
+fn handle_graph_add_doc(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let text = params["text"]
+        .as_str()
+        .ok_or("missing 'text' field")?;
+
+    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let dim = s.store.get_statistics().embedding_dim;
+    let embedding = get_embedding(text, dim);
+
+    let node_id = s
+        .graph
+        .add_document(text, &embedding)
+        .map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[mcp] graph_add_doc: node_id={}, text_len={}",
+        node_id,
+        text.len()
+    );
+    Ok(json!({ "node_id": node_id, "node_type": "document" }))
+}
+
+fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let name = params["name"]
+        .as_str()
+        .ok_or("missing 'name' field")?;
+    let entity_type = params["entity_type"]
+        .as_str()
+        .ok_or("missing 'entity_type' field")?;
+
+    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let dim = s.store.get_statistics().embedding_dim;
+    let embedding = get_embedding(name, dim);
+
+    let node_id = s
+        .graph
+        .add_entity(name, &embedding, entity_type)
+        .map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[mcp] graph_add_entity: node_id={}, name='{}', type='{}'",
+        node_id, name, entity_type
+    );
+    Ok(json!({ "node_id": node_id, "name": name, "entity_type": entity_type }))
+}
+
+fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let source_id = params["source_id"]
+        .as_u64()
+        .ok_or("missing 'source_id'")? as usize;
+    let target_id = params["target_id"]
+        .as_u64()
+        .ok_or("missing 'target_id'")? as usize;
+    let relation_type = params["relation_type"]
+        .as_str()
+        .ok_or("missing 'relation_type'")?;
+    let weight = params["weight"].as_f64().unwrap_or(1.0);
+
+    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    s.graph
+        .add_relation(source_id, target_id, relation_type, weight)
+        .map_err(|e| e.to_string())?;
+
+    eprintln!(
+        "[mcp] graph_add_relation: {} --{}--> {} (w={})",
+        source_id, relation_type, target_id, weight
+    );
+    Ok(json!({
+        "ok": true,
+        "source_id": source_id,
+        "target_id": target_id,
+        "relation_type": relation_type,
+        "weight": weight
+    }))
+}
+
+fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let start_id = params["start_id"]
+        .as_u64()
+        .ok_or("missing 'start_id'")? as usize;
+    let max_depth = params["max_depth"].as_u64().unwrap_or(3) as usize;
+
+    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+
+    if s.graph.get_node(start_id).is_none() {
+        return Err(format!("node not found: {}", start_id));
+    }
+
+    let visited = s.graph.traverse(start_id, max_depth);
+
+    let nodes: Vec<Value> = visited
+        .iter()
+        .filter_map(|&id| {
+            s.graph.get_node(id).map(|n| {
+                json!({
+                    "id": n.id,
+                    "node_type": format!("{:?}", n.node_type).to_lowercase(),
+                    "content": n.content,
+                })
+            })
+        })
+        .collect();
+
+    eprintln!(
+        "[mcp] graph_traverse: start={}, depth={}, found={}",
+        start_id,
+        max_depth,
+        nodes.len()
+    );
+    Ok(json!({ "nodes": nodes, "count": nodes.len() }))
+}
+
+fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let query = params["query"]
+        .as_str()
+        .ok_or("missing 'query' field")?;
+    let k = params["k"].as_u64().unwrap_or(10) as usize;
+
+    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let dim = s.store.get_statistics().embedding_dim;
+    let embedding = get_embedding(query, dim);
+
+    let results = s.graph.hybrid_search(&embedding, k);
+
+    let out: Vec<Value> = results
+        .iter()
+        .map(|r| {
+            json!({
+                "node_id": r.node_id,
+                "content": r.content,
+                "score": r.score,
+                "node_type": format!("{:?}", r.node_type).to_lowercase(),
+            })
+        })
+        .collect();
+
+    eprintln!(
+        "[mcp] graph_search: query='{}', results={}",
+        &query[..query.len().min(50)],
+        out.len()
+    );
+    Ok(json!({ "results": out }))
+}
+
+fn handle_graph_search_entities(
+    state: &Mutex<McpState>,
+    params: &Value,
+) -> Result<Value, String> {
+    let query = params["query"]
+        .as_str()
+        .ok_or("missing 'query' field")?;
+    let k = params["k"].as_u64().unwrap_or(10) as usize;
+
+    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let dim = s.store.get_statistics().embedding_dim;
+    let embedding = get_embedding(query, dim);
+
+    let results = s.graph.search_entities(&embedding, k);
+
+    let out: Vec<Value> = results
+        .iter()
+        .map(|n| {
+            json!({
+                "id": n.id,
+                "content": n.content,
+                "node_type": format!("{:?}", n.node_type).to_lowercase(),
+            })
+        })
+        .collect();
+
+    eprintln!(
+        "[mcp] graph_search_entities: query='{}', results={}",
+        &query[..query.len().min(50)],
+        out.len()
+    );
+    Ok(json!({ "results": out }))
+}
+
+fn handle_graph_stats(state: &Mutex<McpState>) -> Result<Value, String> {
+    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let stats = s.graph.get_stats();
+
+    Ok(json!({
+        "total_nodes": stats.total_nodes,
+        "total_edges": stats.total_edges,
+        "documents": stats.documents,
+        "entities": stats.entities,
+        "concepts": stats.concepts,
+    }))
+}
+
+// ============================================================================
 // JSON-RPC dispatcher
 // ============================================================================
 
@@ -514,7 +793,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 },
                 "serverInfo": {
                     "name": "splatdb",
-                    "version": "2.2.0"
+                    "version": "2.5.0"
                 }
             })),
             error: None,
@@ -554,6 +833,15 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 "splatdb_doc_add" => handle_doc_add(state, &arguments),
                 "splatdb_doc_get" => handle_doc_get(state, &arguments),
                 "splatdb_doc_del" => handle_doc_del(state, &arguments),
+                "splatdb_graph_add_doc" => handle_graph_add_doc(state, &arguments),
+                "splatdb_graph_add_entity" => handle_graph_add_entity(state, &arguments),
+                "splatdb_graph_add_relation" => handle_graph_add_relation(state, &arguments),
+                "splatdb_graph_traverse" => handle_graph_traverse(state, &arguments),
+                "splatdb_graph_search" => handle_graph_search(state, &arguments),
+                "splatdb_graph_search_entities" => {
+                    handle_graph_search_entities(state, &arguments)
+                }
+                "splatdb_graph_stats" => handle_graph_stats(state),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
 
@@ -596,7 +884,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
 // ============================================================================
 
 pub fn run_mcp_server() {
-    eprintln!("[splatdb] MCP server v2.3 starting (stdio transport)...");
+    eprintln!("[splatdb] MCP server v2.5 starting (stdio transport)...");
 
     let config = SplatDBConfig::default();
     let mut store = SplatStore::new(config);
@@ -660,6 +948,7 @@ pub fn run_mcp_server() {
         vector_to_doc,
         doc_texts,
         next_id,
+        graph: crate::graph_splat::GaussianGraphStore::new(),
     });
 
     let stdin = io::stdin();
