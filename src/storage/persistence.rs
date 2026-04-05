@@ -3,8 +3,9 @@
 //! Supports any structured database via the `MetadataStore` trait.
 //! Backend selection via `StorageBackend` enum or feature flags.
 
+use bytemuck::cast_slice;
 use ndarray::Array2;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::metadata_store::{DocumentRecord, MetadataStore};
 use super::wal::WriteAheadLog;
@@ -31,6 +32,14 @@ pub struct SplatDBPersistence {
     pub storage_path: PathBuf,
     pub wal: Option<WriteAheadLog>,
     meta: Box<dyn MetadataStore>,
+}
+
+/// Validate that a shard name contains no path separators or traversal sequences.
+fn validate_shard_name(name: &str) -> std::io::Result<()> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") || name.contains('\0') {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid shard name"));
+    }
+    Ok(())
 }
 
 impl SplatDBPersistence {
@@ -94,42 +103,45 @@ impl SplatDBPersistence {
     /// Get the active backend name.
     pub fn backend_name(&self) -> &'static str { self.meta.backend_name() }
 
-    // ---- Vector Storage (file-based, unchanged) ----
+    // ---- Vector Storage (file-based) ----
 
     pub fn save_vectors(&self, vectors: &Array2<f32>, shard_name: &str) -> std::io::Result<()> {
+        validate_shard_name(shard_name)?;
         let path = self.storage_path.join("data").join("vectors").join(format!("{}.bin", shard_name));
         let mut file = std::fs::File::create(path)?;
         use std::io::Write;
         file.write_all(&(vectors.nrows() as u64).to_le_bytes())?;
         file.write_all(&(vectors.ncols() as u64).to_le_bytes())?;
         for row in vectors.rows() {
-            let slice = row.as_slice().unwrap_or(&[]);
-            // SAFETY: `slice` is a valid &[f32] from an ndarray row. Casting to &[u8] of length
-            // `slice.len() * 4` is valid because f32 is 4 bytes with no padding and the slice
-            // does not outlive the row reference.
-            let bytes: &[u8] = unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, slice.len() * 4) };
+            let slice = row.as_slice().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "non-contiguous row")
+            })?;
+            let bytes: &[u8] = cast_slice(slice);
             file.write_all(bytes)?;
         }
         Ok(())
     }
 
     pub fn load_vectors(&self, shard_name: &str) -> std::io::Result<Option<Array2<f32>>> {
+        validate_shard_name(shard_name)?;
         let path = self.storage_path.join("data").join("vectors").join(format!("{}.bin", shard_name));
         if !path.exists() { return Ok(None); }
         let mut file = std::fs::File::open(path)?;
         use std::io::Read;
         let mut buf8 = [0u8; 8];
         file.read_exact(&mut buf8)?;
-        let rows = u64::from_le_bytes(buf8) as usize;
+        let rows: usize = u64::from_le_bytes(buf8).try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         file.read_exact(&mut buf8)?;
-        let cols = u64::from_le_bytes(buf8) as usize;
-        let mut data = vec![0.0f32; rows * cols];
-        // SAFETY: `data` is a valid Vec<f32> with `rows * cols` elements. Casting to &mut [u8] of
-        // length `data.len() * 4` is valid because f32 is 4 bytes with no padding. The slice does
-        // not outlive `data` and we read exactly that many bytes.
-        let bytes: &mut [u8] = unsafe {
-            std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, data.len() * 4)
-        };
+        let cols: usize = u64::from_le_bytes(buf8).try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let total = rows.checked_mul(cols)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "dimension overflow"))?;
+        if total > 1_000_000_000 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "refusing excessive allocation"));
+        }
+        let mut data = vec![0.0f32; total];
+        let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
         file.read_exact(bytes)?;
         Ok(Some(ndarray::Array2::from_shape_vec((rows, cols), data)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?))
@@ -187,7 +199,7 @@ impl SplatDBPersistence {
         self.meta.count(include_deleted)
     }
 
-    // ---- Energy State (file-based, unchanged) ----
+    // ---- Energy State (file-based) ----
 
     pub fn save_energy_state(&self, mu: &Array2<f32>, alpha: &[f32], kappa: &[f32]) -> std::io::Result<()> {
         let path = self.storage_path.join("energy").join("landscape.bin");
@@ -196,21 +208,17 @@ impl SplatDBPersistence {
         file.write_all(&(mu.nrows() as u64).to_le_bytes())?;
         file.write_all(&(mu.ncols() as u64).to_le_bytes())?;
         for row in mu.rows() {
-            let s = row.as_slice().unwrap_or(&[]);
-            // SAFETY: `s` is a valid &[f32] from an ndarray row. Casting to &[u8] of length
-            // `s.len() * 4` is valid because f32 is 4 bytes with no padding.
-            let bytes: &[u8] = unsafe { std::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * 4) };
+            let s = row.as_slice().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "non-contiguous row")
+            })?;
+            let bytes: &[u8] = cast_slice(s);
             file.write_all(bytes)?;
         }
         file.write_all(&(alpha.len() as u64).to_le_bytes())?;
-        // SAFETY: `alpha` is a valid &[f32]. Casting to &[u8] of length `alpha.len() * 4` is valid
-        // because f32 is 4 bytes with no padding.
-        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(alpha.as_ptr() as *const u8, alpha.len() * 4) };
+        let bytes: &[u8] = cast_slice(alpha);
         file.write_all(bytes)?;
         file.write_all(&(kappa.len() as u64).to_le_bytes())?;
-        // SAFETY: `kappa` is a valid &[f32]. Casting to &[u8] of length `kappa.len() * 4` is valid
-        // because f32 is 4 bytes with no padding.
-        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(kappa.as_ptr() as *const u8, kappa.len() * 4) };
+        let bytes: &[u8] = cast_slice(kappa);
         file.write_all(bytes)?;
         Ok(())
     }
@@ -218,11 +226,11 @@ impl SplatDBPersistence {
     // ---- Backup ----
 
     pub fn backup(&self, backup_path: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        if backup_path.contains("..") {
-            return Err("Path traversal detected".into());
+        let dest = PathBuf::from(backup_path);
+        if dest.components().any(|c| matches!(c, Component::ParentDir)) {
+            return Err("Path traversal detected in backup_path".into());
         }
         self.meta.flush()?;
-        let dest = PathBuf::from(backup_path);
         std::fs::create_dir_all(&dest)?;
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
         let backup_dest = dest.join(format!("m2m_backup_{}", ts));
@@ -245,10 +253,11 @@ impl SplatDBPersistence {
 }
 
 fn validate_path(storage_path: &str) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    if storage_path.contains("..") {
+    let path = PathBuf::from(storage_path);
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("Path traversal detected in storage_path".into());
     }
-    Ok(PathBuf::from(storage_path).canonicalize().unwrap_or_else(|_| PathBuf::from(storage_path)))
+    Ok(path.canonicalize().unwrap_or_else(|_| path))
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -257,9 +266,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
+        if src_path.is_dir() && !src_path.is_symlink() {
             copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
+        } else if src_path.is_file() {
             std::fs::copy(&src_path, &dst_path)?;
         }
     }

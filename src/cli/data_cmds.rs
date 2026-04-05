@@ -351,12 +351,13 @@ pub fn cmd_preset_info(preset: Option<String>) {
     println!("{}", serde_json::to_string_pretty(&info).expect("Failed to serialize preset info"));
 }
 
-pub fn cmd_serve(port: u16) {
-    println!("[splatdb] Starting API server on port {}...", port);
+pub fn cmd_serve(port: u16, host: &str) {
+    println!("[splatdb] Starting API server on {}:{}...", host, port);
     let rt = tokio::runtime::Runtime::new()
         .expect("Failed to create tokio runtime");
+    let host_owned = host.to_string();
     rt.block_on(async {
-        if let Err(e) = splatdb::api_server::run_server(port).await {
+        if let Err(e) = splatdb::api_server::run_server(&host_owned, port).await {
             eprintln!("[splatdb] Server error: {}", e);
             std::process::exit(1);
         }

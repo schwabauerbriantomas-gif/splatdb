@@ -196,7 +196,7 @@ fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
     result
 }
 
-pub async fn run_server(port: u16) -> anyhow::Result<()> {
+pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
     let config = SplatDBConfig::default();
     let store = SplatStore::new(config);
     
@@ -213,8 +213,8 @@ pub async fn run_server(port: u16) -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{}", port);
-    println!("SplatDB server listening on {}", addr);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let bind_addr = format!("{}:{}", addr, port);
+    println!("SplatDB server listening on {}", bind_addr);
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     Ok(axum::serve(listener, app).await?)
 }

@@ -198,10 +198,10 @@ impl QuantizedStore {
     pub fn memory_usage(&self) -> usize {
         let code_size = if self.turbo.is_some() {
             // TurboCode: roughly dim * bits / 8 bytes + overhead
-            self.dim * self.config.bits as usize / 8 + 64
+            self.dim.checked_mul(self.config.bits as usize).unwrap_or(0) / 8 + 64
         } else {
             // PolarCode: roughly dim * bits / 8
-            self.dim * self.config.bits as usize / 8 + 32
+            self.dim.checked_mul(self.config.bits as usize).unwrap_or(0) / 8 + 32
         };
         self.ids.len() * (code_size + 8) // 8 bytes for id
     }
@@ -209,7 +209,7 @@ impl QuantizedStore {
     /// Get compression ratio vs raw f32 storage.
     pub fn compression_ratio(&self) -> f32 {
         let raw_bytes = self.dim * 4; // f32 per dim
-        let quant_bytes = self.dim * self.config.bits as usize / 8;
+        let quant_bytes = self.dim.checked_mul(self.config.bits as usize).unwrap_or(0) / 8;
         raw_bytes as f32 / quant_bytes.max(1) as f32
     }
 

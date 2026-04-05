@@ -53,6 +53,9 @@ impl BM25Index {
 
     /// Add a document to the index.
     pub fn add(&mut self, doc_id: &str, text: &str) {
+        if self.docs.len() >= 10_000_000 {
+            return;
+        }
         // Remove old if re-adding
         if self.docs.contains_key(doc_id) {
             self.remove(doc_id);
@@ -150,7 +153,7 @@ impl BM25Index {
                     None => continue,
                 };
 
-                let dl = *self.doc_lengths.get(doc_id).unwrap_or(&1) as f64;
+                let dl = *self.doc_lengths.get(doc_id).unwrap_or(&0) as f64;
                 let numerator = tf * (self.k1 + 1.0);
                 let denominator = tf + self.k1 * (1.0 - self.b + self.b * dl / avg_dl);
                 *scores.entry(doc_id.clone()).or_insert(0.0) += idf * numerator / denominator;

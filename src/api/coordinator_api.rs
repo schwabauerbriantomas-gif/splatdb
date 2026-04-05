@@ -75,6 +75,8 @@ pub struct RouteQueryResponse {
 
 // ─── Coordinator API Handler ───
 
+const MAX_REGISTRATIONS: usize = 10_000;
+
 /// Coordinator API: manages cluster nodes, routing, and shard assignment.
 pub struct CoordinatorApi {
     nodes: HashMap<String, NodeState>,
@@ -112,6 +114,9 @@ impl CoordinatorApi {
     pub fn register_node(&mut self, req: &RegisterNodeRequest) -> Result<NodeInfo, String> {
         if self.nodes.contains_key(&req.node_id) {
             return Err(format!("Node '{}' already registered", req.node_id));
+        }
+        if self.nodes.len() >= MAX_REGISTRATIONS {
+            return Err("maximum node registrations reached".into());
         }
         let state = NodeState {
             node_id: req.node_id.clone(),

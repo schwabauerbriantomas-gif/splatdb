@@ -1,11 +1,11 @@
 //! Write-Ahead Log for durability.
 //! Binary format: [4-byte big-endian length][JSON payload].
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 /// A single WAL entry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -55,15 +55,15 @@ impl WriteAheadLog {
     fn load_current_lsn(&self) -> std::io::Result<()> {
         let entries = self.read_entries()?;
         if let Some(last) = entries.last() {
-            let mut inner = self.inner.lock().expect("wal lock poisoned");
-            inner.lsn = last.lsn + 1;
+            let mut inner = self.inner.lock();
+            inner.lsn = last.lsn.saturating_add(1);
         }
         Ok(())
     }
 
     /// Log an operation. Returns the LSN assigned.
     pub fn log_operation(&self, op: &str, data: serde_json::Value) -> std::io::Result<u64> {
-        let mut inner = self.inner.lock().expect("wal lock poisoned");
+        let mut inner = self.inner.lock();
         let entry = WALEntry {
             lsn: inner.lsn,
             timestamp: std::time::SystemTime::now()
@@ -75,7 +75,8 @@ impl WriteAheadLog {
         };
 
         let serialized = serde_json::to_vec(&entry)?;
-        let len = serialized.len() as u32;
+        let len: u32 = serialized.len().try_into()
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
         inner.file.write_all(&len.to_be_bytes())?;
         inner.file.write_all(&serialized)?;
 
@@ -86,13 +87,13 @@ impl WriteAheadLog {
         }
 
         let lsn = inner.lsn;
-        inner.lsn += 1;
+        inner.lsn = inner.lsn.saturating_add(1);
         Ok(lsn)
     }
 
     /// Flush and fsync for durability.
     pub fn checkpoint(&self) -> std::io::Result<()> {
-        let mut inner = self.inner.lock().expect("wal lock poisoned");
+        let mut inner = self.inner.lock();
         let entry = WALEntry {
             lsn: inner.lsn,
             timestamp: std::time::SystemTime::now()
@@ -104,12 +105,13 @@ impl WriteAheadLog {
         };
 
         let serialized = serde_json::to_vec(&entry)?;
-        let len = serialized.len() as u32;
+        let len: u32 = serialized.len().try_into()
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
         inner.file.write_all(&len.to_be_bytes())?;
         inner.file.write_all(&serialized)?;
         inner.file.flush()?;
 
-        inner.lsn += 1;
+        inner.lsn = inner.lsn.saturating_add(1);
         Ok(())
     }
 
@@ -123,7 +125,7 @@ impl WriteAheadLog {
         let entries = self.read_entries()?;
         let remaining: Vec<&WALEntry> = entries.iter().filter(|e| e.lsn >= before_lsn).collect();
 
-        let mut inner = self.inner.lock().expect("wal lock poisoned");
+        let mut inner = self.inner.lock();
         // Close current file
         inner.file.flush()?;
         drop(std::mem::replace(&mut inner.file, BufWriter::new(File::open("/dev/null")?)));
@@ -133,7 +135,8 @@ impl WriteAheadLog {
         let mut writer = BufWriter::new(file);
         for entry in remaining {
             let serialized = serde_json::to_vec(entry)?;
-            let len = serialized.len() as u32;
+            let len: u32 = serialized.len().try_into()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large"))?;
             writer.write_all(&len.to_be_bytes())?;
             writer.write_all(&serialized)?;
         }
@@ -146,7 +149,7 @@ impl WriteAheadLog {
 
     /// Close the WAL, flushing first.
     pub fn close(&self) -> std::io::Result<()> {
-        let mut inner = self.inner.lock().expect("wal lock poisoned");
+        let mut inner = self.inner.lock();
         inner.file.flush()
     }
 
