@@ -186,8 +186,30 @@ For production use, pass pre-computed embeddings from your preferred model (Open
 
 All numbers are **measured on real hardware**, not estimated.
 
-**Hardware**: AMD Ryzen 5 3400G (4c/8t), 32GB DDR4, NVIDIA RTX 3090 24GB, CUDA 12.4
-**Software**: Rust 1.94.1, cudarc 0.19.4, ndarray 0.16, rayon 1.11
+**Test environment**: WSL2 on Intel i7-1255U (CPU only, no GPU), 32GB RAM, Rust 1.x
+**Datasets**: Standard ANN-Benchmarks datasets (SIFT-128, GloVe-200, NYTimes-256)
+**Methodology**: 50 random queries per dataset, k=10, 5 runs averaged
+
+### Exact Search (index mode, brute-force)
+
+Vectors indexed individually, recall measured against brute-force ground truth computed with sklearn.
+
+| Dataset | N | Dim | Index Time | p50 Latency | QPS | Recall@10 |
+|---------|-------|-----|-----------|-------------|------|-----------|
+| SIFT-128 | 10K | 128 | 3.2s | 1,143ms | 0.9 | **1.0000** |
+| NYTimes-256 | 10K | 256 | 4.2s | 1,119ms | 0.9 | 0.5000 |
+| GloVe-200 | 10K | 200 | 4.0s | 7ms | 3.1 | 0.2000 |
+
+### Approximate Search (ingest mode, KMeans splats)
+
+Vectors compressed into Gaussian Splat centroids via KMeans++. Sub-linear search latency.
+
+| Dataset | N | Dim | Splats | Ingest Time | p50 Latency | QPS |
+|---------|--------|-----|--------|-------------|-------------|------|
+| SIFT-128 | 100K | 128 | 50 | 15.2s | 76ms | 11.0 |
+| NYTimes-256 | 100K | 256 | 50 | 30.0s | 57ms | 14.4 |
+| NYTimes-256 | 290K | 256 | 100 | 168s | 48ms | 14.7 |
+| GloVe-200 | 100K | 200 | 50 | 23.7s | 8ms | 27.3 |
 
 ### GPU Top-K Search (Custom CUDA Kernels)
 
