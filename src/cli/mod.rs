@@ -290,6 +290,33 @@ pub enum Commands {
         #[arg(short = 'q', long, default_value = "10")]
         n_queries: usize,
     },
+    /// Benchmark HNSW search with recall measurement (single-process)
+    BenchHnsw {
+        /// Binary file with training vectors [u64 rows][u64 cols][f32 data]
+        #[arg(short, long)]
+        train: PathBuf,
+        /// Binary file with query vectors [u64 rows][u64 cols][f32 data]
+        #[arg(long)]
+        queries: PathBuf,
+        /// Binary file with ground truth [u64 n_queries][u64 k][i64 indices]
+        #[arg(long)]
+        gt: Option<PathBuf>,
+        /// Vector dimension
+        #[arg(short = 'd', long)]
+        dim: usize,
+        /// Number of nearest neighbors to retrieve
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+        /// Number of queries to test (default: all)
+        #[arg(short = 'n', long)]
+        samples: Option<usize>,
+        /// Data directory for loading/saving HNSW index
+        #[arg(long)]
+        data_dir: Option<String>,
+        /// Max splat capacity
+        #[arg(long, default_value = "100000")]
+        max_splats: usize,
+    },
 }
 
 pub fn dispatch(cli: Cli) {
@@ -439,5 +466,17 @@ pub fn dispatch(cli: Cli) {
             description,
         } => ml_cmds::cmd_lake_register(cli.data_dir, id, name, n_vectors, dim, description),
         Commands::EvalEmbeddings { dim, n_queries } => ml_cmds::cmd_eval_embeddings(dim, n_queries),
+        Commands::BenchHnsw {
+            train,
+            queries,
+            gt,
+            dim,
+            k,
+            samples,
+            data_dir,
+            max_splats,
+        } => search_cmds::cmd_bench_hnsw(
+            train, queries, gt, dim, k, samples, data_dir, max_splats,
+        ),
     }
 }

@@ -39,7 +39,7 @@ pub fn cmd_index(
 
     let mut store = SplatStore::new(config);
     store.add_splat(&vectors);
-    store.build_index();
+    store.build_index_with_save(Some(&data_dir));
 
     println!(
         "{}",
