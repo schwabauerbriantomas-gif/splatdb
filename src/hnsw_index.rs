@@ -3,6 +3,8 @@
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
+use std::io::{Read, Write};
+use std::path::Path;
 
 use ndarray::{Array2, ArrayView1};
 use rand::Rng;
@@ -10,6 +12,8 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::interfaces::{IndexSearchResult, VectorIndex};
+
+const HNSW_MAGIC: u64 = 0x484E5357; // "HNSW"
 
 /// Wrapper for (distance, index) that implements Ord for min-heap.
 #[derive(Clone, Copy, Debug)]
@@ -101,6 +105,169 @@ impl HNSWIndex {
             max_level: 0,
             removed: HashSet::new(),
         }
+    }
+
+    /// Check if the index has been built (has vectors loaded).
+    pub fn is_built(&self) -> bool {
+        !self.vectors.is_empty()
+    }
+
+    /// Save the HNSW graph to a binary file.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let mut f =
+            std::fs::File::create(path).map_err(|e| format!("create {}: {}", path.display(), e))?;
+
+        let n_vectors = self.vectors.len() as u64;
+        let dim = if self.vectors.is_empty() {
+            self._dim as u64
+        } else {
+            self.vectors[0].len() as u64
+        };
+
+        // Header
+        f.write_all(&HNSW_MAGIC.to_le_bytes())
+            .map_err(|e| format!("write magic: {}", e))?;
+        f.write_all(&n_vectors.to_le_bytes())
+            .map_err(|e| format!("write n_vectors: {}", e))?;
+        f.write_all(&dim.to_le_bytes())
+            .map_err(|e| format!("write dim: {}", e))?;
+        f.write_all(&(self.m as u64).to_le_bytes())
+            .map_err(|e| format!("write m: {}", e))?;
+        f.write_all(&(self.m_max0 as u64).to_le_bytes())
+            .map_err(|e| format!("write m_max0: {}", e))?;
+        f.write_all(&(self.ef_construction as u64).to_le_bytes())
+            .map_err(|e| format!("write ef_construction: {}", e))?;
+        f.write_all(&(self.ef_search as u64).to_le_bytes())
+            .map_err(|e| format!("write ef_search: {}", e))?;
+        f.write_all(&(self.entry_point as u64).to_le_bytes())
+            .map_err(|e| format!("write entry_point: {}", e))?;
+        f.write_all(&(self.max_level as u64).to_le_bytes())
+            .map_err(|e| format!("write max_level: {}", e))?;
+
+        let removed_vec: Vec<u64> = self.removed.iter().map(|&x| x as u64).collect();
+        f.write_all(&(removed_vec.len() as u64).to_le_bytes())
+            .map_err(|e| format!("write n_removed: {}", e))?;
+        for &idx in &removed_vec {
+            f.write_all(&idx.to_le_bytes())
+                .map_err(|e| format!("write removed idx: {}", e))?;
+        }
+
+        // Nodes
+        for node in &self.nodes {
+            let n_levels = node.neighbors.len() as u64;
+            f.write_all(&n_levels.to_le_bytes())
+                .map_err(|e| format!("write n_levels: {}", e))?;
+            for level_neighbors in &node.neighbors {
+                let n_neighbors = level_neighbors.len() as u64;
+                f.write_all(&n_neighbors.to_le_bytes())
+                    .map_err(|e| format!("write n_neighbors: {}", e))?;
+                for &nb in level_neighbors {
+                    f.write_all(&(nb as u64).to_le_bytes())
+                        .map_err(|e| format!("write neighbor: {}", e))?;
+                }
+            }
+        }
+
+        // Raw vectors: flatten all f32 values
+        for vec in &self.vectors {
+            let bytes: &[u8] = bytemuck::cast_slice(vec);
+            f.write_all(bytes)
+                .map_err(|e| format!("write vector data: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Load an HNSW graph from a binary file.
+    pub fn load(
+        path: &Path,
+        _m: usize,
+        ef_construction: usize,
+        ef_search: usize,
+        metric: &str,
+        seed: u64,
+    ) -> Result<Self, String> {
+        let mut f =
+            std::fs::File::open(path).map_err(|e| format!("open {}: {}", path.display(), e))?;
+
+        let read_u64 = |f: &mut std::fs::File| -> Result<u64, String> {
+            let mut buf = [0u8; 8];
+            f.read_exact(&mut buf)
+                .map_err(|e| format!("read u64: {}", e))?;
+            Ok(u64::from_le_bytes(buf))
+        };
+
+        let magic = read_u64(&mut f)?;
+        if magic != HNSW_MAGIC {
+            return Err(format!(
+                "Invalid HNSW file magic: expected {:#x}, got {:#x}",
+                HNSW_MAGIC, magic
+            ));
+        }
+
+        let n_vectors = read_u64(&mut f)? as usize;
+        let dim = read_u64(&mut f)? as usize;
+        let m_stored = read_u64(&mut f)? as usize;
+        let m_max0 = read_u64(&mut f)? as usize;
+        let _ef_construction_stored = read_u64(&mut f)?;
+        let _ef_search_stored = read_u64(&mut f)?;
+        let entry_point = read_u64(&mut f)? as usize;
+        let max_level = read_u64(&mut f)? as usize;
+
+        let n_removed = read_u64(&mut f)? as usize;
+        let mut removed = HashSet::new();
+        for _ in 0..n_removed {
+            removed.insert(read_u64(&mut f)? as usize);
+        }
+
+        // Nodes
+        let mut nodes = Vec::with_capacity(n_vectors);
+        for _ in 0..n_vectors {
+            let n_levels = read_u64(&mut f)? as usize;
+            let mut neighbors = Vec::with_capacity(n_levels);
+            for _ in 0..n_levels {
+                let n_neighbors = read_u64(&mut f)? as usize;
+                let mut level_neighbors = Vec::with_capacity(n_neighbors);
+                for _ in 0..n_neighbors {
+                    level_neighbors.push(read_u64(&mut f)? as usize);
+                }
+                neighbors.push(level_neighbors);
+            }
+            nodes.push(HNSWNode {
+                _level: neighbors.len().saturating_sub(1),
+                neighbors,
+            });
+        }
+
+        // Raw vectors
+        let mut vectors = Vec::with_capacity(n_vectors);
+        if n_vectors > 0 && dim > 0 {
+            let mut buf = vec![0.0f32; dim];
+            for _ in 0..n_vectors {
+                let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut buf);
+                f.read_exact(bytes)
+                    .map_err(|e| format!("read vector: {}", e))?;
+                vectors.push(buf.clone());
+            }
+        }
+
+        let level_mult = 1.0 / (m_stored as f64).ln();
+
+        Ok(Self {
+            _dim: dim,
+            m: m_stored,
+            m_max0,
+            ef_construction,
+            ef_search,
+            level_mult,
+            metric: metric.to_string(),
+            rng: ChaCha8Rng::seed_from_u64(seed),
+            vectors,
+            nodes,
+            entry_point,
+            max_level,
+            removed,
+        })
     }
 
     fn random_level(&mut self) -> usize {
@@ -429,5 +596,42 @@ mod tests {
         let result = idx.search(query, 3);
         assert!(!result.indices.is_empty());
         assert!(result.indices.contains(&0));
+    }
+
+    #[test]
+    fn test_hnsw_save_load_roundtrip() {
+        let dir = std::env::temp_dir().join("hnsw_save_load_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test_hnsw.bin");
+
+        let mut idx = HNSWIndex::new(4, 8, 100, 50, "l2", 42);
+        let data = small_random_vectors(30, 4, 555);
+        idx.build(data.clone());
+        idx.remove(&[2, 5]);
+
+        idx.save(&path).unwrap();
+
+        let loaded = HNSWIndex::load(&path, 8, 100, 50, "l2", 42).unwrap();
+        assert_eq!(loaded.n_items(), 28); // 30 - 2 removed
+        assert!(loaded.is_built());
+
+        // Search results should match
+        let query = data.row(0);
+        let orig_result = idx.search(query, 5);
+        let loaded_result = loaded.search(query, 5);
+        assert_eq!(orig_result.indices, loaded_result.indices);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_hnsw_is_built() {
+        let idx = HNSWIndex::new(4, 8, 100, 50, "l2", 42);
+        assert!(!idx.is_built());
+
+        let mut idx = HNSWIndex::new(4, 8, 100, 50, "l2", 42);
+        let data = small_random_vectors(5, 4, 999);
+        idx.build(data);
+        assert!(idx.is_built());
     }
 }

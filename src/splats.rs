@@ -171,7 +171,14 @@ impl SplatStore {
     /// - QuantizedStore (if enable_quantization)
     /// - HNSW index (if enable_hnsw)
     /// - LSH index (if enable_lsh)
+    ///
+    /// Optionally auto-saves HNSW to disk if `data_dir` is provided.
     pub fn build_index(&mut self) {
+        self.build_index_with_save(None);
+    }
+
+    /// Build the search index and optionally auto-save HNSW to `data_dir`.
+    pub fn build_index_with_save(&mut self, data_dir: Option<&str>) {
         if self.n_active == 0 {
             return;
         }
@@ -194,6 +201,95 @@ impl SplatStore {
         if let Some(ref mut lsh) = self.lsh {
             lsh.index(embeddings);
         }
+
+        // Auto-save HNSW if data_dir provided
+        if let Some(dir) = data_dir {
+            if let Err(e) = self.save_hnsw(dir) {
+                eprintln!("[splatdb] Warning: failed to save HNSW index: {}", e);
+            }
+        }
+    }
+
+    /// Build index only if not already built. Tries to load persisted HNSW first.
+    ///
+    /// Returns true if the index was built or loaded, false if nothing needed doing.
+    pub fn build_index_if_needed(&mut self, data_dir: &str) -> bool {
+        if self.n_active == 0 {
+            return false;
+        }
+
+        // Try to load persisted HNSW first
+        if self.hnsw.is_some() && self.try_load_hnsw(data_dir) {
+            eprintln!("[splatdb] Loaded persisted HNSW index from disk");
+
+            // Still need to build other indexes (HRM2, quant, LSH) if not done
+            let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
+            self.engine.index(Some(embeddings.clone()));
+            if let Some(ref mut qs) = self.quant_store {
+                qs.add_batch(&embeddings, 0);
+            }
+            if let Some(ref mut lsh) = self.lsh {
+                lsh.index(embeddings);
+            }
+            return true;
+        }
+
+        // No persisted index — build from scratch and save
+        self.build_index_with_save(Some(data_dir));
+        true
+    }
+
+    /// Try to load persisted HNSW from `{data_dir}/hnsw_index.bin`.
+    /// Returns true if loaded successfully.
+    pub fn try_load_hnsw(&mut self, data_dir: &str) -> bool {
+        let path = std::path::Path::new(data_dir).join("hnsw_index.bin");
+        if !path.exists() {
+            return false;
+        }
+
+        let m = self.config.hnsw_m;
+        let ef_construction = self.config.hnsw_ef_construction;
+        let ef_search = self.config.hnsw_ef_search;
+        // Use "cosine" as default metric matching SplatStore::new()
+        let metric = "cosine";
+
+        match crate::hnsw_index::HNSWIndex::load(
+            &path,
+            m,
+            ef_construction,
+            ef_search,
+            metric,
+            42,
+        ) {
+            Ok(loaded) => {
+                self.hnsw = Some(loaded);
+                true
+            }
+            Err(e) => {
+                eprintln!("[splatdb] Warning: failed to load HNSW index: {}", e);
+                false
+            }
+        }
+    }
+
+    /// Save the HNSW index to `{data_dir}/hnsw_index.bin`.
+    pub fn save_hnsw(&self, data_dir: &str) -> Result<(), String> {
+        if let Some(ref hnsw) = self.hnsw {
+            if !hnsw.is_built() {
+                return Ok(());
+            }
+            let dir = std::path::Path::new(data_dir);
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("create dir {}: {}", data_dir, e))?;
+            let path = dir.join("hnsw_index.bin");
+            hnsw.save(&path)?;
+            eprintln!(
+                "[splatdb] Saved HNSW index ({} vectors) to {}",
+                hnsw.n_items(),
+                path.display()
+            );
+        }
+        Ok(())
     }
 
     /// Find k nearest neighbors for a single query.
@@ -243,29 +339,24 @@ impl SplatStore {
 
     /// Find k nearest neighbors using ALL enabled search backends.
     ///
-    /// Fuses results from:
-    /// - Linear scan (primary, always)
-    /// - Quantized search (if enable_quantization)
-    /// - HNSW search (if enable_hnsw)
-    /// - LSH search (if enable_lsh)
+    /// Strategy (priority order):
+    /// 1. If HNSW is built → use as primary (sub-millisecond), re-rank with exact distances
+    /// 2. If only quantized or LSH → use as pre-filter, then exact re-rank
+    /// 3. Fallback: linear scan (O(N), exact but slow)
     ///
-    /// Returns fused results ranked by distance.
+    /// Returns results ranked by exact distance.
     pub fn find_neighbors_fused(&self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
         let n = self.n_active;
         if n == 0 || k == 0 {
             return Vec::new();
         }
         let k = k.min(n);
-
-        // Collect candidate sets from each enabled backend
-        let mut candidates: std::collections::HashMap<usize, f32> =
-            std::collections::HashMap::new();
-
-        // 1. Primary linear scan (always)
         let index_data = self.mu.slice(ndarray::s![..n, ..]);
-        for i in 0..n {
-            let dist: f32 = index_data
-                .row(i)
+
+        // Helper: compute exact L2 distance for re-ranking
+        let exact_dist = |idx: usize| -> f32 {
+            index_data
+                .row(idx)
                 .iter()
                 .zip(query.iter())
                 .map(|(a, b)| {
@@ -273,69 +364,88 @@ impl SplatStore {
                     d * d
                 })
                 .sum::<f32>()
-                .sqrt();
-            candidates.insert(i, dist);
+                .sqrt()
+        };
+
+        // Strategy 1: HNSW primary (sub-linear, high recall)
+        if let Some(ref hnsw) = self.hnsw {
+            if hnsw.is_built() {
+                // Over-fetch from HNSW for better recall, then exact re-rank
+                let fetch_k = (k * 5).min(n);
+                let hresults = hnsw.search(*query, fetch_k);
+
+                // Re-rank with exact distances
+                let mut ranked: Vec<(usize, f32)> = hresults
+                    .indices
+                    .iter()
+                    .filter(|&&idx| idx < n)
+                    .map(|&idx| (idx, exact_dist(idx)))
+                    .collect();
+
+                ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                return ranked[..k]
+                    .iter()
+                    .map(|&(idx, dist)| NeighborResult {
+                        mu: index_data.row(idx).to_vec(),
+                        alpha: self.alpha[idx],
+                        kappa: self.kappa[idx],
+                        index: idx,
+                        distance: dist,
+                    })
+                    .collect();
+            }
         }
 
-        // 2. Quantized search (pre-filter candidates)
+        // Strategy 2: Collect candidates from approximate backends
+        let mut candidate_set: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+
+        // Quantized search
         if let Some(ref qs) = self.quant_store {
-            let qresults = qs.search(query, k * 2);
-            for (id, dist) in qresults {
+            let qresults = qs.search(query, k * 5);
+            for (id, _) in qresults {
                 let idx = id as usize;
                 if idx < n {
-                    candidates
-                        .entry(idx)
-                        .and_modify(|d| *d = (*d).min(dist))
-                        .or_insert(dist);
+                    candidate_set.insert(idx);
                 }
             }
         }
 
-        // 3. HNSW search
-        if let Some(ref hnsw) = self.hnsw {
-            let hresults = hnsw.search(*query, k * 2);
-            for (idx, dist) in hresults.indices.iter().zip(hresults.distances.iter()) {
-                if *idx < n {
-                    candidates
-                        .entry(*idx)
-                        .and_modify(|d| *d = (*d).min(*dist))
-                        .or_insert(*dist);
-                }
-            }
-        }
-
-        // 4. LSH search
+        // LSH search
         if let Some(ref lsh) = self.lsh {
-            let (indices, dists) = lsh.query(query, k * 2);
-            for (idx, dist) in indices.iter().zip(dists.iter()) {
-                if *idx < n {
-                    candidates
-                        .entry(*idx)
-                        .and_modify(|d| *d = (*d).min(*dist))
-                        .or_insert(*dist);
+            let (indices, _) = lsh.query(query, k * 5);
+            for &idx in &indices {
+                if idx < n {
+                    candidate_set.insert(idx);
                 }
             }
         }
 
-        // Sort by distance and return top-k
-        let mut ranked: Vec<(usize, f32)> = candidates.into_iter().collect();
-        if k < ranked.len() {
-            ranked.select_nth_unstable_by(k, |a, b| {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
+        // If we have candidates from approximate backends, re-rank them
+        if !candidate_set.is_empty() {
+            let mut ranked: Vec<(usize, f32)> = candidate_set
+                .into_iter()
+                .map(|idx| (idx, exact_dist(idx)))
+                .collect();
+            ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            if ranked.len() > k {
+                ranked.truncate(k);
+            }
+            return ranked
+                .iter()
+                .map(|&(idx, dist)| NeighborResult {
+                    mu: index_data.row(idx).to_vec(),
+                    alpha: self.alpha[idx],
+                    kappa: self.kappa[idx],
+                    index: idx,
+                    distance: dist,
+                })
+                .collect();
         }
-        ranked[..k].sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        ranked[..k]
-            .iter()
-            .map(|&(idx, dist)| NeighborResult {
-                mu: index_data.row(idx).to_vec(),
-                alpha: self.alpha[idx],
-                kappa: self.kappa[idx],
-                index: idx,
-                distance: dist,
-            })
-            .collect()
+        // Strategy 3: Fallback — linear scan (always correct, O(N))
+        self.find_neighbors(query, k)
     }
 
     /// Check if quantization subsystem is active.
@@ -345,6 +455,10 @@ impl SplatStore {
     /// Check if HNSW index is active.
     pub fn has_hnsw(&self) -> bool {
         self.hnsw.is_some()
+    }
+    /// Check if HNSW index is active AND has been built (has vectors).
+    pub fn hnsw_is_built(&self) -> bool {
+        self.hnsw.as_ref().map_or(false, |h| h.is_built())
     }
     /// Check if LSH index is active.
     pub fn has_lsh(&self) -> bool {

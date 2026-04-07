@@ -42,11 +42,12 @@ pub fn load_or_create_store(
     if let Some(ref p) = persist {
         if let Ok(Some(vectors)) = p.load_vectors("default") {
             store.add_splat(&vectors);
-            store.build_index();
             eprintln!(
                 "[splatdb] Loaded {} vectors from default shard",
                 vectors.nrows()
             );
+            // Try loading persisted HNSW first; only build from scratch if needed
+            store.build_index_if_needed(data_dir);
         }
     }
 
