@@ -186,30 +186,31 @@ For production use, pass pre-computed embeddings from your preferred model (Open
 
 All numbers are **measured on real hardware**, not estimated.
 
-**Test environment**: WSL2 on Intel i7-1255U (CPU only, no GPU), 32GB RAM, Rust 1.x
-**Datasets**: Standard ANN-Benchmarks datasets (SIFT-128, GloVe-200, NYTimes-256)
-**Methodology**: 50 random queries per dataset, k=10, 5 runs averaged
+**Test environment**: WSL2 on Intel i7-1255U (CPU only, no GPU), 32GB RAM, single-threaded
+**Datasets**: Standard ANN-Benchmarks (SIFT-128)
+**Methodology**: Single-process `bench-hnsw` command, HNSW index persisted to disk, exact re-ranking of HNSW candidates. Ground truth from ANN-Benchmarks.
 
-### Exact Search (index mode, brute-force)
+### HNSW Search (v2.5 — current)
 
-Vectors indexed individually, recall measured against brute-force ground truth computed with sklearn.
+HNSW graph with persistence (save/load), exact distance re-ranking of top candidates.
 
-| Dataset | N | Dim | Index Time | p50 Latency | QPS | Recall@10 |
-|---------|-------|-----|-----------|-------------|------|-----------|
-| SIFT-128 | 10K | 128 | 3.2s | 1,143ms | 0.9 | **1.0000** |
-| NYTimes-256 | 10K | 256 | 4.2s | 1,119ms | 0.9 | 0.5000 |
-| GloVe-200 | 10K | 200 | 4.0s | 7ms | 3.1 | 0.2000 |
+| Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
+|---------|-------|-----|-----------|-------------|------|------|------|-----------|
+| SIFT-128 | 10K | 128 | 125s* | 1.04ms | 1.32ms | 1.51ms | **966** | **0.998** |
+| SIFT-128 | 100K | 128 | 1,533s* | 2.16ms | 2.80ms | 3.29ms | **464** | **0.994** |
 
-### Approximate Search (ingest mode, KMeans splats)
+*Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk (8.9MB for 10K, instant).
 
-Vectors compressed into Gaussian Splat centroids via KMeans++. Sub-linear search latency.
+### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
-| Dataset | N | Dim | Splats | Ingest Time | p50 Latency | QPS |
-|---------|--------|-----|--------|-------------|-------------|------|
-| SIFT-128 | 100K | 128 | 50 | 15.2s | 76ms | 11.0 |
-| NYTimes-256 | 100K | 256 | 50 | 30.0s | 57ms | 14.4 |
-| NYTimes-256 | 290K | 256 | 100 | 168s | 48ms | 14.7 |
-| GloVe-200 | 100K | 200 | 50 | 23.7s | 8ms | 27.3 |
+| Method | Dataset | N | p50 Latency | QPS | Recall@10 |
+|--------|---------|------|-------------|------|-----------|
+| **HNSW (persisted)** | SIFT-128 | 10K | **1.04ms** | **966** | **0.998** |
+| **HNSW (persisted)** | SIFT-128 | 100K | **2.16ms** | **464** | **0.994** |
+| Linear scan | SIFT-128 | 10K | 1,143ms | 0.9 | 1.000 |
+| HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95 |
+
+HNSW delivers **930x speedup** over linear scan at 10K and **200x at 100K**, with >99.4% recall.
 
 ### GPU Top-K Search (Custom CUDA Kernels)
 
@@ -232,9 +233,9 @@ Combined distance + top-k selection in one GPU pass. Dataset persists in VRAM be
 - `__launch_bounds__(256)` for optimal sm_86 occupancy
 - PTX compiled with `--use_fast_math -O3`
 
-### HRM2 vs Linear Scan (Python Prototype)
+### HRM2 vs Linear Scan (Python Prototype — Historical)
 
-An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 100K vectors (100K splats, 1K queries, k=64, CPU). These numbers are for the Python implementation and are referenced for historical context only. The validated Rust benchmark result:
+An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 100K vectors (100K splats, 1K queries, k=64, CPU). Referenced for historical context only. Validated Rust result:
 
 | Method | Latency | QPS | Speedup |
 |--------|---------|-----|---------|

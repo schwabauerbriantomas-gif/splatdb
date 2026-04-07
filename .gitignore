@@ -32,3 +32,8 @@ ehthumbs.db
 # Environment
 .env
 .env.*
+node_modules/
+frames/
+bench-data/
+bench_temp/
+business-plans/
