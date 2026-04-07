@@ -475,8 +475,6 @@ pub fn dispatch(cli: Cli) {
             samples,
             data_dir,
             max_splats,
-        } => search_cmds::cmd_bench_hnsw(
-            train, queries, gt, dim, k, samples, data_dir, max_splats,
-        ),
+        } => search_cmds::cmd_bench_hnsw(train, queries, gt, dim, k, samples, data_dir, max_splats),
     }
 }

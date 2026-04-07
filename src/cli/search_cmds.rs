@@ -212,17 +212,15 @@ pub fn cmd_quant_search(
 
 /// Load binary ground truth: [u64 n_queries][u64 k][i64 data]
 fn load_ground_truth_bin(path: &PathBuf) -> Result<(usize, usize, Vec<i64>), String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
     let mut buf8 = [0u8; 8];
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let n_queries = usize::try_from(u64::from_le_bytes(buf8))
-        .map_err(|_| "n_queries overflow")?;
+    let n_queries = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "n_queries overflow")?;
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
-    let k = usize::try_from(u64::from_le_bytes(buf8))
-        .map_err(|_| "k overflow")?;
+    let k = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "k overflow")?;
 
     let total = n_queries.checked_mul(k).ok_or("overflow in n_queries*k")?;
     let mut data = vec![0i64; total];
@@ -232,6 +230,7 @@ fn load_ground_truth_bin(path: &PathBuf) -> Result<(usize, usize, Vec<i64>), Str
     Ok((n_queries, k, data))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_bench_hnsw(
     train: PathBuf,
     queries: PathBuf,
@@ -245,7 +244,10 @@ pub fn cmd_bench_hnsw(
     use super::helpers::load_vectors_bin;
     use std::time::Instant;
 
-    eprintln!("[bench-hnsw] Loading training vectors from {}...", train.display());
+    eprintln!(
+        "[bench-hnsw] Loading training vectors from {}...",
+        train.display()
+    );
     let t0 = Instant::now();
     let vectors = load_vectors_bin(&train).unwrap_or_else(|e| {
         eprintln!("Error loading training vectors: {}", e);
@@ -287,7 +289,10 @@ pub fn cmd_bench_hnsw(
     }
 
     // Load query vectors
-    eprintln!("[bench-hnsw] Loading query vectors from {}...", queries.display());
+    eprintln!(
+        "[bench-hnsw] Loading query vectors from {}...",
+        queries.display()
+    );
     let all_queries = load_vectors_bin(&queries).unwrap_or_else(|e| {
         eprintln!("Error loading query vectors: {}", e);
         std::process::exit(1);
@@ -300,19 +305,17 @@ pub fn cmd_bench_hnsw(
     );
 
     // Load ground truth if provided
-    let gt_data = gt.as_ref().and_then(|p| {
-        match load_ground_truth_bin(p) {
-            Ok((nq, gt_k, indices)) => {
-                eprintln!(
-                    "[bench-hnsw] Loaded ground truth: {} queries, k={}",
-                    nq, gt_k,
-                );
-                Some((nq, gt_k, indices))
-            }
-            Err(e) => {
-                eprintln!("[bench-hnsw] Warning: failed to load ground truth: {}", e);
-                None
-            }
+    let gt_data = gt.as_ref().and_then(|p| match load_ground_truth_bin(p) {
+        Ok((nq, gt_k, indices)) => {
+            eprintln!(
+                "[bench-hnsw] Loaded ground truth: {} queries, k={}",
+                nq, gt_k,
+            );
+            Some((nq, gt_k, indices))
+        }
+        Err(e) => {
+            eprintln!("[bench-hnsw] Warning: failed to load ground truth: {}", e);
+            None
         }
     });
 
@@ -357,14 +360,14 @@ pub fn cmd_bench_hnsw(
         let mut hits: usize = 0;
         let mut total_possible: usize = 0;
 
-        for i in 0..effective_n {
+        for (i, pred) in all_predicted.iter().enumerate().take(effective_n) {
             let gt_row_start = i * gt_k;
-            let gt_set: std::collections::HashSet<i64> = gt_indices[gt_row_start..gt_row_start + effective_k]
+            let gt_set: std::collections::HashSet<i64> = gt_indices
+                [gt_row_start..gt_row_start + effective_k]
                 .iter()
                 .copied()
                 .collect();
 
-            let pred = &all_predicted[i];
             total_possible += effective_k;
             for &idx in pred.iter().take(effective_k) {
                 if gt_set.contains(&(idx as i64)) {

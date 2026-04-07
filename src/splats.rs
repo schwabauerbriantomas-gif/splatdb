@@ -253,14 +253,7 @@ impl SplatStore {
         // Use "cosine" as default metric matching SplatStore::new()
         let metric = "cosine";
 
-        match crate::hnsw_index::HNSWIndex::load(
-            &path,
-            m,
-            ef_construction,
-            ef_search,
-            metric,
-            42,
-        ) {
+        match crate::hnsw_index::HNSWIndex::load(&path, m, ef_construction, ef_search, metric, 42) {
             Ok(loaded) => {
                 self.hnsw = Some(loaded);
                 true
@@ -279,8 +272,7 @@ impl SplatStore {
                 return Ok(());
             }
             let dir = std::path::Path::new(data_dir);
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("create dir {}: {}", data_dir, e))?;
+            std::fs::create_dir_all(dir).map_err(|e| format!("create dir {}: {}", data_dir, e))?;
             let path = dir.join("hnsw_index.bin");
             hnsw.save(&path)?;
             eprintln!(
@@ -398,8 +390,7 @@ impl SplatStore {
         }
 
         // Strategy 2: Collect candidates from approximate backends
-        let mut candidate_set: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
+        let mut candidate_set: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         // Quantized search
         if let Some(ref qs) = self.quant_store {
@@ -458,7 +449,7 @@ impl SplatStore {
     }
     /// Check if HNSW index is active AND has been built (has vectors).
     pub fn hnsw_is_built(&self) -> bool {
-        self.hnsw.as_ref().map_or(false, |h| h.is_built())
+        self.hnsw.as_ref().is_some_and(|h| h.is_built())
     }
     /// Check if LSH index is active.
     pub fn has_lsh(&self) -> bool {
