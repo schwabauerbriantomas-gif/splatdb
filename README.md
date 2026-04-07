@@ -10,6 +10,16 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 
 ---
 
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/splatdb-explainer.mp4">
+    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-60s-00e5ff?style=for-the-badge" alt="SplatDB Explainer Video"/>
+  </a>
+</p>
+
+> **🎬 60-second explainer** — Gaussian Splatting, HRM2 retrieval, and real benchmarks in under a minute.
+
+---
+
 ## Table of Contents
 
 - [What Is This?](#what-is-this)
