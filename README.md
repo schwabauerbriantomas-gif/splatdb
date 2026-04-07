@@ -11,7 +11,7 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 ---
 
 <p align="center">
-  <a href="https://github.com/user-attachments/assets/splatdb-explainer.mp4">
+  <a href="https://github.com/schwabauerbriantomas-gif/splatdb/releases/download/v2.5.0/splatdb-explainer.mp4">
     <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-60s-00e5ff?style=for-the-badge" alt="SplatDB Explainer Video"/>
   </a>
 </p>
