@@ -381,7 +381,7 @@ impl HNSWIndex {
         r
     }
 
-    fn insert(&mut self, vector: &[f32]) {
+    pub fn insert(&mut self, vector: &[f32]) {
         if self.vectors.len() >= 10_000_000 {
             return;
         }

@@ -158,7 +158,8 @@ async fn store_memory(
         return Err((StatusCode::INSUFFICIENT_STORAGE, "Store full".into()));
     }
 
-    store.build_index();
+    // Incrementally insert the new vector into HNSW (no full rebuild)
+    store.hnsw_sync_incremental();
 
     let id_num = state.next_id.fetch_add(1, Ordering::SeqCst);
     let id = req.id.unwrap_or_else(|| format!("mem_{id_num}"));
