@@ -3,698 +3,543 @@
 <head>
 <meta charset="UTF-8">
 <style>
-:root {
-  --bg: #0a0a0f;
-  --bg2: #12121a;
-  --cyan: #00e5ff;
-  --blue: #4fc3f7;
-  --purple: #b388ff;
-  --green: #69f0ae;
-  --orange: #ffab40;
-  --red: #ff5252;
-  --yellow: #ffd740;
-  --white: #ffffff;
-  --gray: #888888;
-  --dim: #333333;
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1920px;height:1080px;overflow:hidden;background:#06060e;
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff}
+
+/* Animated background orbs */
+.bg{position:fixed;top:0;left:0;width:1920px;height:1080px;z-index:0;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(140px);opacity:0.3}
+.orb-a{width:900px;height:900px;background:#0ea5e9;top:-300px;left:-300px}
+.orb-b{width:700px;height:700px;background:#8b5cf6;bottom:-200px;right:-150px}
+.orb-c{width:500px;height:500px;background:#10b981;top:400px;left:700px}
+
+/* Grid */
+.grid{position:fixed;top:0;left:0;width:1920px;height:1080px;z-index:1;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:80px 80px}
+
+/* Scanline */
+.scanline{position:fixed;top:0;left:0;width:1920px;height:3px;z-index:2;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(14,165,233,.15),transparent);
+  opacity:0.5}
+
+.scene{position:absolute;top:0;left:0;width:1920px;height:1080px;z-index:10;
+  opacity:0;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+.mono{font-family:'Courier New',monospace}
+
+/* Card */
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  border-radius:20px;backdrop-filter:blur(10px)}
+
+/* Pulse ring animation */
+@keyframes pulseRing{
+  0%{transform:scale(1);opacity:.6}
+  100%{transform:scale(2.5);opacity:0}
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* ═══ SCENE 0: Title ═══ */
+#s0{text-align:center}
+#s0 .badge{display:inline-block;padding:8px 24px;border-radius:100px;font-size:16px;
+  letter-spacing:2px;text-transform:uppercase;color:#38bdf8;
+  border:1px solid rgba(56,189,248,.3);background:rgba(56,189,248,.08);margin-bottom:32px}
+#s0 h1{font-size:140px;font-weight:900;letter-spacing:-6px;line-height:1;
+  background:linear-gradient(135deg,#38bdf8 0%,#a78bfa 50%,#38bdf8 100%);
+  background-size:200% 200%;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  animation:gradShift 4s ease infinite}
+@keyframes gradShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+#s0 .sub{font-size:34px;color:rgba(255,255,255,.5);margin-top:20px;font-weight:300}
+#s0 .tagline{font-size:22px;color:rgba(255,255,255,.3);margin-top:16px;font-weight:300}
 
-body {
-  width: 1920px;
-  height: 1080px;
-  overflow: hidden;
-  background: var(--bg);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  color: var(--white);
-}
+/* ═══ SCENE 1: Problem ═══ */
+#s1{text-align:center}
+#s1 .icon{font-size:72px;margin-bottom:32px}
+#s1 h2{font-size:56px;font-weight:800;color:#f43f5e;margin-bottom:40px}
+#s1 .eq{font-size:48px;margin-bottom:32px}
+#s1 .eq span{color:#fb923c}
+#s1 p{font-size:30px;color:rgba(255,255,255,.5);max-width:1000px;line-height:1.6}
+#s1 p b{color:#fb923c;font-weight:700}
+.timer-bar{width:800px;height:48px;background:rgba(255,255,255,.05);border-radius:24px;
+  margin-top:40px;overflow:hidden;position:relative}
+.timer-fill{height:100%;background:linear-gradient(90deg,#f43f5e,#fb923c);border-radius:24px;
+  width:0%;transition:width 0.1s}
+.timer-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:20px;font-weight:700;z-index:1}
 
-.scene {
-  position: absolute;
-  top: 0; left: 0;
-  width: 1920px;
-  height: 1080px;
-  opacity: 0;
-  pointer-events: none;
-}
+/* ═══ SCENE 2: Gaussian Splats ═══ */
+#s2{flex-direction:row;padding:0 80px;gap:80px}
+#s2 .left{flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
+#s2 .right{flex:1;display:flex;align-items:center;justify-content:center}
+#s2 h2{font-size:50px;font-weight:800;margin-bottom:24px;line-height:1.2}
+#s2 h2 em{font-style:normal;color:#38bdf8}
+#s2 p{font-size:24px;color:rgba(255,255,255,.5);line-height:1.6;max-width:600px}
+#s2 canvas{border-radius:20px}
 
-/* ── Scene 0: Title ── */
-#s0 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-#s0 .logo {
-  font-size: 120px;
-  font-weight: 900;
-  letter-spacing: -4px;
-  background: linear-gradient(135deg, var(--cyan), var(--purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-#s0 .tagline {
-  font-size: 36px;
-  color: var(--gray);
-  margin-top: 16px;
-}
-#s0 .version {
-  font-size: 24px;
-  color: var(--dim);
-  margin-top: 32px;
-  font-family: 'Courier New', monospace;
-}
+/* ═══ SCENE 3: Architecture ═══ */
+#s3{text-align:center}
+#s3 h2{font-size:52px;font-weight:800;margin-bottom:60px}
+#s3 h2 em{font-style:normal;color:#a78bfa}
+.pipe{display:flex;gap:0;align-items:stretch;justify-content:center}
+.pipe-step{width:280px;padding:36px 24px;text-align:center;position:relative;
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.pipe-step:first-child{border-radius:20px 0 0 20px}
+.pipe-step:last-child{border-radius:0 20px 20px 0}
+.pipe-step .num{font-size:14px;color:rgba(255,255,255,.3);margin-bottom:12px;letter-spacing:2px}
+.pipe-step .icon{font-size:44px;margin-bottom:12px}
+.pipe-step .label{font-size:22px;font-weight:700;margin-bottom:6px}
+.pipe-step .desc{font-size:14px;color:rgba(255,255,255,.4)}
+.pipe-arrow{display:flex;align-items:center;font-size:28px;color:rgba(255,255,255,.15);
+  background:rgba(255,255,255,.03);border-top:1px solid rgba(255,255,255,.06);
+  border-bottom:1px solid rgba(255,255,255,.06);padding:0 8px}
+.pipe-step.active{background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.3);
+  box-shadow:0 0 40px rgba(56,189,248,.1)}
+.pipe-step.active .label{color:#38bdf8}
 
-/* ── Scene 1: The Problem ── */
-#s1 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-#s1 .title {
-  font-size: 52px;
-  font-weight: 700;
-  color: var(--red);
-  margin-bottom: 40px;
-}
-#s1 .desc {
-  font-size: 32px;
-  color: var(--gray);
-  max-width: 1200px;
-  line-height: 1.6;
-}
-#s1 .highlight {
-  color: var(--orange);
-  font-weight: 700;
-}
+/* ═══ SCENE 4: Benchmarks ═══ */
+#s4{text-align:center}
+#s4 h2{font-size:52px;font-weight:800;margin-bottom:8px}
+#s4 h2 em{font-style:normal;color:#34d399}
+#s4 .method{font-size:18px;color:rgba(255,255,255,.35);margin-bottom:50px}
+.bench-grid{display:flex;gap:32px}
+.bench-card{width:480px;padding:40px 36px;text-align:center;position:relative;overflow:hidden}
+.bench-card .dataset{font-size:16px;color:rgba(255,255,255,.4);letter-spacing:2px;
+  text-transform:uppercase;margin-bottom:16px}
+.bench-card .big-num{font-size:80px;font-weight:900;line-height:1;font-family:'Courier New',monospace}
+.bench-card .big-label{font-size:18px;color:rgba(255,255,255,.4);margin-top:4px}
+.bench-card .row{display:flex;justify-content:space-between;margin-top:20px;
+  padding-top:20px;border-top:1px solid rgba(255,255,255,.06)}
+.bench-card .metric{text-align:center;flex:1}
+.bench-card .metric .val{font-size:32px;font-weight:800;font-family:'Courier New',monospace}
+.bench-card .metric .lbl{font-size:13px;color:rgba(255,255,255,.35);margin-top:4px}
+.bench-card .glow{position:absolute;top:-60px;left:50%;transform:translateX(-50%);
+  width:300px;height:200px;border-radius:50%;filter:blur(80px);opacity:0.4}
+.card-cyan .big-num{color:#38bdf8}
+.card-cyan .glow{background:#38bdf8}
+.card-green .big-num{color:#34d399}
+.card-green .glow{background:#34d399}
 
-/* ── Scene 2: Gaussian Splatting concept ── */
-#s2 {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-#s2 .left {
-  width: 960px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-#s2 .right {
-  width: 960px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-#s2 .heading {
-  font-size: 48px;
-  font-weight: 700;
-  margin-bottom: 24px;
-}
-#s2 .heading .accent { color: var(--cyan); }
-#s2 .sub {
-  font-size: 28px;
-  color: var(--gray);
-  line-height: 1.5;
-  max-width: 700px;
-}
+/* ═══ SCENE 5: Comparison ═══ */
+#s5{text-align:center}
+#s5 h2{font-size:52px;font-weight:800;margin-bottom:50px}
+#s5 h2 em{font-style:normal;color:#38bdf8}
+#s5 canvas{border-radius:16px}
 
-/* ── Scene 3: Architecture ── */
-#s3 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-#s3 .title {
-  font-size: 48px;
-  font-weight: 700;
-  margin-bottom: 60px;
-}
-#s3 .title .accent { color: var(--purple); }
-#s3 .pipeline {
-  display: flex;
-  gap: 24px;
-  align-items: center;
-}
-#s3 .step {
-  background: var(--bg2);
-  border: 2px solid var(--dim);
-  border-radius: 16px;
-  padding: 28px 36px;
-  text-align: center;
-  width: 260px;
-  transition: all 0.5s;
-}
-#s3 .step.active {
-  border-color: var(--cyan);
-  box-shadow: 0 0 30px rgba(0,229,255,0.3);
-}
-#s3 .step .icon { font-size: 48px; margin-bottom: 12px; }
-#s3 .step .label { font-size: 22px; font-weight: 600; }
-#s3 .step .detail { font-size: 16px; color: var(--gray); margin-top: 8px; }
-#s3 .arrow {
-  font-size: 36px;
-  color: var(--dim);
-}
+/* ═══ SCENE 6: Features ═══ */
+#s6{text-align:center}
+#s6 h2{font-size:52px;font-weight:800;margin-bottom:50px}
+#s6 h2 em{font-style:normal;color:#a78bfa}
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:1200px}
+.feat{padding:32px 28px;text-align:center}
+.feat .icon{font-size:40px;margin-bottom:12px}
+.feat .name{font-size:22px;font-weight:700;margin-bottom:6px}
+.feat .desc{font-size:15px;color:rgba(255,255,255,.4)}
+.feat.active{border-color:rgba(167,139,250,.4);box-shadow:0 0 30px rgba(167,139,250,.1)}
 
-/* ── Scene 4: HNSW Benchmarks ── */
-#s4 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-#s4 .title {
-  font-size: 48px;
-  font-weight: 700;
-  margin-bottom: 16px;
-}
-#s4 .title .accent { color: var(--green); }
-#s4 .subtitle {
-  font-size: 22px;
-  color: var(--gray);
-  margin-bottom: 50px;
-}
-#s4 .bench-table {
-  width: 1400px;
-  border-collapse: separate;
-  border-spacing: 0 12px;
-}
-#s4 .bench-table th {
-  font-size: 20px;
-  color: var(--gray);
-  text-align: left;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--dim);
-}
-#s4 .bench-table td {
-  font-size: 28px;
-  font-weight: 600;
-  padding: 18px 24px;
-  background: var(--bg2);
-}
-#s4 .bench-table tr td:first-child {
-  border-radius: 12px 0 0 12px;
-}
-#s4 .bench-table tr td:last-child {
-  border-radius: 0 12px 12px 0;
-}
-.metric-val { color: var(--green); font-family: 'Courier New', monospace; }
-.metric-big { color: var(--cyan); font-size: 36px; }
+/* ═══ SCENE 7: Closing ═══ */
+#s7{text-align:center}
+#s7 h1{font-size:120px;font-weight:900;letter-spacing:-5px;line-height:1;
+  background:linear-gradient(135deg,#38bdf8,#a78bfa);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent}
+#s7 .sub{font-size:32px;color:rgba(255,255,255,.4);margin-top:16px;font-weight:300}
+.stats-row{display:flex;gap:80px;margin-top:50px}
+.stat-block{text-align:center}
+.stat-block .val{font-size:64px;font-weight:900;font-family:'Courier New',monospace}
+.stat-block .lbl{font-size:18px;color:rgba(255,255,255,.35);margin-top:8px}
+.cta{font-size:24px;color:rgba(56,189,248,.7);margin-top:60px;font-family:'Courier New',monospace}
 
-/* ── Scene 5: Comparison chart ── */
-#s5 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-#s5 .title {
-  font-size: 48px;
-  font-weight: 700;
-  margin-bottom: 50px;
-}
-#s5 .title .accent { color: var(--cyan); }
-#s5 canvas {
-  border-radius: 12px;
-}
-
-/* ── Scene 6: Features ── */
-#s6 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-#s6 .title {
-  font-size: 48px;
-  font-weight: 700;
-  margin-bottom: 50px;
-}
-#s6 .features {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  justify-content: center;
-  max-width: 1400px;
-}
-#s6 .feat {
-  background: var(--bg2);
-  border: 2px solid var(--dim);
-  border-radius: 16px;
-  padding: 24px 32px;
-  width: 400px;
-  text-align: center;
-  transition: all 0.5s;
-}
-#s6 .feat.active {
-  border-color: var(--cyan);
-  transform: scale(1.05);
-}
-#s6 .feat .icon { font-size: 40px; margin-bottom: 8px; }
-#s6 .feat .name { font-size: 24px; font-weight: 700; }
-#s6 .feat .desc { font-size: 16px; color: var(--gray); margin-top: 8px; }
-
-/* ── Scene 7: Closing ── */
-#s7 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-#s7 .logo {
-  font-size: 100px;
-  font-weight: 900;
-  letter-spacing: -4px;
-  background: linear-gradient(135deg, var(--cyan), var(--purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-#s7 .tagline {
-  font-size: 36px;
-  color: var(--gray);
-  margin-top: 16px;
-}
-#s7 .stats {
-  display: flex;
-  gap: 80px;
-  margin-top: 50px;
-}
-#s7 .stat {
-  text-align: center;
-}
-#s7 .stat .val {
-  font-size: 56px;
-  font-weight: 900;
-  font-family: 'Courier New', monospace;
-}
-#s7 .stat .label {
-  font-size: 20px;
-  color: var(--gray);
-  margin-top: 8px;
-}
-#s7 .cta {
-  font-size: 28px;
-  color: var(--cyan);
-  margin-top: 60px;
-  font-family: 'Courier New', monospace;
-}
-
-/* ── Particles ── */
-.particle {
-  position: absolute;
-  border-radius: 50%;
-  opacity: 0;
-  animation: float linear infinite;
-}
-@keyframes float {
-  0% { transform: translateY(1080px) scale(0); opacity: 0; }
-  10% { opacity: 0.6; }
-  90% { opacity: 0.6; }
-  100% { transform: translateY(-100px) scale(1); opacity: 0; }
-}
+/* ═══ Scene 8: Validated badge ═══ */
+#s8{text-align:center}
+#s8 .badge-wrap{padding:60px 80px}
+#s8 .check{font-size:80px;margin-bottom:24px}
+#s8 h2{font-size:44px;font-weight:800;margin-bottom:16px}
+#s8 p{font-size:22px;color:rgba(255,255,255,.45);max-width:800px;line-height:1.6;margin:0 auto}
+.validated-list{text-align:left;max-width:700px;margin:30px auto 0;font-size:18px;
+  color:rgba(255,255,255,.5);line-height:2}
+.validated-list li::marker{color:#34d399}
 </style>
 </head>
 <body>
 
-<!-- Particles background -->
-<div id="particles" style="position:absolute;top:0;left:0;width:1920px;height:1080px;overflow:hidden;z-index:0;"></div>
+<div class="bg">
+  <div class="orb orb-a" id="orbA"></div>
+  <div class="orb orb-b" id="orbB"></div>
+  <div class="orb orb-c" id="orbC"></div>
+</div>
+<div class="grid"></div>
+<div class="scanline" id="scanline"></div>
 
-<!-- Scene 0: Title (0-5s) -->
+<!-- S0: Title 0-5s -->
 <div class="scene" id="s0">
-  <div class="logo">SplatDB</div>
-  <div class="tagline">Gaussian Splat Vector Search Engine</div>
-  <div class="version">v2.5.0 — Rust ⚡</div>
+  <div class="badge">VECTOR SEARCH ENGINE</div>
+  <h1>SplatDB</h1>
+  <div class="sub">Gaussian Splat Vector Search</div>
+  <div class="tagline">v2.5 · Built in Rust</div>
 </div>
 
-<!-- Scene 1: The Problem (5-12s) -->
+<!-- S1: Problem 5-13s -->
 <div class="scene" id="s1">
-  <div class="title">Vector Search Is Slow</div>
-  <div class="desc">
-    Finding nearest neighbors in high-dimensional space is <span class="highlight">O(N)</span> per query.<br>
-    100K vectors × 128 dimensions = <span class="highlight">1.14 seconds</span> per query.<br>
-    Not viable for real-time applications.
+  <div class="icon">⏱️</div>
+  <h2>Vector Search Is Slow</h2>
+  <div class="eq">100K vectors × 128D = <span id="timerVal">0</span>ms per query</div>
+  <p>Linear scan checks <b>every single vector</b> — O(N) per query.<br>Not viable for real-time applications.</p>
+  <div class="timer-bar">
+    <div class="timer-fill" id="timerFill"></div>
+    <div class="timer-label" id="timerLabel">0ms</div>
   </div>
 </div>
 
-<!-- Scene 2: Gaussian Splatting (12-20s) -->
+<!-- S2: Gaussian Splats 13-22s -->
 <div class="scene" id="s2">
   <div class="left">
-    <div class="heading">What if vectors were <span class="accent">Gaussian Splats</span>?</div>
-    <div class="sub">
-      Instead of flat points, each vector becomes a probability distribution — a 3D Gaussian with position (μ), spread (α), and confidence (κ).
-      <br><br>
-      Inspired by 3D Gaussian Splatting from computer graphics, adapted for search.
-    </div>
+    <h2>Vectors as<br><em>Gaussian Splats</em></h2>
+    <p>Each vector becomes a 3D probability distribution with position (μ), spread (α), and confidence (κ).</p>
+    <p style="margin-top:16px">Inspired by 3D Gaussian Splatting from computer graphics, adapted for search.</p>
   </div>
   <div class="right">
-    <canvas id="splatCanvas" width="800" height="800"></canvas>
+    <canvas id="splatCanvas" width="700" height="700"></canvas>
   </div>
 </div>
 
-<!-- Scene 3: Architecture (20-30s) -->
+<!-- S3: Architecture 22-32s -->
 <div class="scene" id="s3">
-  <div class="title">Search <span class="accent">Architecture</span></div>
-  <div class="pipeline">
-    <div class="step" id="step0">
+  <h2>Search <em>Pipeline</em></h2>
+  <div class="pipe">
+    <div class="pipe-step" id="ps0">
+      <div class="num">STEP 1</div>
       <div class="icon">📥</div>
       <div class="label">Ingest</div>
-      <div class="detail">Raw vectors → SplatDB</div>
+      <div class="desc">Raw vectors in</div>
     </div>
-    <div class="arrow">→</div>
-    <div class="step" id="step1">
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step" id="ps1">
+      <div class="num">STEP 2</div>
       <div class="icon">🧠</div>
       <div class="label">HRM2</div>
-      <div class="detail">Gaussian Splat encoding</div>
+      <div class="desc">Gaussian encoding</div>
     </div>
-    <div class="arrow">→</div>
-    <div class="step" id="step2">
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step" id="ps2">
+      <div class="num">STEP 3</div>
       <div class="icon">🕸️</div>
       <div class="label">HNSW</div>
-      <div class="detail">Graph index + persistence</div>
+      <div class="desc">Graph + persist</div>
     </div>
-    <div class="arrow">→</div>
-    <div class="step" id="step3">
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step" id="ps3">
+      <div class="num">STEP 4</div>
       <div class="icon">⚡</div>
       <div class="label">Query</div>
-      <div class="detail">Sub-ms search</div>
+      <div class="desc">Sub-ms results</div>
     </div>
   </div>
 </div>
 
-<!-- Scene 4: Benchmarks (30-42s) -->
+<!-- S4: Benchmarks 32-44s -->
 <div class="scene" id="s4">
-  <div class="title">Validated <span class="accent">Benchmarks</span></div>
-  <div class="subtitle">SIFT-128 · ANN-Benchmarks · Intel i7-1255U · Single-threaded · Independently Validated</div>
-  <table class="bench-table">
-    <tr>
-      <th>Dataset</th><th>N</th><th>p50 Latency</th><th>QPS</th><th>Recall@10</th>
-    </tr>
-    <tr id="row1">
-      <td>SIFT-128</td><td>10K</td><td class="metric-val" id="lat1">—</td><td class="metric-big" id="qps1">—</td><td class="metric-val" id="rec1">—</td>
-    </tr>
-    <tr id="row2">
-      <td>SIFT-128</td><td>100K</td><td class="metric-val" id="lat2">—</td><td class="metric-big" id="qps2">—</td><td class="metric-val" id="rec2">—</td>
-    </tr>
-  </table>
-  <div id="speedup-text" style="font-size:36px;margin-top:40px;color:var(--cyan);font-weight:900;opacity:0;">
-    1,200x faster than brute-force
+  <h2>Validated <em>Benchmarks</em></h2>
+  <div class="method">SIFT-128 · ANN-Benchmarks · Intel i7-1255U · Single-thread · Independently Validated</div>
+  <div class="bench-grid">
+    <div class="card bench-card card-cyan">
+      <div class="glow"></div>
+      <div class="dataset">SIFT-128 · 10K Vectors</div>
+      <div class="big-num" id="b1qps">0</div>
+      <div class="big-label">Queries Per Second</div>
+      <div class="row">
+        <div class="metric"><div class="val" id="b1p50" style="color:#38bdf8">—</div><div class="lbl">p50 Latency</div></div>
+        <div class="metric"><div class="val" id="b1rec" style="color:#34d399">—</div><div class="lbl">Recall@10</div></div>
+      </div>
+    </div>
+    <div class="card bench-card card-green">
+      <div class="glow"></div>
+      <div class="dataset">SIFT-128 · 100K Vectors</div>
+      <div class="big-num" id="b2qps">0</div>
+      <div class="big-label">Queries Per Second</div>
+      <div class="row">
+        <div class="metric"><div class="val" id="b2p50" style="color:#38bdf8">—</div><div class="lbl">p50 Latency</div></div>
+        <div class="metric"><div class="val" id="b2rec" style="color:#34d399">—</div><div class="lbl">Recall@10</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Scene 5: Comparison chart (42-50s) -->
+<!-- S5: Comparison chart 44-52s -->
 <div class="scene" id="s5">
-  <div class="title">HNSW vs <span class="accent">Alternatives</span></div>
-  <canvas id="chartCanvas" width="1600" height="700"></canvas>
+  <h2>HNSW vs <em>Alternatives</em></h2>
+  <canvas id="chartCanvas" width="1600" height="650"></canvas>
 </div>
 
-<!-- Scene 6: Features (50-56s) -->
+<!-- S6: Features 52-58s -->
 <div class="scene" id="s6">
-  <div class="title">Built for <span class="accent">Production</span></div>
-  <div class="features">
-    <div class="feat" id="f0">
-      <div class="icon">🕸️</div>
-      <div class="name">HNSW Persistence</div>
-      <div class="desc">Build once, query instantly. Graph saved to disk.</div>
-    </div>
-    <div class="feat" id="f1">
-      <div class="icon">🎯</div>
-      <div class="name">99.8% Recall</div>
-      <div class="desc">Exact re-ranking of HNSW candidates.</div>
-    </div>
-    <div class="feat" id="f2">
-      <div class="icon">🦀</div>
-      <div class="name">Pure Rust</div>
-      <div class="desc">Memory-safe, zero-cost abstractions, no GC.</div>
-    </div>
-    <div class="feat" id="f3">
-      <div class="icon">🎮</div>
-      <div class="name">CUDA Kernels</div>
-      <div class="desc">Custom GPU search for 7.8x throughput boost.</div>
-    </div>
-    <div class="feat" id="f4">
-      <div class="icon">📊</div>
-      <div class="name">Quantization</div>
-      <div class="desc">TurboQuant + PolarQuant for compressed search.</div>
-    </div>
-    <div class="feat" id="f5">
-      <div class="icon">🌐</div>
-      <div class="name">REST API</div>
-      <div class="desc">HTTP server with auth, CORS, health checks.</div>
-    </div>
+  <h2>Built for <em>Production</em></h2>
+  <div class="feat-grid">
+    <div class="card feat" id="ft0"><div class="icon">🕸️</div><div class="name">HNSW Persistence</div><div class="desc">Build once, load from disk</div></div>
+    <div class="card feat" id="ft1"><div class="icon">🎯</div><div class="name">99.8% Recall</div><div class="desc">Exact re-ranking of candidates</div></div>
+    <div class="card feat" id="ft2"><div class="icon">🦀</div><div class="name">Pure Rust</div><div class="desc">Memory-safe, zero-cost</div></div>
+    <div class="card feat" id="ft3"><div class="icon">🎮</div><div class="name">CUDA Kernels</div><div class="desc">7.8x GPU throughput boost</div></div>
+    <div class="card feat" id="ft4"><div class="icon">📊</div><div class="name">Quantization</div><div class="desc">TurboQuant + PolarQuant</div></div>
+    <div class="card feat" id="ft5"><div class="icon">🌐</div><div class="name">REST API</div><div class="desc">HTTP server with auth</div></div>
   </div>
 </div>
 
-<!-- Scene 7: Closing (56-65s) -->
+<!-- S7: Closing 58-67s -->
 <div class="scene" id="s7">
-  <div class="logo">SplatDB</div>
-  <div class="tagline">Vector Search, Reimagined</div>
-  <div class="stats">
-    <div class="stat">
-      <div class="val" style="color:var(--green);" id="sv1">0</div>
-      <div class="label">QPS (10K)</div>
-    </div>
-    <div class="stat">
-      <div class="val" style="color:var(--cyan);" id="sv2">0</div>
-      <div class="label">QPS (100K)</div>
-    </div>
-    <div class="stat">
-      <div class="val" style="color:var(--purple);" id="sv3">0%</div>
-      <div class="label">Recall@10</div>
-    </div>
+  <h1>SplatDB</h1>
+  <div class="sub">Vector Search, Reimagined</div>
+  <div class="stats-row">
+    <div class="stat-block"><div class="val" id="sv0" style="color:#34d399">0</div><div class="lbl">QPS (10K)</div></div>
+    <div class="stat-block"><div class="val" id="sv1" style="color:#38bdf8">0</div><div class="lbl">QPS (100K)</div></div>
+    <div class="stat-block"><div class="val" id="sv2" style="color:#a78bfa">0%</div><div class="lbl">Recall@10</div></div>
   </div>
   <div class="cta">github.com/schwabauerbriantomas-gif/splatdb</div>
 </div>
 
+<!-- S8: Validated 67-75s -->
+<div class="scene" id="s8">
+  <div class="card badge-wrap">
+    <div class="check">✅</div>
+    <h2>Independently Validated</h2>
+    <p>Benchmarks verified against sklearn brute-force ground truth, cross-checked with ANN-Benchmarks official data.</p>
+    <ul class="validated-list">
+      <li>SIFT-128 from ANN-Benchmarks (Erik Bernhardsson)</li>
+      <li>GT: sklearn NearestNeighbors, metric=L2, verified identical to official</li>
+      <li>Re-validated with second independent GT run</li>
+      <li>All numbers measured, never estimated or simulated</li>
+    </ul>
+  </div>
+</div>
+
 <script>
-// ── Particles ──
-const particleContainer = document.getElementById('particles');
-const colors = ['0,229,255', '179,136,255', '105,240,174', '255,171,64'];
-for (let i = 0; i < 40; i++) {
-  const p = document.createElement('div');
-  p.className = 'particle';
-  p.style.cssText = `
-    width: ${2 + Math.random() * 4}px;
-    height: ${2 + Math.random() * 4}px;
-    left: ${Math.random() * 100}%;
-    background: rgba(${colors[Math.floor(Math.random() * colors.length)]}, 0.6);
-    animation-duration: ${6 + Math.random() * 8}s;
-    animation-delay: ${Math.random() * 8}s;
-  `;
-  particleContainer.appendChild(p);
+const SCENES=[
+  {id:'s0',s:0,e:5},
+  {id:'s1',s:5,e:13},
+  {id:'s2',s:13,e:22},
+  {id:'s3',s:22,e:32},
+  {id:'s4',s:32,e:44},
+  {id:'s5',s:44,e:52},
+  {id:'s6',s:52,e:58},
+  {id:'s7',s:58,e:67},
+  {id:'s8',s:67,e:75},
+];
+window.TOTAL_DURATION=75;
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function easeOut(t){return 1-Math.pow(1-t,3)}
+function easeOut4(t){return 1-Math.pow(1-t,4)}
+
+// ── Animated orbs ──
+function animOrbs(t){
+  const a=document.getElementById('orbA');
+  const b=document.getElementById('orbB');
+  const c=document.getElementById('orbC');
+  if(a){
+    a.style.transform=`translate(${Math.sin(t*0.3)*60}px,${Math.cos(t*0.2)*40}px)`;
+    b.style.transform=`translate(${Math.cos(t*0.25)*50}px,${Math.sin(t*0.35)*60}px)`;
+    c.style.transform=`translate(${Math.sin(t*0.4)*40}px,${Math.cos(t*0.3)*50}px)`;
+  }
 }
 
-// ── Scene config ──
-const SCENES = [
-  { id: 's0', start: 0, end: 5 },
-  { id: 's1', start: 5, end: 12 },
-  { id: 's2', start: 12, end: 20 },
-  { id: 's3', start: 20, end: 30 },
-  { id: 's4', start: 30, end: 42 },
-  { id: 's5', start: 42, end: 50 },
-  { id: 's6', start: 50, end: 56 },
-  { id: 's7', start: 56, end: 65 },
-];
-window.TOTAL_DURATION = 65;
+// ── Scanline ──
+function animScanline(t){
+  const s=document.getElementById('scanline');
+  if(s) s.style.top=((t*80)%1080)+'px';
+}
 
-// ── Easing ──
-function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-
-// ── Gaussian Splat drawing ──
-function drawGaussians(ctx, progress) {
-  ctx.clearRect(0, 0, 800, 800);
-  const splats = [
-    { x: 400, y: 400, r: 180, color: '0,229,255', alpha: 0.5 },
-    { x: 280, y: 320, r: 140, color: '179,136,255', alpha: 0.4 },
-    { x: 520, y: 350, r: 120, color: '105,240,174', alpha: 0.35 },
-    { x: 350, y: 520, r: 100, color: '255,171,64', alpha: 0.3 },
-    { x: 480, y: 500, r: 110, color: '79,195,247', alpha: 0.35 },
-    { x: 300, y: 450, r: 90, color: '255,82,82', alpha: 0.25 },
+// ── Gaussian splat canvas ──
+function drawSplats(ctx,p){
+  ctx.clearRect(0,0,700,700);
+  const splats=[
+    {x:350,y:350,r:200,c:'14,165,233',a:.45},
+    {x:230,y:260,r:160,c:'139,92,246',a:.35},
+    {x:470,y:280,r:140,c:'16,185,129',a:.3},
+    {x:300,y:480,r:120,c:'251,146,60',a:.25},
+    {x:460,y:460,r:130,c:'56,189,248',a:.3},
+    {x:180,y:420,r:100,c:'244,63,94',a:.2},
   ];
-  splats.forEach((s, i) => {
-    const p = clamp((progress - i * 0.08) / 0.3, 0, 1);
-    const ep = easeOutCubic(p);
-    const r = s.r * ep;
-    if (r < 1) return;
-    const grad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
-    grad.addColorStop(0, `rgba(${s.color}, ${s.alpha * ep})`);
-    grad.addColorStop(0.4, `rgba(${s.color}, ${s.alpha * ep * 0.6})`);
-    grad.addColorStop(1, `rgba(${s.color}, 0)`);
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
+  splats.forEach((s,i)=>{
+    const t=clamp((p-i*.1)/.25,0,1);
+    const ep=easeOut(t);
+    const r=s.r*ep;
+    if(r<1)return;
+    const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r);
+    g.addColorStop(0,`rgba(${s.c},${s.a*ep})`);
+    g.addColorStop(.3,`rgba(${s.c},${s.a*ep*.7})`);
+    g.addColorStop(.6,`rgba(${s.c},${s.a*ep*.3})`);
+    g.addColorStop(1,`rgba(${s.c},0)`);
+    ctx.beginPath();ctx.arc(s.x,s.y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
   });
-  // Query point
-  const qp = clamp((progress - 0.6) / 0.2, 0, 1);
-  if (qp > 0) {
-    ctx.beginPath();
-    ctx.arc(400, 400, 12 * easeOutCubic(qp), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,255,255,${qp})`;
-    ctx.fill();
-    // Lines to nearest
-    [0, 1, 2].forEach((j, i) => {
-      const lp = clamp((progress - 0.7 - i * 0.05) / 0.15, 0, 1);
-      if (lp > 0) {
-        ctx.strokeStyle = `rgba(255,255,255,${lp * 0.5})`;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(400, 400);
-        ctx.lineTo(splats[j].x, splats[j].y);
-        ctx.stroke();
+  // Query point + rings
+  const qp=clamp((p-.55)/.15,0,1);
+  if(qp>0){
+    // Pulse rings
+    const ringP=(p-.7)%1;
+    if(ringP>0&&ringP<1){
+      ctx.beginPath();ctx.arc(350,350,80*ringP,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(255,255,255,${(.3*(1-ringP))*qp})`;ctx.lineWidth=2;ctx.stroke();
+    }
+    const ringP2=((p-.7)+.3)%1;
+    if(ringP2>0&&ringP2<1){
+      ctx.beginPath();ctx.arc(350,350,80*ringP2,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(255,255,255,${(.2*(1-ringP2))*qp})`;ctx.lineWidth=1.5;ctx.stroke();
+    }
+    // Center dot
+    ctx.beginPath();ctx.arc(350,350,10*easeOut(qp),0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${qp})`;ctx.fill();
+    // Connection lines
+    [0,1,2,4].forEach((j,i)=>{
+      const lp=clamp((p-.65-i*.06)/.15,0,1);
+      if(lp>0){
+        ctx.strokeStyle=`rgba(56,189,248,${lp*.5})`;ctx.lineWidth=1.5;
+        ctx.setLineDash([8,6]);
+        ctx.beginPath();ctx.moveTo(350,350);ctx.lineTo(splats[j].x,splats[j].y);ctx.stroke();
         ctx.setLineDash([]);
+        // Endpoint glow
+        ctx.beginPath();ctx.arc(splats[j].x,splats[j].y,8*lp,0,Math.PI*2);
+        ctx.fillStyle=`rgba(56,189,248,${lp*.6})`;ctx.fill();
       }
     });
   }
 }
 
-// ── Bar chart drawing ──
-function drawChart(ctx, progress) {
-  ctx.clearRect(0, 0, 1600, 700);
-  
-  const methods = [
-    { name: 'Linear Scan', qps: 0.9, color: '255,82,82', latency: '1,143ms' },
-    { name: 'HRM2 Splats', qps: 11, color: '255,171,64', latency: '76ms' },
-    { name: 'HNSW 10K', qps: 1081, color: '0,229,255', latency: '0.93ms' },
-    { name: 'HNSW 100K', qps: 591, color: '105,240,174', latency: '1.70ms' },
+// ── Bar chart ──
+function drawChart(ctx,p){
+  ctx.clearRect(0,0,1600,650);
+  const methods=[
+    {name:'Linear Scan',qps:.9,color:'244,63,94',lat:'1,143ms'},
+    {name:'HRM2 Splats',qps:11,color:'251,146,60',lat:'76ms'},
+    {name:'HNSW 10K',qps:1081,color:'56,189,248',lat:'0.93ms'},
+    {name:'HNSW 100K',qps:591,color:'52,211,153',lat:'1.70ms'},
   ];
-  
-  const maxQPS = 1200;
-  const barHeight = 80;
-  const gap = 40;
-  const startX = 300;
-  const maxWidth = 1100;
-  const startY = 100;
-  
-  ctx.font = '28px "Segoe UI", system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  
-  methods.forEach((m, i) => {
-    const y = startY + i * (barHeight + gap);
-    const barW = (m.qps / maxQPS) * maxWidth * easeOutQuart(clamp(progress - i * 0.15, 0, 1));
-    
+  const maxQ=1200,barH=70,gap=48,startX=340,maxW=1050,startY=80;
+
+  // Axis label
+  ctx.font='20px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.3)';
+  ctx.textAlign='left';ctx.fillText('Queries Per Second (SIFT-128)',startX,startY-16);
+
+  methods.forEach((m,i)=>{
+    const y=startY+i*(barH+gap);
+    const t=clamp((p-i*.15)/.3,0,1);
+    const ep=easeOut4(t);
+    const w=(m.qps/maxQ)*maxW*ep;
+
     // Label
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'right';
-    ctx.font = '26px "Segoe UI", system-ui, sans-serif';
-    ctx.fillText(m.name, startX - 20, y + barHeight / 2 + 9);
-    
-    // Bar
-    if (barW > 0) {
-      const grad = ctx.createLinearGradient(startX, 0, startX + barW, 0);
-      grad.addColorStop(0, `rgba(${m.color}, 0.8)`);
-      grad.addColorStop(1, `rgba(${m.color}, 0.5)`);
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(startX, y, Math.max(barW, 10), barHeight, 8);
-      ctx.fill();
+    ctx.font='24px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='right';
+    ctx.fillText(m.name,startX-20,y+barH/2+8);
+
+    // Bar bg track
+    ctx.fillStyle='rgba(255,255,255,.03)';
+    ctx.beginPath();ctx.roundRect(startX,y,maxW,barH,10);ctx.fill();
+
+    // Bar fill
+    if(w>2){
+      const grad=ctx.createLinearGradient(startX,0,startX+w,0);
+      grad.addColorStop(0,`rgba(${m.color},.9)`);
+      grad.addColorStop(1,`rgba(${m.color},.5)`);
+      ctx.fillStyle=grad;
+      ctx.beginPath();ctx.roundRect(startX,y,Math.max(w,10),barH,10);ctx.fill();
     }
-    
+
     // Value
-    const vp = easeOutCubic(clamp(progress - i * 0.15 - 0.1, 0, 1));
-    if (vp > 0) {
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 28px "Courier New", monospace';
-      ctx.fillText(`${m.qps} QPS`, startX + barW + 16, y + barHeight / 2 + 4);
-      ctx.font = '20px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = '#888888';
-      ctx.fillText(`(${m.latency})`, startX + barW + 16, y + barHeight / 2 + 28);
+    const vp=clamp((p-i*.15-.1)/.2,0,1);
+    if(vp>0){
+      ctx.font='bold 26px "Courier New",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
+      ctx.fillText(`${Math.floor(m.qps*vp)} QPS`,startX+w+18,y+barH/2+2);
+      ctx.font='16px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.35)';
+      ctx.fillText(`(${m.lat})`,startX+w+18,y+barH/2+24);
     }
   });
-  
-  // Title axis
-  ctx.fillStyle = '#888888';
-  ctx.textAlign = 'left';
-  ctx.font = '22px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText('Queries Per Second (SIFT-128)', startX, startY - 20);
+
+  // Speedup annotation
+  const ap=clamp((p-.7)/.15,0,1);
+  if(ap>0){
+    ctx.font='bold 32px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle=`rgba(56,189,248,${ap})`;ctx.textAlign='center';
+    ctx.fillText('1,200× faster than brute-force',800,startY+4*(barH+gap)+20);
+  }
 }
 
-// ── SeekTo ──
-function seekTo(time) {
-  const fadeTime = 0.5;
-  SCENES.forEach(s => {
-    const el = document.getElementById(s.id);
-    let opacity = 0;
-    if (time >= s.start && time < s.end) {
-      const local = time - s.start;
-      const dur = s.end - s.start;
-      if (local < fadeTime) opacity = local / fadeTime;
-      else if (local > dur - fadeTime) opacity = (dur - local) / fadeTime;
-      else opacity = 1;
+// ── Main seekTo ──
+function seekTo(time){
+  // Scene visibility
+  const fadeT=.6;
+  SCENES.forEach(s=>{
+    const el=document.getElementById(s.id);
+    let op=0;
+    if(time>=s.s&&time<s.e){
+      const loc=time-s.s,dur=s.e-s.s;
+      if(loc<fadeT)op=loc/fadeT;
+      else if(loc>dur-fadeT)op=(dur-loc)/fadeT;
+      else op=1;
     }
-    el.style.opacity = opacity;
+    el.style.opacity=op;
   });
 
-  // Scene 2: Gaussian splat canvas
-  if (time >= 12 && time < 20) {
-    const p = clamp((time - 12) / 7, 0, 1);
-    const ctx = document.getElementById('splatCanvas').getContext('2d');
-    drawGaussians(ctx, p);
+  animOrbs(time);
+  animScanline(time);
+
+  // S1: Timer
+  if(time>=5&&time<13){
+    const t=clamp((time-6)/4,0,1);
+    const ms=Math.floor(t*1143);
+    document.getElementById('timerVal').textContent=ms;
+    document.getElementById('timerFill').style.width=(t*100)+'%';
+    document.getElementById('timerLabel').textContent=ms+'ms';
   }
 
-  // Scene 3: Pipeline steps
-  if (time >= 20 && time < 30) {
-    const p = (time - 20) / 10;
-    for (let i = 0; i < 4; i++) {
-      const el = document.getElementById('step' + i);
-      el.classList.toggle('active', p > i * 0.2 + 0.05);
+  // S2: Splats
+  if(time>=13&&time<22){
+    const p=clamp((time-13)/8,0,1);
+    drawSplats(document.getElementById('splatCanvas').getContext('2d'),p);
+  }
+
+  // S3: Pipeline
+  if(time>=22&&time<32){
+    const p=(time-22)/10;
+    for(let i=0;i<4;i++){
+      const el=document.getElementById('ps'+i);
+      el.classList.toggle('active',p>i*.18+.05);
     }
   }
 
-  // Scene 4: Benchmark counter animations
-  if (time >= 30 && time < 42) {
-    const p = clamp((time - 30) / 4, 0, 1);
-    const ep = easeOutCubic(p);
-    document.getElementById('lat1').textContent = (ep * 0.93).toFixed(2) + 'ms';
-    document.getElementById('qps1').textContent = Math.floor(ep * 1081);
-    document.getElementById('rec1').textContent = (ep * 0.998).toFixed(3);
-    
-    const p2 = clamp((time - 33) / 4, 0, 1);
-    const ep2 = easeOutCubic(p2);
-    document.getElementById('lat2').textContent = (ep2 * 1.70).toFixed(2) + 'ms';
-    document.getElementById('qps2').textContent = Math.floor(ep2 * 591);
-    document.getElementById('rec2').textContent = (ep2 * 0.995).toFixed(3);
+  // S4: Bench numbers
+  if(time>=32&&time<44){
+    const p1=clamp((time-32)/3,0,1);
+    const e1=easeOut(p1);
+    document.getElementById('b1qps').textContent=Math.floor(e1*1081);
+    document.getElementById('b1p50').textContent=(e1*0.93).toFixed(2)+'ms';
+    document.getElementById('b1rec').textContent=(e1*99.8).toFixed(1)+'%';
 
-    const sp = clamp((time - 37) / 2, 0, 1);
-    document.getElementById('speedup-text').style.opacity = sp;
+    const p2=clamp((time-35)/3,0,1);
+    const e2=easeOut(p2);
+    document.getElementById('b2qps').textContent=Math.floor(e2*591);
+    document.getElementById('b2p50').textContent=(e2*1.70).toFixed(2)+'ms';
+    document.getElementById('b2rec').textContent=(e2*99.5).toFixed(1)+'%';
   }
 
-  // Scene 5: Chart
-  if (time >= 42 && time < 50) {
-    const p = clamp((time - 42) / 5, 0, 1);
-    const ctx = document.getElementById('chartCanvas').getContext('2d');
-    drawChart(ctx, p);
+  // S5: Chart
+  if(time>=44&&time<52){
+    drawChart(document.getElementById('chartCanvas').getContext('2d'),clamp((time-44)/5,0,1));
   }
 
-  // Scene 6: Features stagger
-  if (time >= 50 && time < 56) {
-    const p = (time - 50) / 6;
-    for (let i = 0; i < 6; i++) {
-      document.getElementById('f' + i).classList.toggle('active', p > i * 0.12 + 0.05);
+  // S6: Features
+  if(time>=52&&time<58){
+    const p=(time-52)/6;
+    for(let i=0;i<6;i++){
+      document.getElementById('ft'+i).classList.toggle('active',p>i*.1+.03);
     }
   }
 
-  // Scene 7: Closing counters
-  if (time >= 56 && time < 65) {
-    const p = clamp((time - 56) / 3, 0, 1);
-    const ep = easeOutCubic(p);
-    document.getElementById('sv1').textContent = Math.floor(ep * 1081);
-    document.getElementById('sv2').textContent = Math.floor(ep * 591);
-    document.getElementById('sv3').textContent = (ep * 99.5).toFixed(1) + '%';
+  // S7: Closing counters
+  if(time>=58&&time<67){
+    const p=clamp((time-58)/3,0,1);
+    const ep=easeOut(p);
+    document.getElementById('sv0').textContent=Math.floor(ep*1081);
+    document.getElementById('sv1').textContent=Math.floor(ep*591);
+    document.getElementById('sv2').textContent=(ep*99.5).toFixed(1)+'%';
   }
 }
-window.seekTo = seekTo;
+window.seekTo=seekTo;
 </script>
 </body>
 </html>
