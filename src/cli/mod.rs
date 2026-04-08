@@ -21,6 +21,13 @@ pub enum Commands {
         #[arg(short, long, default_value = "default")]
         shard: String,
     },
+    /// Append vectors to existing store with incremental HNSW insert
+    Append {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long, default_value = "default")]
+        shard: String,
+    },
     /// Search for k nearest neighbors
     Search {
         #[arg(short, long)]
@@ -325,6 +332,9 @@ pub fn dispatch(cli: Cli) {
     match cli.command {
         Commands::Index { input, shard } => {
             index_cmds::cmd_index(cli.data_dir, cli.backend, config, input, shard)
+        }
+        Commands::Append { input, shard } => {
+            index_cmds::cmd_append(cli.data_dir, cli.backend, config, input, shard)
         }
         Commands::Search { query, k, format } => {
             search_cmds::cmd_search(cli.data_dir, config, query, k, format)

@@ -54,6 +54,75 @@ pub fn cmd_index(
     );
 }
 
+/// Append vectors to an existing store using incremental HNSW insertion.
+///
+/// Unlike `cmd_index` which creates a fresh store, this loads the existing
+/// store (including persisted HNSW), adds new vectors, incrementally inserts
+/// them into the HNSW graph (no full rebuild), and saves.
+pub fn cmd_append(
+    data_dir: String,
+    _backend: String,
+    config: SplatDBConfig,
+    input: PathBuf,
+    shard: String,
+) {
+    let vectors = match load_vectors_bin(&input) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    eprintln!(
+        "[splatdb] Appending {} vectors ({}D) from {}",
+        vectors.nrows(),
+        vectors.ncols(),
+        input.display()
+    );
+
+    // Load existing store
+    let (mut store, persist) = load_or_create_store(&data_dir, &config);
+    let n_before = store.n_active();
+    let hnsw_before = store.hnsw_indexed_count();
+
+    eprintln!(
+        "[splatdb] Existing store: {} vectors, {} HNSW indexed",
+        n_before, hnsw_before
+    );
+
+    // Add new vectors
+    let t0 = std::time::Instant::now();
+    let added = store.add_batch_with_hnsw(&vectors, Some(&data_dir));
+    let elapsed = t0.elapsed();
+
+    if !added {
+        eprintln!("Error: store full, cannot append");
+        std::process::exit(1);
+    }
+
+    // Persist vectors to storage backend
+    if let Some(p) = persist {
+        if let Some(vectors) = store.get_mu() {
+            if let Err(e) = p.save_vectors(&vectors, &shard) {
+                eprintln!("Warning: save failed: {}", e);
+            }
+        }
+    }
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "appended",
+            "shard": shard,
+            "vectors_added": vectors.nrows(),
+            "n_before": n_before,
+            "n_after": store.n_active(),
+            "hnsw_indexed": store.hnsw_indexed_count(),
+            "append_time_ms": elapsed.as_millis() as u64,
+        })
+    );
+}
+
 pub fn cmd_ingest(config: SplatDBConfig, input: PathBuf, n_clusters: Option<usize>, seed: u64) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
