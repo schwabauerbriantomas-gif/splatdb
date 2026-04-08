@@ -369,7 +369,10 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
             .collect::<Vec<_>>()
     });
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
 
     // Use provided embedding, or get real embedding (MiniLM or SimCos fallback)
@@ -390,7 +393,7 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
     if !added {
         return Err("store is full".into());
     }
-    s.store.build_index();
+    s.store.hnsw_sync_incremental();
 
     s.next_id += 1;
     let id = params["id"]
@@ -448,7 +451,10 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
         return Err("top_k exceeds maximum value of 1000".into());
     }
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
     let n_active = s.store.n_active();
 
@@ -510,7 +516,10 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
 }
 
 fn handle_status(state: &Mutex<McpState>) -> Result<Value, String> {
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let stats = s.store.get_statistics();
 
     let doc_count = s.doc_store.count(false).unwrap_or(0);
@@ -531,8 +540,15 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
     let id = params["id"].as_str().ok_or("missing 'id'")?;
     let text = params["text"].as_str().ok_or("missing 'text'")?;
     let metadata = params["metadata"].as_str();
+    const MAX_TEXT_LEN: usize = 100_000;
+    if text.len() > MAX_TEXT_LEN {
+        return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
+    }
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
 
     // Compute embedding (real model or SimCos fallback)
@@ -542,7 +558,7 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 
     let vector_idx = s.store.n_active();
     s.store.add_splat(&arr);
-    s.store.build_index();
+    s.store.hnsw_sync_incremental();
 
     // Update mappings
     s.vector_to_doc.insert(vector_idx, id.to_string());
@@ -591,7 +607,10 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 fn handle_doc_get(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let id = params["id"].as_str().ok_or("missing 'id'")?;
 
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     match s.doc_store.get(id) {
         Ok(Some(record)) => {
@@ -612,13 +631,25 @@ fn handle_doc_get(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let id = params["id"].as_str().ok_or("missing 'id'")?;
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     // Soft delete in SQLite
     match s.doc_store.soft_delete(id) {
         Ok(true) => {
             // Remove from in-memory caches
             s.doc_texts.remove(id);
+            // Find and remove the vector_to_doc mapping for this doc id
+            if let Some(idx) = s
+                .vector_to_doc
+                .iter()
+                .find(|(_, v)| *v == id)
+                .map(|(k, _)| *k)
+            {
+                s.vector_to_doc.remove(&idx);
+            }
             eprintln!("[mcp] doc_del: id={} (soft deleted)", id);
             Ok(json!({ "ok": true, "id": id }))
         }
@@ -633,8 +664,15 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 
 fn handle_graph_add_doc(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let text = params["text"].as_str().ok_or("missing 'text' field")?;
+    const MAX_TEXT_LEN: usize = 100_000;
+    if text.len() > MAX_TEXT_LEN {
+        return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
+    }
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
     let embedding = get_embedding(text, dim);
 
@@ -656,8 +694,15 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
     let entity_type = params["entity_type"]
         .as_str()
         .ok_or("missing 'entity_type' field")?;
+    const MAX_NAME_LEN: usize = 10_000;
+    if name.len() > MAX_NAME_LEN {
+        return Err(format!("Name exceeds max length ({MAX_NAME_LEN})"));
+    }
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
     let embedding = get_embedding(name, dim);
 
@@ -683,7 +728,10 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
         .ok_or("missing 'relation_type'")?;
     let weight = params["weight"].as_f64().unwrap_or(1.0);
 
-    let mut s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     s.graph
         .add_relation(source_id, target_id, relation_type, weight)
         .map_err(|e| e.to_string())?;
@@ -705,7 +753,10 @@ fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Valu
     let start_id = params["start_id"].as_u64().ok_or("missing 'start_id'")? as usize;
     let max_depth = params["max_depth"].as_u64().unwrap_or(3).min(20) as usize;
 
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     if s.graph.get_node(start_id).is_none() {
         return Err(format!("node not found: {}", start_id));
@@ -737,9 +788,12 @@ fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Valu
 
 fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
-    let k = params["k"].as_u64().unwrap_or(10) as usize;
+    let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
     let embedding = get_embedding(query, dim);
 
@@ -767,9 +821,12 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
 
 fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
-    let k = params["k"].as_u64().unwrap_or(10) as usize;
+    let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let dim = s.store.get_statistics().embedding_dim;
     let embedding = get_embedding(query, dim);
 
@@ -795,7 +852,10 @@ fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Resu
 }
 
 fn handle_graph_stats(state: &Mutex<McpState>) -> Result<Value, String> {
-    let s = state.lock().map_err(|e| format!("lock error: {}", e))?;
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
     let stats = s.graph.get_stats();
 
     Ok(json!({
@@ -930,8 +990,10 @@ pub fn run_mcp_server() {
                 "[splatdb] WARNING: SQLite init failed ({}), docs won't persist",
                 e
             );
-            SqliteMetadataStore::new(std::path::PathBuf::from(":memory:"))
-                .expect("in-memory SQLite should always work")
+            SqliteMetadataStore::new(std::path::PathBuf::from(":memory:")).unwrap_or_else(|e| {
+                eprintln!("[splatdb] FATAL: in-memory SQLite failed: {}", e);
+                std::process::exit(1);
+            })
         }
     };
 
@@ -968,7 +1030,7 @@ pub fn run_mcp_server() {
                 }
             }
             if !ids.is_empty() {
-                store.build_index();
+                store.hnsw_sync_incremental();
                 eprintln!(
                     "[splatdb] Warm start: reloaded {} documents from SQLite",
                     ids.len()
@@ -1017,7 +1079,8 @@ pub fn run_mcp_server() {
                                 message: format!("Parse error: {}", e),
                             }),
                         };
-                        let out = serde_json::to_string(&resp).unwrap();
+                        let out = serde_json::to_string(&resp)
+                            .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}"#.to_string());
                         writeln!(stdout, "{}", out).ok();
                         stdout.flush().ok();
                         continue;
@@ -1029,11 +1092,15 @@ pub fn run_mcp_server() {
                 let resp = dispatch_request(&state, &req);
 
                 if !is_notification && resp.id.is_some() {
-                    let out = serde_json::to_string(&resp).unwrap();
-                    eprintln!(
-                        "[splatdb] -> {}",
-                        if out.len() > 200 { &out[..200] } else { &out }
-                    );
+                    let out = match serde_json::to_string(&resp) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("[splatdb] serialization error: {}", e);
+                            r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#.to_string()
+                        }
+                    };
+                    let preview: String = out.chars().take(200).collect();
+                    eprintln!("[splatdb] -> {}...", preview);
                     writeln!(stdout, "{}", out).ok();
                     stdout.flush().ok();
                 }
