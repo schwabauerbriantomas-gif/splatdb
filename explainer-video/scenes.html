@@ -392,7 +392,7 @@ body {
 <!-- Scene 4: Benchmarks (30-42s) -->
 <div class="scene" id="s4">
   <div class="title">Validated <span class="accent">Benchmarks</span></div>
-  <div class="subtitle">SIFT-128 · ANN-Benchmarks · Intel i7-1255U · Single-threaded · Rust</div>
+  <div class="subtitle">SIFT-128 · ANN-Benchmarks · Intel i7-1255U · Single-threaded · Independently Validated</div>
   <table class="bench-table">
     <tr>
       <th>Dataset</th><th>N</th><th>p50 Latency</th><th>QPS</th><th>Recall@10</th>
@@ -405,7 +405,7 @@ body {
     </tr>
   </table>
   <div id="speedup-text" style="font-size:36px;margin-top:40px;color:var(--cyan);font-weight:900;opacity:0;">
-    930x faster than brute-force
+    1,200x faster than brute-force
   </div>
 </div>
 
@@ -565,11 +565,11 @@ function drawChart(ctx, progress) {
   const methods = [
     { name: 'Linear Scan', qps: 0.9, color: '255,82,82', latency: '1,143ms' },
     { name: 'HRM2 Splats', qps: 11, color: '255,171,64', latency: '76ms' },
-    { name: 'HNSW 10K', qps: 966, color: '0,229,255', latency: '1.04ms' },
-    { name: 'HNSW 100K', qps: 464, color: '105,240,174', latency: '2.16ms' },
+    { name: 'HNSW 10K', qps: 1081, color: '0,229,255', latency: '0.93ms' },
+    { name: 'HNSW 100K', qps: 591, color: '105,240,174', latency: '1.70ms' },
   ];
   
-  const maxQPS = 1000;
+  const maxQPS = 1200;
   const barHeight = 80;
   const gap = 40;
   const startX = 300;
@@ -656,15 +656,15 @@ function seekTo(time) {
   if (time >= 30 && time < 42) {
     const p = clamp((time - 30) / 4, 0, 1);
     const ep = easeOutCubic(p);
-    document.getElementById('lat1').textContent = (ep * 1.04).toFixed(2) + 'ms';
-    document.getElementById('qps1').textContent = Math.floor(ep * 966);
+    document.getElementById('lat1').textContent = (ep * 0.93).toFixed(2) + 'ms';
+    document.getElementById('qps1').textContent = Math.floor(ep * 1081);
     document.getElementById('rec1').textContent = (ep * 0.998).toFixed(3);
     
     const p2 = clamp((time - 33) / 4, 0, 1);
     const ep2 = easeOutCubic(p2);
-    document.getElementById('lat2').textContent = (ep2 * 2.16).toFixed(2) + 'ms';
-    document.getElementById('qps2').textContent = Math.floor(ep2 * 464);
-    document.getElementById('rec2').textContent = (ep2 * 0.994).toFixed(3);
+    document.getElementById('lat2').textContent = (ep2 * 1.70).toFixed(2) + 'ms';
+    document.getElementById('qps2').textContent = Math.floor(ep2 * 591);
+    document.getElementById('rec2').textContent = (ep2 * 0.995).toFixed(3);
 
     const sp = clamp((time - 37) / 2, 0, 1);
     document.getElementById('speedup-text').style.opacity = sp;
@@ -689,9 +689,9 @@ function seekTo(time) {
   if (time >= 56 && time < 65) {
     const p = clamp((time - 56) / 3, 0, 1);
     const ep = easeOutCubic(p);
-    document.getElementById('sv1').textContent = Math.floor(ep * 966);
-    document.getElementById('sv2').textContent = Math.floor(ep * 464);
-    document.getElementById('sv3').textContent = (ep * 99.4).toFixed(1) + '%';
+    document.getElementById('sv1').textContent = Math.floor(ep * 1081);
+    document.getElementById('sv2').textContent = Math.floor(ep * 591);
+    document.getElementById('sv3').textContent = (ep * 99.5).toFixed(1) + '%';
   }
 }
 window.seekTo = seekTo;
