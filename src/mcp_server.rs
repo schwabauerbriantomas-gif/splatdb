@@ -23,8 +23,20 @@ use crate::storage::sqlite_store::SqliteMetadataStore;
 // Embedding client — real model via HTTP, SimCos fallback
 // ============================================================================
 
-const EMBEDDING_SERVICE_URL: &str = "http://127.0.0.1:8788/embed";
+const EMBEDDING_SERVICE_URL_DEFAULT: &str = "http://127.0.0.1:8788/embed";
 static EMBED_SERVICE_AVAILABLE: AtomicBool = AtomicBool::new(true);
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+const MAX_DOC_TEXT_CACHE: usize = 10_000;
+const MAX_WARM_START_DOCS: usize = 50_000;
+
+fn embedding_service_url() -> String {
+    std::env::var("SPLATDB_EMBED_URL").unwrap_or_else(|_| EMBEDDING_SERVICE_URL_DEFAULT.to_string())
+}
+
+#[cfg(unix)]
+extern "C" fn handle_sigint(_: i32) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
 
 fn get_embedding(text: &str, dim: usize) -> Vec<f32> {
     if EMBED_SERVICE_AVAILABLE.load(Ordering::Relaxed) {
@@ -42,7 +54,7 @@ fn fetch_real_embedding(text: &str, target_dim: usize) -> Option<Vec<f32>> {
         .timeout_global(Some(Duration::from_secs(5)))
         .build()
         .new_agent()
-        .post(EMBEDDING_SERVICE_URL)
+        .post(&embedding_service_url())
         .header("Content-Type", "application/json")
         .send(&body)
         .ok()?;
@@ -75,11 +87,38 @@ struct McpState {
     doc_store: SqliteMetadataStore,
     /// Maps vector index → doc_id for retrieval
     vector_to_doc: HashMap<usize, String>,
-    /// Maps doc_id → text content (in-memory cache of document text)
+    /// Maps doc_id → text content (in-memory cache with eviction)
     doc_texts: HashMap<String, String>,
+    /// Ordered insertion keys for LRU eviction
+    doc_text_order: Vec<String>,
     next_id: usize,
     /// Knowledge graph store (Gaussian splat graph)
     graph: crate::graph_splat::GaussianGraphStore,
+}
+
+impl McpState {
+    /// Insert text into cache, evicting oldest entries if over limit.
+    fn cache_doc_text(&mut self, id: String, text: String) {
+        if self.doc_texts.contains_key(&id) {
+            self.doc_texts.insert(id, text);
+            return;
+        }
+        // Evict oldest entries if at capacity
+        while self.doc_texts.len() >= MAX_DOC_TEXT_CACHE && !self.doc_text_order.is_empty() {
+            if let Some(old_id) = self.doc_text_order.first().cloned() {
+                self.doc_texts.remove(&old_id);
+                self.doc_text_order.remove(0);
+            }
+        }
+        self.doc_text_order.push(id.clone());
+        self.doc_texts.insert(id, text);
+    }
+
+    /// Remove text from cache.
+    fn uncache_doc_text(&mut self, id: &str) {
+        self.doc_texts.remove(id);
+        self.doc_text_order.retain(|k| k != id);
+    }
 }
 
 #[derive(Deserialize)]
@@ -403,7 +442,7 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
 
     // Store text and mapping
     s.vector_to_doc.insert(vector_idx, id.clone());
-    s.doc_texts.insert(id.clone(), text.to_string());
+    s.cache_doc_text(id.clone(), text.to_string());
 
     // Persist to SQLite
     let now = std::time::SystemTime::now()
@@ -562,7 +601,7 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 
     // Update mappings
     s.vector_to_doc.insert(vector_idx, id.to_string());
-    s.doc_texts.insert(id.to_string(), text.to_string());
+    s.cache_doc_text(id.to_string(), text.to_string());
 
     // Persist to SQLite
     let now = std::time::SystemTime::now()
@@ -640,7 +679,7 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
     match s.doc_store.soft_delete(id) {
         Ok(true) => {
             // Remove from in-memory caches
-            s.doc_texts.remove(id);
+            s.uncache_doc_text(id);
             // Find and remove the vector_to_doc mapping for this doc id
             if let Some(idx) = s
                 .vector_to_doc
@@ -1000,12 +1039,24 @@ pub fn run_mcp_server() {
     // Warm start: reload documents from SQLite into vector store
     let mut vector_to_doc: HashMap<usize, String> = HashMap::new();
     let mut doc_texts: HashMap<String, String> = HashMap::new();
+    let mut doc_text_order: Vec<String> = Vec::new();
     let mut next_id: usize = 0;
     let dim = store.get_statistics().embedding_dim;
 
     match doc_store.list_ids(false) {
         Ok(ids) => {
-            for doc_id in &ids {
+            let total = ids.len();
+            if total > MAX_WARM_START_DOCS {
+                eprintln!(
+                    "[splatdb] Warm start: {} docs found, capping at {} for performance",
+                    total, MAX_WARM_START_DOCS
+                );
+            }
+            for (i, doc_id) in ids.iter().enumerate().take(MAX_WARM_START_DOCS) {
+                if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+                    eprintln!("[splatdb] Warm start interrupted by shutdown signal");
+                    break;
+                }
                 if let Ok(Some(record)) = doc_store.get(doc_id) {
                     let text = record.document.clone().unwrap_or_default();
                     if text.is_empty() {
@@ -1019,6 +1070,7 @@ pub fn run_mcp_server() {
                         if store.add_splat(&arr) {
                             vector_to_doc.insert(vector_idx, doc_id.clone());
                             doc_texts.insert(doc_id.clone(), text);
+                            doc_text_order.push(doc_id.clone());
                             next_id = next_id.max(
                                 doc_id
                                     .strip_prefix("mem_")
@@ -1028,12 +1080,20 @@ pub fn run_mcp_server() {
                         }
                     }
                 }
+                if i > 0 && i % 100 == 0 {
+                    eprintln!(
+                        "[splatdb] Warm start: {}/{} docs loaded",
+                        i,
+                        total.min(MAX_WARM_START_DOCS)
+                    );
+                }
             }
             if !ids.is_empty() {
                 store.hnsw_sync_incremental();
                 eprintln!(
-                    "[splatdb] Warm start: reloaded {} documents from SQLite",
-                    ids.len()
+                    "[splatdb] Warm start: reloaded {}/{} documents from SQLite",
+                    doc_texts.len().min(MAX_WARM_START_DOCS),
+                    total
                 );
             }
         }
@@ -1045,6 +1105,7 @@ pub fn run_mcp_server() {
         doc_store,
         vector_to_doc,
         doc_texts,
+        doc_text_order,
         next_id,
         graph: crate::graph_splat::GaussianGraphStore::new(),
     });
@@ -1053,9 +1114,26 @@ pub fn run_mcp_server() {
     let mut stdout = io::stdout();
     let reader = stdin.lock();
 
+    // Set up signal handler for graceful shutdown
+    #[cfg(unix)]
+    {
+        unsafe {
+            libc::signal(libc::SIGINT, handle_sigint as *const () as usize);
+        }
+    }
+
     eprintln!("[splatdb] MCP server ready. Waiting for JSON-RPC on stdin...");
+    eprintln!(
+        "[splatdb] Env vars: SPLATDB_EMBED_URL={}, SPLATDB_DOC_PATH={}",
+        std::env::var("SPLATDB_EMBED_URL").unwrap_or_else(|_| "(default)".into()),
+        std::env::var("SPLATDB_DOC_PATH").unwrap_or_else(|_| "(default)".into())
+    );
 
     for line in reader.lines() {
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            eprintln!("[splatdb] Shutdown requested, exiting main loop.");
+            break;
+        }
         match line {
             Ok(line) => {
                 let line = line.trim().to_string();
@@ -1065,6 +1143,27 @@ pub fn run_mcp_server() {
 
                 let req: JsonRpcRequest = match serde_json::from_str::<JsonRpcRequest>(&line) {
                     Ok(r) => {
+                        // Validate jsonrpc version
+                        if r.jsonrpc != "2.0" {
+                            eprintln!("[splatdb] invalid jsonrpc version: {}", r.jsonrpc);
+                            let resp = JsonRpcResponse {
+                                jsonrpc: "2.0".into(),
+                                id: r.id.clone(),
+                                result: None,
+                                error: Some(JsonRpcError {
+                                    code: -32600,
+                                    message: format!(
+                                        "Invalid jsonrpc version: expected '2.0', got '{}'",
+                                        r.jsonrpc
+                                    ),
+                                }),
+                            };
+                            let out = serde_json::to_string(&resp)
+                                .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid request"}}"#.to_string());
+                            writeln!(stdout, "{}", out).ok();
+                            stdout.flush().ok();
+                            continue;
+                        }
                         eprintln!("[splatdb] <- method={}", r.method);
                         r
                     }
