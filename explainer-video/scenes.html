@@ -415,13 +415,17 @@ function drawChart(ctx,p){
 
   // Axis label
   ctx.font='20px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.3)';
-  ctx.textAlign='left';ctx.fillText('Queries Per Second (SIFT-128)',startX,startY-16);
+  ctx.textAlign='left';ctx.fillText('Queries Per Second (SIFT-128) — log scale',startX,startY-16);
+
+  // Log scale: use log10 to spread small values
+  const logMax=Math.log10(maxQ);
+  function logW(qps){return(Math.log10(Math.max(qps,0.5))/logMax)*maxW}
 
   methods.forEach((m,i)=>{
     const y=startY+i*(barH+gap);
     const t=clamp((p-i*.15)/.3,0,1);
     const ep=easeOut4(t);
-    const w=(m.qps/maxQ)*maxW*ep;
+    const w=logW(m.qps)*ep;
 
     // Label
     ctx.font='24px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='right';
