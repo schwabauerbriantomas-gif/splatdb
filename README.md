@@ -5,8 +5,8 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-267%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-22K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-26K-informational.svg)]()
 
 ---
 
@@ -52,7 +52,7 @@ SplatDB applies **Gaussian Splatting** — a technique from 3D neural rendering 
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), CUDA GPU acceleration with custom PTX kernels, and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in ~22K lines of pure Rust.
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, CUDA GPU acceleration with custom PTX kernels, and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in ~26K lines of pure Rust.
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -301,6 +301,7 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 | `search --query "0.1,0.2,..." -k 10` | Search by comma-separated query vector |
 | `search-file --input query.bin -k 10` | Search using query vector from binary file |
 | `index --input data.bin --shard default` | Add vectors from binary file |
+| `append --input data.bin` | Incrementally add vectors to existing HNSW graph (no full rebuild) |
 | `save` | Save current state to disk |
 | `load` | Load state from disk |
 | `list` | List all stored shards |
@@ -379,6 +380,24 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 
 SplatDB includes a built-in **Model Context Protocol** server for direct integration with AI agents. The MCP server uses stdio transport with JSON-RPC 2.0 and auto-loads the `mcp` preset with GPU auto-detection.
 
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SPLATDB_DOC_PATH` | `~/.hermes/splatdb_docs.db` | SQLite database path for document persistence |
+| `SPLATDB_EMBED_URL` | `http://127.0.0.1:8788/embed` | Embedding service URL (MiniLM or compatible) |
+
+### Security & Stability Features
+
+- **No panics**: All `.unwrap()` / `.expect()` calls replaced with safe error handling
+- **Input validation**: Text length capped at 100KB, entity names at 10KB, `k` capped at 1000
+- **No info leakage**: Mutex poisoning logged to stderr only, generic error returned to client
+- **Incremental indexing**: Uses `hnsw_sync_incremental()` instead of full rebuild on every insert
+- **LRU text cache**: In-memory document text cache with 10K entry cap and automatic eviction
+- **Warm start**: Progress logging every 100 docs, capped at 50K docs, interruptible by SIGINT
+- **Graceful shutdown**: SIGINT triggers clean exit (completes current request, persists state)
+- **JSON-RPC validation**: Rejects requests with `jsonrpc != "2.0"` with proper error code
+
 ### Configuration
 
 Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
@@ -449,7 +468,7 @@ Agent: splatdb_graph_search(query="who works on vector search", k=3)
 
 ### Persistence
 
-The MCP server uses SQLite with WAL mode for document storage. On restart, all documents are automatically reloaded (warm start). Vector indices are rebuilt from stored embeddings — no data loss between sessions.
+The MCP server uses SQLite with WAL mode for document storage. On restart, all documents are automatically reloaded (warm start) with progress logging. HNSW indices use **incremental insertion** — new vectors are added to the existing graph without rebuilding. Vector indices persist to `hnsw_index.bin` and are loaded from disk on startup.
 
 ---
 
@@ -583,11 +602,16 @@ fn main() {
 |--------|-------------|
 | `SplatStore::new(config)` | Create store with given configuration |
 | `store.insert(&vec)` | Insert a vector, return its index |
+| `store.insert_with_hnsw(&vec)` | Insert a vector and incrementally add to HNSW graph |
+| `store.add_batch_with_hnsw(&arr)` | Batch insert vectors with incremental HNSW sync |
 | `store.search(&vec, k)` | Exact k-nearest neighbor search |
 | `store.find_neighbors(&row, k)` | Search using ndarray row reference |
 | `store.find_neighbors_fast(&view, k)` | HRM2 approximate search (requires `build_index()`) |
-| `store.build_index()` | Build HRM2 coarse + fine index |
+| `store.build_index()` | Build HRM2 coarse + fine index (full build) |
+| `store.hnsw_sync_incremental()` | Sync new vectors into HNSW graph (incremental, no rebuild) |
+| `store.hnsw_needs_sync()` | Check if new vectors need HNSW indexing |
 | `store.n_active()` | Number of active splats |
+| `store.hnsw_indexed_count()` | Number of vectors currently in the HNSW graph |
 | `store.entropy()` | Current entropy of the system |
 
 ---
@@ -780,11 +804,11 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Module Map
 
-22,021 lines of Rust across these modules:
+26,465 lines of Rust across these modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
-| `splats` | `src/splats.rs` | Core API — insert, search, batch operations, statistics |
+| `splats` | `src/splats.rs` | Core API — insert, search, batch ops, incremental HNSW, statistics |
 | `hrm2_engine` | `src/hrm2_engine.rs` | Two-level hierarchical retrieval (coarse → fine) |
 | `engine` | `src/engine.rs` | CPU L2 distance with rayon parallelism |
 | `gpu` | `src/gpu/` | CUDA PTX kernels, `GpuIndex` with persistent VRAM |
@@ -792,13 +816,13 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `clustering` | `src/clustering.rs` | KMeans++ with ChaCha8 RNG |
 | `graph_splat` | `src/graph_splat.rs` | Knowledge graph overlay with hybrid search |
 | `semantic_memory` | `src/semantic_memory.rs` | BM25 + vector RRF fusion with temporal decay |
-| `hnsw_index` | `src/hnsw_index.rs` | HNSW approximate nearest neighbor |
+| `hnsw_index` | `src/hnsw_index.rs` | HNSW approximate nearest neighbor with incremental insertion |
 | `lsh_index` | `src/lsh_index.rs` | Locality-sensitive hashing |
 | `energy` | `src/energy.rs` | Energy landscape computation |
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
-| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (13 tools) |
+| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (13 tools, production-hardened) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
@@ -813,8 +837,13 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `rand` / `rand_chacha` / `rand_distr` | Random number generation, KMeans++ | No |
 | `serde` / `serde_json` | Serialization | No |
 | `rusqlite` | SQLite persistence (bundled) | No |
+| `libc` | Signal handling (graceful shutdown) | No |
 | `clap` | CLI argument parsing | No |
 | `regex` | Pattern matching | No |
+| `ureq` | HTTP client (embedding service) | No |
+| `axum` / `tokio` / `tower-http` | HTTP API server | No |
+| `parking_lot` | High-performance synchronization primitives | No |
+| `bytemuck` | Zero-cost byte casting for GPU | No |
 | `cudarc` | CUDA GPU kernels | Yes (`--features cuda`) |
 
 ---
