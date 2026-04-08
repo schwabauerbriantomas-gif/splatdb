@@ -29,6 +29,7 @@ anyhow = "1"
 ureq = { version = "3", features = ["json"] }
 bytemuck = "1"
 parking_lot = "0.12"
+libc = "0.2"
 
 [dev-dependencies]
 approx = "0.5"
