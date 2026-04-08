@@ -448,7 +448,8 @@ function drawChart(ctx,p){
     const vp=clamp((p-i*.15-.1)/.2,0,1);
     if(vp>0){
       ctx.font='bold 26px "Courier New",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
-      ctx.fillText(`${Math.floor(m.qps*vp)} QPS`,startX+w+18,y+barH/2+2);
+      const displayQPS=m.qps<1?(m.qps*vp).toFixed(1):Math.floor(m.qps*vp);
+      ctx.fillText(`${displayQPS} QPS`,startX+w+18,y+barH/2+2);
       ctx.font='16px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.35)';
       ctx.fillText(`(${m.lat})`,startX+w+18,y+barH/2+24);
     }
