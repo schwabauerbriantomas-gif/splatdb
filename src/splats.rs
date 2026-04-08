@@ -38,6 +38,9 @@ pub struct SplatStore {
     // Preset-driven subsystems (None when disabled)
     quant_store: Option<crate::quantization::QuantizedStore>,
     hnsw: Option<crate::hnsw_index::HNSWIndex>,
+    /// Number of vectors currently indexed in HNSW. When this < n_active,
+    /// there are unindexed vectors that need incremental insertion.
+    hnsw_indexed_count: usize,
     lsh: Option<crate::lsh_index::CrossPolytopeLSH>,
     // Semantic memory is a separate layer (it contains its own SplatStore internally,
     // so we can't embed it here without creating a cycle). Use has_semantic_memory()
@@ -117,6 +120,7 @@ impl SplatStore {
             next_id: 0,
             quant_store,
             hnsw,
+            hnsw_indexed_count: 0,
             lsh,
         }
     }
@@ -195,6 +199,7 @@ impl SplatStore {
         // HNSW secondary index
         if let Some(ref mut hnsw) = self.hnsw {
             hnsw.build(embeddings.clone());
+            self.hnsw_indexed_count = self.n_active;
         }
 
         // LSH index
@@ -221,6 +226,7 @@ impl SplatStore {
         // Try to load persisted HNSW first
         if self.hnsw.is_some() && self.try_load_hnsw(data_dir) {
             eprintln!("[splatdb] Loaded persisted HNSW index from disk");
+            self.hnsw_indexed_count = self.n_active;
 
             // Still need to build other indexes (HRM2, quant, LSH) if not done
             let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
@@ -282,6 +288,109 @@ impl SplatStore {
             );
         }
         Ok(())
+    }
+
+    // ── Incremental HNSW insertion ──────────────────────────────────
+
+    /// Check if HNSW has unindexed vectors (new vectors since last build/insert).
+    pub fn hnsw_needs_sync(&self) -> bool {
+        self.hnsw.is_some() && self.hnsw_indexed_count < self.n_active
+    }
+
+    /// Get the number of vectors currently indexed in HNSW.
+    pub fn hnsw_indexed_count(&self) -> usize {
+        self.hnsw_indexed_count
+    }
+
+    /// Insert all new (unindexed) vectors into the HNSW graph incrementally.
+    ///
+    /// Unlike `build_index()` which reconstructs everything, this only inserts
+    /// the vectors added since the last build/sync. O(M) per vector where M
+    /// is the HNSW connectivity parameter — typically M=48, so very fast.
+    ///
+    /// Returns the number of newly inserted vectors, or 0 if nothing to do.
+    pub fn hnsw_sync_incremental(&mut self) -> usize {
+        let start = self.hnsw_indexed_count;
+        let end = self.n_active;
+        if start >= end || self.hnsw.is_none() {
+            return 0;
+        }
+
+        let count = end - start;
+        if let Some(ref mut hnsw) = self.hnsw {
+            for i in start..end {
+                let vec: Vec<f32> = self.mu.row(i).to_vec();
+                hnsw.insert(&vec);
+            }
+        }
+        self.hnsw_indexed_count = end;
+        count
+    }
+
+    /// Insert all new (unindexed) vectors incrementally, then save to disk.
+    ///
+    /// This is the recommended method for production use — insert new vectors,
+    /// sync to HNSW, persist the updated graph. No full rebuild needed.
+    ///
+    /// Returns the number of newly inserted vectors.
+    pub fn hnsw_sync_and_save(&mut self, data_dir: &str) -> usize {
+        let count = self.hnsw_sync_incremental();
+        if count > 0 {
+            if let Err(e) = self.save_hnsw(data_dir) {
+                eprintln!(
+                    "[splatdb] Warning: failed to save HNSW after incremental sync: {}",
+                    e
+                );
+            }
+        }
+        count
+    }
+
+    /// Add a single vector and incrementally insert it into HNSW.
+    ///
+    /// This is an all-in-one method that:
+    /// 1. Adds the vector to the SplatStore
+    /// 2. Incrementally inserts it into the HNSW graph (if enabled)
+    /// 3. Optionally saves the updated HNSW to disk
+    ///
+    /// Returns the index of the new vector, or None if capacity exceeded.
+    pub fn insert_with_hnsw(&mut self, vec: &[f32], data_dir: Option<&str>) -> Option<usize> {
+        let idx = self.insert(vec)?;
+        if let Some(ref mut hnsw) = self.hnsw {
+            hnsw.insert(vec);
+            self.hnsw_indexed_count = self.n_active;
+            if let Some(dir) = data_dir {
+                if let Err(e) = self.save_hnsw(dir) {
+                    eprintln!("[splatdb] Warning: failed to save HNSW after insert: {}", e);
+                }
+            }
+        }
+        Some(idx)
+    }
+
+    /// Add a batch of vectors and incrementally insert them into HNSW.
+    ///
+    /// More efficient than calling `insert_with_hnsw` in a loop because
+    /// it only saves to disk once after all insertions.
+    pub fn add_batch_with_hnsw(&mut self, vectors: &Array2<f32>, data_dir: Option<&str>) -> bool {
+        let n_before = self.n_active;
+        if !self.add_splat(vectors) {
+            return false;
+        }
+
+        if let Some(ref mut hnsw) = self.hnsw {
+            for i in n_before..self.n_active {
+                let vec: Vec<f32> = self.mu.row(i).to_vec();
+                hnsw.insert(&vec);
+            }
+            self.hnsw_indexed_count = self.n_active;
+            if let Some(dir) = data_dir {
+                if let Err(e) = self.save_hnsw(dir) {
+                    eprintln!("[splatdb] Warning: failed to save HNSW after batch: {}", e);
+                }
+            }
+        }
+        true
     }
 
     /// Find k nearest neighbors for a single query.
@@ -889,6 +998,26 @@ mod tests {
         c
     }
 
+    fn test_config_with_hnsw() -> SplatDBConfig {
+        let mut c = SplatDBConfig::default();
+        c.max_splats = 2000;
+        c.latent_dim = 32;
+        c.enable_hnsw = true;
+        c.hnsw_m = 16;
+        c.hnsw_ef_construction = 100;
+        c.hnsw_ef_search = 50;
+        c
+    }
+
+    fn random_vectors(n: usize, dim: usize, seed: u64) -> Array2<f32> {
+        use rand::Rng;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let data: Vec<f32> = (0..n * dim).map(|_| rng.gen::<f32>()).collect();
+        Array2::from_shape_vec((n, dim), data).unwrap()
+    }
+
     #[test]
     fn test_add_and_query() {
         let mut store = SplatStore::new(test_config());
@@ -953,5 +1082,261 @@ mod tests {
         let q = Array1::zeros(64);
         let results = store.find_neighbors(&q.view(), 5);
         assert!(results.is_empty());
+    }
+
+    // ── Incremental HNSW insertion tests ──────────────────────────────
+
+    #[test]
+    fn test_incremental_hnsw_basic() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+
+        // Build initial index with 100 vectors
+        let data = random_vectors(100, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+        assert_eq!(store.hnsw_indexed_count(), 100);
+        assert!(!store.hnsw_needs_sync());
+
+        // Add 50 more vectors
+        let more = random_vectors(50, 32, 99);
+        store.add_splat(&more);
+        assert_eq!(store.n_active(), 150);
+        assert!(store.hnsw_needs_sync()); // 100 indexed, 150 active
+
+        // Sync incrementally
+        let inserted = store.hnsw_sync_incremental();
+        assert_eq!(inserted, 50);
+        assert_eq!(store.hnsw_indexed_count(), 150);
+        assert!(!store.hnsw_needs_sync());
+    }
+
+    #[test]
+    fn test_incremental_hnsw_recall() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+
+        // Build initial index
+        let data = random_vectors(200, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Query a known vector — should find itself
+        let query = data.row(0).to_owned();
+        let results = store.find_neighbors_fused(&query.view(), 10);
+        assert!(
+            results.iter().any(|r| r.index == 0),
+            "Should find vector 0 before incremental insert"
+        );
+
+        // Add 100 more vectors incrementally
+        let more = random_vectors(100, 32, 77);
+        store.add_splat(&more);
+        store.hnsw_sync_incremental();
+
+        // Query the SAME vector — should still find itself
+        let results2 = store.find_neighbors_fused(&query.view(), 10);
+        assert!(
+            results2.iter().any(|r| r.index == 0),
+            "Should find vector 0 after incremental insert"
+        );
+
+        // Query a NEW vector — should find itself
+        let query2 = more.row(50).to_owned();
+        let results3 = store.find_neighbors_fused(&query2.view(), 10);
+        assert!(
+            results3.iter().any(|r| r.index == 250),
+            "Should find newly inserted vector 250"
+        );
+    }
+
+    #[test]
+    fn test_insert_with_hnsw_single() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+
+        // Build initial index
+        let data = random_vectors(50, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Insert single vector via insert_with_hnsw
+        let new_vec: Vec<f32> = (0..32).map(|i| (i as f32 * 0.1).sin()).collect();
+        let idx = store
+            .insert_with_hnsw(&new_vec, None)
+            .expect("insert should succeed");
+        assert_eq!(idx, 50);
+        assert_eq!(store.hnsw_indexed_count(), 51);
+        assert!(!store.hnsw_needs_sync());
+
+        // Should be findable via search
+        let query = Array1::from_vec(new_vec);
+        let results = store.find_neighbors_fused(&query.view(), 5);
+        assert!(
+            results.iter().any(|r| r.index == 50),
+            "Should find newly inserted vector via fused search"
+        );
+    }
+
+    #[test]
+    fn test_add_batch_with_hnsw() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+
+        // Initial batch
+        let data = random_vectors(50, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Add batch incrementally
+        let batch = random_vectors(30, 32, 88);
+        assert!(store.add_batch_with_hnsw(&batch, None));
+        assert_eq!(store.n_active(), 80);
+        assert_eq!(store.hnsw_indexed_count(), 80);
+
+        // Query a vector from the new batch
+        let query = batch.row(15).to_owned();
+        let results = store.find_neighbors_fused(&query.view(), 5);
+        assert!(
+            results.iter().any(|r| r.index == 65),
+            "Should find vector from batch at index 65"
+        );
+    }
+
+    #[test]
+    fn test_incremental_hnsw_persistence() {
+        let dir = std::env::temp_dir().join("splatdb_incremental_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let data_dir = dir.to_str().unwrap();
+
+        // Phase 1: Build initial index and save
+        {
+            let mut store = SplatStore::new(test_config_with_hnsw());
+            let data = random_vectors(100, 32, 42);
+            store.add_splat(&data);
+            store.build_index_with_save(Some(data_dir));
+
+            // Add 50 more incrementally and save
+            let more = random_vectors(50, 32, 99);
+            store.add_splat(&more);
+            let inserted = store.hnsw_sync_and_save(data_dir);
+            assert_eq!(inserted, 50);
+        }
+
+        // Phase 2: Load from disk — should have 150 vectors in HNSW
+        {
+            let mut store = SplatStore::new(test_config_with_hnsw());
+            let data = random_vectors(100, 32, 42);
+            let more = random_vectors(50, 32, 99);
+            store.add_splat(&data);
+            store.add_splat(&more);
+
+            assert!(store.build_index_if_needed(data_dir));
+            assert_eq!(store.hnsw_indexed_count(), 150);
+            assert!(!store.hnsw_needs_sync());
+
+            // Verify search works on all vectors
+            let query = more.row(25).to_owned();
+            let results = store.find_neighbors_fused(&query.view(), 5);
+            assert!(
+                results.iter().any(|r| r.index == 125),
+                "Should find vector 125 after reload"
+            );
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_incremental_multiple_rounds() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+
+        // Round 1: 50 vectors
+        let d1 = random_vectors(50, 32, 1);
+        store.add_splat(&d1);
+        store.build_index();
+        assert_eq!(store.hnsw_indexed_count(), 50);
+
+        // Round 2: +30
+        let d2 = random_vectors(30, 32, 2);
+        store.add_splat(&d2);
+        let n = store.hnsw_sync_incremental();
+        assert_eq!(n, 30);
+        assert_eq!(store.hnsw_indexed_count(), 80);
+
+        // Round 3: +20
+        let d3 = random_vectors(20, 32, 3);
+        store.add_splat(&d3);
+        let n2 = store.hnsw_sync_incremental();
+        assert_eq!(n2, 20);
+        assert_eq!(store.hnsw_indexed_count(), 100);
+
+        // Round 4: +40
+        let d4 = random_vectors(40, 32, 4);
+        store.add_batch_with_hnsw(&d4, None);
+        assert_eq!(store.hnsw_indexed_count(), 140);
+
+        // Verify all vectors are searchable
+        assert_eq!(store.n_active(), 140);
+        for (seed, start_idx) in [(1, 0), (2, 50), (3, 80), (4, 100)] {
+            let data = random_vectors(
+                if seed == 1 {
+                    50
+                } else if seed == 2 {
+                    30
+                } else if seed == 3 {
+                    20
+                } else {
+                    40
+                },
+                32,
+                seed,
+            );
+            let query = data.row(0).to_owned();
+            let results = store.find_neighbors_fused(&query.view(), 5);
+            assert!(
+                results.iter().any(|r| r.index == start_idx),
+                "Round {}: should find vector {} (seed={})",
+                seed,
+                start_idx,
+                seed
+            );
+        }
+    }
+
+    #[test]
+    fn test_incremental_noop_when_no_new_vectors() {
+        let mut store = SplatStore::new(test_config_with_hnsw());
+        let data = random_vectors(50, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Sync with no new vectors
+        let n = store.hnsw_sync_incremental();
+        assert_eq!(n, 0);
+        assert_eq!(store.hnsw_indexed_count(), 50);
+    }
+
+    #[test]
+    fn test_incremental_hnsw_cosine_metric() {
+        let mut c = test_config_with_hnsw();
+        c.latent_dim = 16;
+        c.max_splats = 500;
+        let mut store = SplatStore::new(c);
+
+        let data = random_vectors(50, 16, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Add incrementally
+        let more = random_vectors(20, 16, 77);
+        store.add_splat(&more);
+        store.hnsw_sync_incremental();
+
+        // Search should work
+        let query = data.row(10).to_owned();
+        let results = store.find_neighbors_fused(&query.view(), 5);
+        assert!(!results.is_empty());
+        assert!(
+            results[0].distance < 0.1,
+            "Self-query should be near-zero distance, got {}",
+            results[0].distance
+        );
     }
 }
