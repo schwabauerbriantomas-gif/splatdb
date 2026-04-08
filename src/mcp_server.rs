@@ -99,9 +99,13 @@ struct McpState {
 impl McpState {
     /// Insert text into cache, evicting oldest entries if over limit.
     fn cache_doc_text(&mut self, id: String, text: String) {
-        if self.doc_texts.contains_key(&id) {
-            self.doc_texts.insert(id, text);
-            return;
+        use std::collections::hash_map::Entry;
+        match self.doc_texts.entry(id.clone()) {
+            Entry::Occupied(mut e) => {
+                e.insert(text);
+                return;
+            }
+            Entry::Vacant(_) => {}
         }
         // Evict oldest entries if at capacity
         while self.doc_texts.len() >= MAX_DOC_TEXT_CACHE && !self.doc_text_order.is_empty() {
