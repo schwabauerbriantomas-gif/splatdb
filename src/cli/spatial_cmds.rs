@@ -1,6 +1,6 @@
 //! CLI handlers for spatial memory commands.
 
-use crate::spatial::{SpatialFilter, SpatialIndex};
+use splatdb::spatial::{SpatialFilter, SpatialIndex};
 
 /// Search with spatial memory filters (Wing/Room/Hall).
 ///
