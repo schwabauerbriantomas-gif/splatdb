@@ -94,6 +94,9 @@ struct McpState {
     next_id: usize,
     /// Knowledge graph store (Gaussian splat graph)
     graph: crate::graph_splat::GaussianGraphStore,
+    /// Spatial memory: maps (wing, room, hall) → vector indices for pre-filter search.
+    /// Updated when docs are stored/loaded with spatial metadata.
+    spatial_index: crate::spatial::SpatialIndex,
 }
 
 impl McpState {
@@ -166,7 +169,10 @@ fn tool_definitions() -> Vec<Value> {
                     "text": { "type": "string", "description": "The text content to store" },
                     "category": { "type": "string", "description": "Optional category tag" },
                     "id": { "type": "string", "description": "Optional custom ID (auto-generated if omitted)" },
-                    "embedding": { "type": "array", "items": { "type": "number" }, "description": "Optional pre-computed embedding vector" }
+                    "embedding": { "type": "array", "items": { "type": "number" }, "description": "Optional pre-computed embedding vector" },
+                    "wing": { "type": "string", "description": "Spatial: top-level scope (project, persona, domain)" },
+                    "room": { "type": "string", "description": "Spatial: semantic grouping within wing" },
+                    "hall": { "type": "string", "description": "Spatial: memory type filter (fact, decision, event, error)" }
                 },
                 "required": ["text"]
             }
@@ -304,6 +310,45 @@ fn tool_definitions() -> Vec<Value> {
         json!({
             "name": "splatdb_graph_stats",
             "description": "Get knowledge graph statistics (node counts, edge counts, etc.).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        }),
+        // ── Spatial Memory tools ──
+        serde_json::json!({
+            "name": "splatdb_spatial_search",
+            "description": "Search memories with spatial filters. Organize memory like physical space: Wings (projects), Rooms (topics), Halls (types). Filters reduce the search space before vector distance computation for higher recall with less noise.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query text"
+                    },
+                    "wing": {
+                        "type": "string",
+                        "description": "Filter by wing (project/persona/domain). E.g. 'project-x', 'personal'"
+                    },
+                    "room": {
+                        "type": "string",
+                        "description": "Filter by room (semantic cluster/topic). E.g. 'auth', 'billing', 'migration'"
+                    },
+                    "hall": {
+                        "type": "string",
+                        "description": "Filter by hall (memory type). E.g. 'decision', 'fact', 'error', 'event'"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results (default: 10)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }),
+        serde_json::json!({
+            "name": "splatdb_spatial_info",
+            "description": "Show the spatial memory structure: all Wings (projects), Rooms (topics), Halls (memory types), and Tunnels (cross-wing connections). Use this to understand the organization before querying with splatdb_spatial_search.",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
@@ -473,6 +518,14 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
 
     if let Err(e) = s.doc_store.upsert(&record) {
         eprintln!("[mcp] warning: SQLite upsert failed: {}", e);
+    }
+
+    // Register spatial metadata if present
+    let wing = params["wing"].as_str();
+    let room = params["room"].as_str();
+    let hall = params["hall"].as_str();
+    if wing.is_some() || room.is_some() || hall.is_some() {
+        s.spatial_index.register_doc(&id, wing, room, hall);
     }
 
     eprintln!(
@@ -911,6 +964,224 @@ fn handle_graph_stats(state: &Mutex<McpState>) -> Result<Value, String> {
 }
 
 // ============================================================================
+// Spatial Memory handlers
+// ============================================================================
+
+/// Spatial search: uses SpatialIndex for O(|candidates|×dim) pre-filter search.
+///
+/// Pipeline:
+///   1. SpatialIndex.filter() → candidate doc IDs (in-memory, no SQLite)
+///   2. doc_id → vector_idx mapping (in-memory HashMap)
+///   3. SplatStore.find_neighbors_filtered() → distance only against candidates
+///
+/// This avoids the old post-filter approach that computed distances against ALL N vectors.
+fn handle_spatial_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    if query.len() > 10_000 {
+        return Err("query text exceeds maximum length of 10000 characters".into());
+    }
+    let top_k = params["top_k"].as_u64().unwrap_or(10) as usize;
+    if top_k > 1000 {
+        return Err("top_k exceeds maximum value of 1000".into());
+    }
+
+    let wing_filter = params["wing"].as_str().map(|s| s.to_string());
+    let room_filter = params["room"].as_str().map(|s| s.to_string());
+    let hall_filter = params["hall"].as_str().map(|s| s.to_string());
+
+    let has_filter = wing_filter.is_some() || room_filter.is_some() || hall_filter.is_some();
+
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
+    let dim = s.store.get_statistics().embedding_dim;
+    let n_active = s.store.n_active();
+    if n_active == 0 {
+        return Ok(json!({ "results": [], "total": 0, "filter": "no documents" }));
+    }
+
+    // Build inverted index: doc_id → vector_idx
+    let mut doc_to_vec: HashMap<String, usize> = HashMap::new();
+    for (&vec_idx, doc_id) in &s.vector_to_doc {
+        doc_to_vec.insert(doc_id.clone(), vec_idx);
+    }
+
+    // Get candidate vector indices via SpatialIndex (pre-filter)
+    let candidate_vec_indices: Vec<usize> = if has_filter {
+        let spatial_filter = crate::spatial::SpatialFilter {
+            wing: wing_filter.clone(),
+            room: room_filter.clone(),
+            hall: hall_filter.clone(),
+        };
+        let candidate_ids = s.spatial_index.filter(&spatial_filter);
+        candidate_ids
+            .iter()
+            .filter_map(|id| doc_to_vec.get(id).copied())
+            .collect()
+    } else {
+        // No spatial filter — search all vectors
+        (0..n_active).collect()
+    };
+
+    if candidate_vec_indices.is_empty() {
+        let filter_desc = describe_filter(&wing_filter, &room_filter, &hall_filter);
+        return Ok(json!({
+            "results": [],
+            "total": 0,
+            "filter": filter_desc,
+            "candidates_scanned": 0,
+        }));
+    }
+
+    // Get embedding for query
+    let embedding = get_embedding(query, dim);
+    if embedding.len() != dim {
+        return Err(format!(
+            "Embedding dimension mismatch: expected {dim}, got {}",
+            embedding.len()
+        ));
+    }
+    let query_vec = Array1::from_vec(embedding);
+
+    // Pre-filter search: only compute distances against candidates
+    let neighbors = if has_filter {
+        s.store
+            .find_neighbors_filtered(&query_vec.view(), &candidate_vec_indices, top_k)
+    } else {
+        let k = top_k.min(n_active);
+        s.store.find_neighbors_fast(&query_vec.view(), k)
+    };
+
+    let mut out = Vec::new();
+    for n in neighbors {
+        let doc_id = s
+            .vector_to_doc
+            .get(&n.index)
+            .cloned()
+            .unwrap_or_else(|| format!("vec_{}", n.index));
+        let text = s.doc_texts.get(&doc_id).cloned().unwrap_or_default();
+        let metadata: Value = match s.doc_store.get(&doc_id) {
+            Ok(Some(record)) => record.metadata.clone().unwrap_or(json!(null)),
+            _ => json!(null),
+        };
+        out.push(json!({
+            "id": doc_id,
+            "index": n.index,
+            "score": n.distance,
+            "text": text,
+            "metadata": metadata,
+        }));
+        if out.len() >= top_k {
+            break;
+        }
+    }
+
+    let filter_desc = describe_filter(&wing_filter, &room_filter, &hall_filter);
+    eprintln!(
+        "[mcp] spatial_search: query_len={}, filter={}, candidates={}, results={}",
+        query.len(),
+        filter_desc,
+        candidate_vec_indices.len(),
+        out.len()
+    );
+
+    Ok(json!({
+        "results": out,
+        "total": out.len(),
+        "filter": filter_desc,
+        "candidates_scanned": candidate_vec_indices.len(),
+    }))
+}
+
+fn describe_filter(
+    wing: &Option<String>,
+    room: &Option<String>,
+    hall: &Option<String>,
+) -> String {
+    match (wing, room, hall) {
+        (Some(w), Some(r), Some(h)) => format!("wing={w}, room={r}, hall={h}"),
+        (Some(w), Some(r), None) => format!("wing={w}, room={r}"),
+        (Some(w), None, Some(h)) => format!("wing={w}, hall={h}"),
+        (None, Some(r), Some(h)) => format!("room={r}, hall={h}"),
+        (Some(w), None, None) => format!("wing={w}"),
+        (None, Some(r), None) => format!("room={r}"),
+        (None, None, Some(h)) => format!("hall={h}"),
+        _ => "no spatial filter".into(),
+    }
+}
+
+/// Show spatial memory structure from metadata and in-memory SpatialIndex.
+fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
+    let all_ids = s.doc_store.list_ids(false).map_err(|e| e.to_string())?;
+
+    // Scan metadata to build spatial structure
+    let mut wings: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    let mut halls: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut total_with_spatial = 0usize;
+
+    for id in &all_ids {
+        if let Ok(Some(rec)) = s.doc_store.get(id) {
+            if let Some(ref meta) = rec.metadata {
+                let has_wing = meta.get("wing").and_then(|v| v.as_str()).is_some();
+                let has_room = meta.get("room").and_then(|v| v.as_str()).is_some();
+                let has_hall = meta.get("hall").and_then(|v| v.as_str());
+
+                if has_wing || has_room || has_hall.is_some() {
+                    total_with_spatial += 1;
+                }
+
+                if let (Some(w), Some(r)) = (
+                    meta.get("wing").and_then(|v| v.as_str()),
+                    meta.get("room").and_then(|v| v.as_str()),
+                ) {
+                    wings.entry(w.to_string()).or_default().insert(r.to_string());
+                }
+
+                if let Some(h) = has_hall {
+                    halls.insert(h.to_string());
+                }
+            }
+        }
+    }
+
+    // Detect tunnels: rooms shared across wings
+    let mut room_wings: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (wing, rooms) in &wings {
+        for room in rooms {
+            room_wings.entry(room.clone()).or_default().push(wing.clone());
+        }
+    }
+    let tunnels: Vec<Value> = room_wings.iter()
+        .filter(|(_, ws)| ws.len() >= 2)
+        .map(|(room, ws)| json!({
+            "room": room,
+            "wings": ws,
+        }))
+        .collect();
+
+    let wings_json: Value = wings.iter().map(|(w, rooms)| {
+        let rooms_vec: Vec<&String> = rooms.iter().collect();
+        (w.clone(), json!(rooms_vec))
+    }).collect();
+
+    Ok(json!({
+        "total_documents": all_ids.len(),
+        "documents_with_spatial_metadata": total_with_spatial,
+        "wings": wings_json,
+        "halls": halls.iter().collect::<Vec<_>>(),
+        "tunnels": tunnels,
+        "tunnel_count": tunnels.len(),
+    }))
+}
+
+// ============================================================================
 // JSON-RPC dispatcher
 // ============================================================================
 
@@ -969,6 +1240,8 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 "splatdb_graph_search" => handle_graph_search(state, &arguments),
                 "splatdb_graph_search_entities" => handle_graph_search_entities(state, &arguments),
                 "splatdb_graph_stats" => handle_graph_stats(state),
+                "splatdb_spatial_search" => handle_spatial_search(state, &arguments),
+                "splatdb_spatial_info" => handle_spatial_info(state),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
 
@@ -1112,6 +1385,7 @@ pub fn run_mcp_server() {
         doc_text_order,
         next_id,
         graph: crate::graph_splat::GaussianGraphStore::new(),
+        spatial_index: crate::spatial::SpatialIndex::new(),
     });
 
     let stdin = io::stdin();

@@ -7,6 +7,9 @@
 #[cfg(feature = "cuda")]
 pub mod cuda_kernel;
 
+#[cfg(feature = "cuda")]
+pub mod cuda_extended;
+
 /// Check if CUDA is available at runtime.
 #[cfg(feature = "cuda")]
 pub fn is_cuda_available() -> bool {
@@ -102,6 +105,139 @@ pub fn gpu_info() -> Option<String> {
 /// Get GPU info if CUDA is available.
 #[cfg(not(feature = "cuda"))]
 pub fn gpu_info() -> Option<String> {
+    None
+}
+
+// ============================================================================
+// Extended GPU operations (quantization, clustering, geometry, LSH)
+// ============================================================================
+
+/// GPU-accelerated batch rotation: y[i] = R · x[i] for N vectors.
+/// `rotation` is [D, D] row-major, `vectors` is [N, D], returns [N, D].
+pub fn rotation_gemv(vectors: &[f32], rotation: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.rotation_gemv(vectors, rotation, n, dim);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated batch inverse rotation: y[i] = R^T · x[i].
+pub fn rotation_gemv_inverse(
+    vectors: &[f32],
+    rotation: &[f32],
+    n: usize,
+    dim: usize,
+) -> Option<Vec<f32>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.rotation_gemv_inverse(vectors, rotation, n, dim);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated batch QJL sketch: sign(G · x) for N vectors.
+pub fn qjl_batch_sketch(
+    vectors: &[f32],
+    projections: &[f32],
+    n: usize,
+    dim: usize,
+    g: usize,
+) -> Option<Vec<i8>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.qjl_batch_sketch(vectors, projections, n, dim, g);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated batch QJL inner product estimate.
+pub fn qjl_batch_ip_estimate(
+    projections: &[f32],
+    signs: &[i8],
+    query: &[f32],
+    n: usize,
+    dim: usize,
+    g: usize,
+) -> Option<Vec<f32>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.qjl_batch_ip_estimate(projections, signs, query, n, dim, g);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated KMeans assignment: assign N points to nearest centroid.
+/// Returns (assignments, squared_distances) or None.
+pub fn kmeans_assign(
+    points: &[f32],
+    centroids: &[f32],
+    n: usize,
+    k: usize,
+    dim: usize,
+) -> Option<(Vec<i32>, Vec<f32>)> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.kmeans_assign(points, centroids, n, k, dim);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated all-pairs cosine similarity matrix.
+pub fn cosine_similarity_matrix(vectors: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.cosine_similarity_matrix(vectors, n, dim);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated batch geodesic distance between paired vectors.
+pub fn batch_geodesic(x: &[f32], y: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.batch_geodesic(x, y, n, dim);
+        }
+    }
+    None
+}
+
+/// GPU-accelerated batch LSH hash computation.
+pub fn lsh_batch_hash(
+    vectors: &[f32],
+    projections: &[f32],
+    n: usize,
+    dim: usize,
+    t: usize,
+    k: usize,
+) -> Option<Vec<i8>> {
+    #[cfg(feature = "cuda")]
+    {
+        if is_cuda_available() {
+            let ext = cuda_extended::GpuExtended::new()?;
+            return ext.lsh_batch_hash(vectors, projections, n, dim, t, k);
+        }
+    }
     None
 }
 

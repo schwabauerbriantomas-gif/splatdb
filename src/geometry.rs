@@ -79,7 +79,17 @@ pub fn geodesic_distance_batch(x: &Array2<f32>, y: &Array2<f32>) -> Array1<f32> 
         y.ncols(),
         "Input arrays must have same number of columns"
     );
+    let n = x.nrows();
+    let dim = x.ncols();
 
+    // Try GPU path
+    let x_flat: Vec<f32> = x.iter().copied().collect();
+    let y_flat: Vec<f32> = y.iter().copied().collect();
+    if let Some(gpu_result) = crate::gpu::batch_geodesic(&x_flat, &y_flat, n, dim) {
+        return Array1::from_vec(gpu_result);
+    }
+
+    // CPU fallback
     x.axis_iter(Axis(0))
         .zip(y.axis_iter(Axis(0)))
         .map(|(row_x, row_y)| geodesic_distance(&row_x, &row_y))
@@ -135,6 +145,22 @@ pub fn project_to_tangent(x: &ArrayView1<f32>, v: &ArrayView1<f32>) -> Array1<f3
 /// # Returns
 /// Similarity matrix of shape (N, N)
 pub fn cosine_similarity_matrix(x: &Array2<f32>) -> Array2<f32> {
+    let n = x.nrows();
+    let dim = x.ncols();
+
+    // Try GPU path
+    let flat: Vec<f32> = x.iter().copied().collect();
+    if let Some(gpu_result) = crate::gpu::cosine_similarity_matrix(&flat, n, dim) {
+        return Array2::from_shape_vec((n, n), gpu_result).unwrap_or_else(|_| {
+            // Fallback on shape error
+            cpu_cosine_similarity_matrix(x)
+        });
+    }
+
+    cpu_cosine_similarity_matrix(x)
+}
+
+fn cpu_cosine_similarity_matrix(x: &Array2<f32>) -> Array2<f32> {
     let n = x.nrows();
     let mut result = Array2::<f32>::zeros((n, n));
 

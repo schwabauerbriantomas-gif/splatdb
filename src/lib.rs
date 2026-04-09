@@ -36,6 +36,7 @@ pub mod query_optimizer;
 pub mod query_router;
 pub mod search_supervisor;
 pub mod semantic_memory;
+pub mod spatial;
 pub mod splat_types;
 pub mod splats;
 pub mod storage;
