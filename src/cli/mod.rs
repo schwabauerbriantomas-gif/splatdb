@@ -514,7 +514,7 @@ pub fn dispatch(cli: Cli) {
             room,
             hall,
             k,
-        } => crate::cli::spatial_cmds::cmd_spatial_search(query, wing, room, hall, k),
-        Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(),
+        } => crate::cli::spatial_cmds::cmd_spatial_search(cli.data_dir, query, wing, room, hall, k),
+        Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(cli.data_dir),
     }
 }

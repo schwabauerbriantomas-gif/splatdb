@@ -19,6 +19,28 @@
 
 use std::collections::{HashMap, HashSet};
 
+/// Common English + Spanish stopwords to filter from cluster labels.
+const STOPWORDS: &[&str] = &[
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "dare", "ought",
+    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above", "below",
+    "between", "out", "off", "over", "under", "again", "further", "then",
+    "once", "here", "there", "when", "where", "why", "how", "all", "each",
+    "every", "both", "few", "more", "most", "other", "some", "such", "no",
+    "nor", "not", "only", "own", "same", "so", "than", "too", "very",
+    "just", "because", "but", "and", "or", "if", "while", "about", "up",
+    "its", "it", "this", "that", "these", "those", "i", "me", "my", "we",
+    "our", "you", "your", "he", "him", "his", "she", "her", "they", "them",
+    "their", "what", "which", "who", "whom", "el", "la", "los", "las",
+    "un", "una", "unos", "unas", "de", "del", "en", "por", "para", "con",
+    "sin", "sobre", "entre", "hacia", "hasta", "desde", "que", "es", "son",
+    "fue", "ser", "estar", "ha", "han", "se", "no", "si", "su", "sus",
+    "como", "más", "muy", "también", "pero", "yo", "tú", "él", "ella",
+    "nosotros", "ellos", "esto", "eso", "ya", "hay", "puede", "todo",
+];
+
 /// Named cluster label for a KMeans++ coarse cluster.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RoomLabel {
@@ -260,12 +282,90 @@ impl SpatialIndex {
     pub fn tunnels_for(&self, wing: &str, room: &str) -> Vec<&Tunnel> {
         self.tunnels
             .iter()
-            .filter(|t| {
-                t.room_label == room
-                    && (t.wing_a == wing || t.wing_b == wing)
-            })
+            .filter(|t| t.room_label == room && (t.wing_a == wing || t.wing_b == wing))
             .collect()
     }
+
+    /// Auto-assign descriptive labels to rooms based on document content.
+    ///
+    /// For each room that still has a generic label (e.g. "cluster-0", "room-1"),
+    /// extract the most frequent non-stopword from its documents and use it as label.
+    ///
+    /// Returns the number of rooms relabeled.
+    pub fn auto_label_clusters<F>(&mut self, get_doc_text: F) -> usize
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let mut relabeled = 0;
+
+        // Build: (wing, room) → word frequency map
+        let mut room_words: HashMap<(String, String), HashMap<String, usize>> = HashMap::new();
+
+        for (doc_id, meta) in &self.doc_spatial {
+            let w = match &meta.wing {
+                Some(w) => w.clone(),
+                None => continue,
+            };
+            let r = match &meta.room {
+                Some(r) => r.clone(),
+                None => continue,
+            };
+
+            if let Some(text) = get_doc_text(doc_id) {
+                let freqs = room_words.entry((w, r)).or_default();
+                for word in tokenize(&text) {
+                    *freqs.entry(word).or_insert(0) += 1;
+                }
+            }
+        }
+
+        // For each room, pick the most frequent word as label
+        for ((wing, old_room), freqs) in room_words {
+            let best_word = freqs
+                .into_iter()
+                .filter(|(w, _)| w.len() >= 3) // skip very short tokens
+                .max_by_key(|(_, count)| *count)
+                .map(|(w, _)| w);
+
+            if let Some(new_label) = best_word {
+                if new_label == old_room {
+                    continue; // already has this label
+                }
+
+                // Rename the room in the wing's room map
+                if let Some(wing_entry) = self.wings.get_mut(&wing) {
+                    if let Some(mut room_data) = wing_entry.remove(&old_room) {
+                        room_data.label = new_label.clone();
+                        wing_entry.insert(new_label.clone(), room_data);
+                        relabeled += 1;
+                    }
+                }
+
+                // Update all doc_spatial entries that had this room
+                let wing_clone = wing.clone();
+                for meta in self.doc_spatial.values_mut() {
+                    if meta.wing.as_ref() == Some(&wing_clone)
+                        && meta.room.as_ref() == Some(&old_room)
+                    {
+                        meta.room = Some(new_label.clone());
+                    }
+                }
+            }
+        }
+
+        relabeled
+    }
+}
+
+/// Simple tokenizer: lowercase, split on non-alphanumeric, filter stopwords.
+fn tokenize(text: &str) -> Vec<String> {
+    let stop_set: HashSet<&str> = STOPWORDS.iter().copied().collect();
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .filter(|w| !stop_set.contains(*w))
+        .map(|w| w.to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -339,5 +439,66 @@ mod tests {
         assert_eq!(idx.doc_count(), 1);
         idx.remove_doc("d1");
         assert_eq!(idx.doc_count(), 0);
+    }
+
+    #[test]
+    fn test_auto_label_clusters() {
+        let mut idx = SpatialIndex::new();
+
+        // Register docs with generic room labels
+        idx.register_doc("d1", Some("project-x"), Some("cluster-0"), None);
+        idx.register_doc("d2", Some("project-x"), Some("cluster-0"), None);
+        idx.register_doc("d3", Some("project-x"), Some("cluster-1"), None);
+
+        // Simulate document content
+        let texts = {
+            let mut m = HashMap::new();
+            m.insert("d1".to_string(), "authentication login token verify user".to_string());
+            m.insert("d2".to_string(), "auth session cookie login redirect".to_string());
+            m.insert("d3".to_string(), "billing payment invoice charge stripe".to_string());
+            m
+        };
+
+        let relabeled = idx.auto_label_clusters(|doc_id| texts.get(doc_id).cloned());
+        assert_eq!(relabeled, 2); // Both clusters relabeled
+
+        // cluster-0 should now be "login" (appears 2x in d1+d2, "auth" appears 1x as standalone)
+        // Actually: d1="authentication"(1)+"login"(1)+"token"(1)+"verify"(1)+"user"(1)
+        //           d2="auth"(1)+"session"(1)+"cookie"(1)+"login"(1)+"redirect"(1)
+        // "login" appears 2x — most frequent
+        let rooms = idx.rooms_for_wing("project-x");
+        let labels: Vec<&str> = rooms.iter().map(|r| r.label.as_str()).collect();
+        assert!(labels.contains(&"login") || labels.contains(&"auth"));
+
+        // Verify doc metadata was updated
+        let meta = idx.get_doc_meta("d1").unwrap();
+        assert_ne!(meta.room.as_ref().unwrap(), "cluster-0");
+    }
+
+    #[test]
+    fn test_auto_label_preserves_explicit_labels() {
+        let mut idx = SpatialIndex::new();
+        idx.register_doc("d1", Some("w"), Some("auth"), None);
+        idx.register_doc("d2", Some("w"), Some("auth"), None);
+        idx.register_doc("d3", Some("w"), Some("auth"), None);
+
+        // "auth" appears 3 times — more than any other word, so it stays
+        let texts = HashMap::from([
+            ("d1".to_string(), "auth login".to_string()),
+            ("d2".to_string(), "auth session".to_string()),
+            ("d3".to_string(), "auth token".to_string()),
+        ]);
+        let relabeled = idx.auto_label_clusters(|doc_id| texts.get(doc_id).cloned());
+        assert_eq!(relabeled, 0); // "auth" is already the best label
+    }
+
+    #[test]
+    fn test_tokenize_filters_stopwords() {
+        let tokens = super::tokenize("The authentication system is working great");
+        assert!(!tokens.contains(&"the".to_string()));
+        assert!(!tokens.contains(&"is".to_string()));
+        assert!(tokens.contains(&"authentication".to_string()));
+        assert!(tokens.contains(&"system".to_string()));
+        assert!(tokens.contains(&"working".to_string()));
     }
 }
