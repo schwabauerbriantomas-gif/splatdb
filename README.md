@@ -70,6 +70,8 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 - [Knowledge Graph (GraphSplat)](#knowledge-graph-graphsplat)
 - [Vector Compression (TurboQuant / PolarQuant)](#vector-compression-turboquant--polarquant)
 - [Semantic Memory](#semantic-memory)
+- [Verbatim Storage (Planned)](#verbatim-storage-planned)
+- [Text Compression (Planned)](#text-compression-planned)
 - [Energy-Based Model](#energy-based-model)
 - [Module Map](#module-map)
 - [Dependencies](#dependencies)
@@ -872,6 +874,56 @@ This gives the best of both worlds: vector search captures semantic meaning, BM2
 ### Temporal Decay
 
 Optional: recent memories can be weighted higher via exponential decay with configurable half-life.
+
+### Verbatim Storage (Planned)
+
+> Inspired by [MemPalace's](https://github.com/milla-jovovich/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
+
+Most vector DBs store only embeddings — the original text is lost or truncated. SplatDB's planned verbatim storage keeps three layers per document:
+
+| Layer | Content | Size | Purpose |
+|-------|---------|------|---------|
+| **Splat** | μ, α, κ + compressed vector | ~320 bytes (4-bit TurboQuant) | Fast retrieval |
+| **Summary** | Key facts extracted by LLM | ~200 bytes | Quick context for agent decision-making |
+| **Drawer** | Original document verbatim | Variable | Source of truth — never summarized |
+
+**How it works in practice:**
+
+```
+MCP query → Vector search finds top-5 splats
+         → Agent reads summaries (cheap, ~1K tokens)
+         → Agent decides: "I need the full detail on doc #3"
+         → Drawer lookup: exact original text returned
+```
+
+This is the opposite of how Pinecone/Qdrant handle text — they truncate or discard it. SplatDB keeps the source of truth because for agent memory, losing *why* a decision was made kills future recall.
+
+**Status**: Planned. The building blocks exist (SQLite persistence, BM25 text index, MCP server). Pending: summary extraction pipeline and drawer API.
+
+### Text Compression (Planned)
+
+Vector compression (TurboQuant/PolarQuant) handles embeddings. But the *text* itself also needs compression for efficient agent memory.
+
+The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemPalace's AAAK](https://github.com/milla-jovovich/mempalace) achieves ~30x text compression by stripping everything except semantic content.
+
+```
+Original text (1,200 tokens):
+  "On January 15th, 2025, the team decided to migrate from Faiss to SplatDB
+   for the production vector search pipeline. The primary motivation was the
+   need for uncertainty-aware retrieval and knowledge graph integration.
+   Brian will lead the migration, targeting completion by end of Q1."
+
+Compressed (~40 tokens, 30x):
+  "2025-01-15: migrate Faiss→SplatDB prod. reason: uncertainty+KG.
+   lead: Brian. target: Q1 end."
+```
+
+**Why this matters for SplatDB:**
+- TurboQuant gives 8x on vectors → 30x on text is the bigger win for agent memory
+- MCP server can return compressed summaries within token budgets
+- Agent only fetches full drawer when needed → saves ~90% tokens on average query
+
+**Status**: Planned. Will be implemented as a post-ingestion compression pass, independent of the vector pipeline.
 
 ---
 
