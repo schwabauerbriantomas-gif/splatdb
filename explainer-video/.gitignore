@@ -1,0 +1,9 @@
+node_modules/
+frames/
+*.b64
+test-*
+render-resume.js
+add-logo.py
+logo.png
+logo-sm.png
+*.mp4
