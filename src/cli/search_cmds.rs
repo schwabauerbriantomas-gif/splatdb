@@ -240,6 +240,10 @@ pub fn cmd_bench_hnsw(
     samples: Option<usize>,
     data_dir: Option<String>,
     max_splats: usize,
+    metric: String,
+    ef_search_override: Option<usize>,
+    ef_construction_override: Option<usize>,
+    over_fetch: usize,
 ) {
     use super::helpers::load_vectors_bin;
     use std::time::Instant;
@@ -269,8 +273,21 @@ pub fn cmd_bench_hnsw(
     cfg.device = "cpu".to_string();
     cfg.enable_cuda = false;
     cfg.enable_gpu_search = false;
+    // Apply overrides for fair benchmarking
+    cfg.hnsw_metric = metric.clone();
+    if let Some(ef) = ef_search_override {
+        cfg.hnsw_ef_search = ef;
+    }
+    if let Some(ef) = ef_construction_override {
+        cfg.hnsw_ef_construction = ef;
+    }
+    cfg.over_fetch = over_fetch;
     cfg.finalize();
 
+    eprintln!(
+        "[bench-hnsw] Config: metric={}, ef_search={}, ef_construction={}, over_fetch={}x",
+        metric, cfg.hnsw_ef_search, cfg.hnsw_ef_construction, cfg.over_fetch
+    );
     eprintln!("[bench-hnsw] Creating SplatStore with advanced preset (HNSW enabled)...");
     let mut store = splatdb::SplatStore::new(cfg.clone());
 

@@ -74,6 +74,8 @@ pub struct HNSWIndex {
     rng: ChaCha8Rng,
 
     vectors: Vec<Vec<f32>>,
+    /// Precomputed L2 norms for cosine distance (one per vector)
+    norms: Vec<f32>,
     nodes: Vec<HNSWNode>,
     entry_point: usize,
     max_level: usize,
@@ -100,6 +102,7 @@ impl HNSWIndex {
             metric: metric.to_string(),
             rng: ChaCha8Rng::seed_from_u64(seed),
             vectors: Vec::new(),
+            norms: Vec::new(),
             nodes: Vec::new(),
             entry_point: 0,
             max_level: 0,
@@ -251,6 +254,9 @@ impl HNSWIndex {
             }
         }
 
+        // Reconstruct precomputed norms from loaded vectors
+        let norms: Vec<f32> = vectors.iter().map(|v| v.iter().map(|x| x * x).sum::<f32>().sqrt()).collect();
+
         let level_mult = 1.0 / (m_stored as f64).ln();
 
         Ok(Self {
@@ -263,6 +269,7 @@ impl HNSWIndex {
             metric: metric.to_string(),
             rng: ChaCha8Rng::seed_from_u64(seed),
             vectors,
+            norms,
             nodes,
             entry_point,
             max_level,
@@ -279,6 +286,10 @@ impl HNSWIndex {
     fn distance(&self, a: &[f32], b: &[f32]) -> f32 {
         if self.metric == "cosine" {
             let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+            // Use precomputed norms when available (stored vector vs query)
+            // For stored vectors, norms[idx] is precomputed. For queries, compute on the fly.
+            // We can't distinguish here, so we use norms for the second vector if available.
+            // Actually, distance() is called symmetrically — we keep the fast path for both.
             let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
             let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
             let denom = na * nb;
@@ -287,7 +298,31 @@ impl HNSWIndex {
             }
             1.0 - dot / denom
         } else {
+            // L2 distance — much cheaper than cosine
             a.iter()
+                .zip(b.iter())
+                .map(|(x, y)| (x - y) * (x - y))
+                .sum::<f32>()
+                .sqrt()
+        }
+    }
+
+    /// Distance with precomputed norm for the stored vector (avoids recomputing).
+    /// `a` is the query (norm computed fresh), `b_idx` is the stored vector index.
+    #[inline]
+    fn distance_cached(&self, query: &[f32], b_idx: usize) -> f32 {
+        let b = &self.vectors[b_idx];
+        if self.metric == "cosine" {
+            let dot: f32 = query.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+            let na: f32 = query.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let nb = self.norms[b_idx];
+            let denom = na * nb;
+            if denom < 1e-10 {
+                return 1.0;
+            }
+            1.0 - dot / denom
+        } else {
+            query.iter()
                 .zip(b.iter())
                 .map(|(x, y)| (x - y) * (x - y))
                 .sum::<f32>()
@@ -297,7 +332,7 @@ impl HNSWIndex {
 
     fn greedy_closest(&self, query: &[f32], entry: usize, level: usize) -> usize {
         let mut current = entry;
-        let mut current_dist = self.distance(query, &self.vectors[current]);
+        let mut current_dist = self.distance_cached(query, current);
 
         loop {
             let mut changed = false;
@@ -309,7 +344,7 @@ impl HNSWIndex {
                 if self.removed.contains(&neighbor) {
                     continue;
                 }
-                let d = self.distance(query, &self.vectors[neighbor]);
+                let d = self.distance_cached(query, neighbor);
                 if d < current_dist {
                     current_dist = d;
                     current = neighbor;
@@ -332,7 +367,7 @@ impl HNSWIndex {
     ) -> Vec<(f32, usize)> {
         let mut visited = HashSet::new();
         visited.insert(entry);
-        let dist_ep = self.distance(query, &self.vectors[entry]);
+        let dist_ep = self.distance_cached(query, entry);
 
         let mut candidates = BinaryHeap::new(); // min-heap via DistIdx
         let mut results = BinaryHeap::new(); // max-heap via MaxDistIdx
@@ -360,7 +395,7 @@ impl HNSWIndex {
                 }
                 visited.insert(neighbor);
 
-                let dist_n = self.distance(query, &self.vectors[neighbor]);
+                let dist_n = self.distance_cached(query, neighbor);
                 let farthest = match results.peek() {
                     Some(MaxDistIdx(d, _)) => *d,
                     None => f32::MAX,
@@ -392,6 +427,9 @@ impl HNSWIndex {
             neighbors.push(Vec::new());
         }
         self.vectors.push(vector.to_vec());
+        // Precompute norm for cosine distance caching
+        let norm: f32 = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        self.norms.push(norm);
         self.nodes.push(HNSWNode {
             _level: level,
             neighbors,
@@ -458,6 +496,7 @@ impl HNSWIndex {
 impl VectorIndex for HNSWIndex {
     fn build(&mut self, vectors: Array2<f32>) {
         self.vectors.clear();
+        self.norms.clear();
         self.nodes.clear();
         self.removed.clear();
         self.entry_point = 0;
