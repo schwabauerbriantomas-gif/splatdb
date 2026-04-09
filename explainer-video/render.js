@@ -1,77 +1,75 @@
 const puppeteer = require('puppeteer');
-const { execSync } = require('child_process');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-const FPS = 30;
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const OUTPUT = path.join(__dirname, 'splatdb-explainer.mp4');
+const FPS = 24;
+const WIDTH = 1280;
+const HEIGHT = 720;
+const TOTAL_DURATION = 160;
+const CHUNK_SEC = 5;
 const FRAMES_DIR = path.join(__dirname, 'frames');
+
+if (!fs.existsSync(FRAMES_DIR)) fs.mkdirSync(FRAMES_DIR, { recursive: true });
+
+const HTML_PATH = path.resolve(__dirname, 'scenes.html');
 const CHROME = '/root/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome';
-const CHUNK_SEC = 10;
-const TOTAL_DURATION = 75;
 
-async function renderChunk(startSec, endSec, retry = 0) {
-  console.log(`Rendering ${startSec}s-${endSec}s${retry ? ` (retry ${retry})` : ''}`);
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu',
-           '--disable-dev-shm-usage', '--js-flags=--max-old-space-size=512',
-           `--window-size=${WIDTH},${HEIGHT}`],
-    executablePath: CHROME,
-  });
-  const page = await browser.newPage();
-  await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
-  const html = fs.readFileSync(path.join(__dirname, 'scenes.html'), 'utf8');
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-
+async function renderChunk(startSec, endSec) {
   const startFrame = Math.floor(startSec * FPS);
   const endFrame = Math.floor(endSec * FPS);
-  try {
-    for (let i = startFrame; i <= endFrame; i++) {
-      const time = i / FPS;
-      await page.evaluate((t) => window.seekTo(t), time);
-      await page.screenshot({
-        path: path.join(FRAMES_DIR, `frame_${String(i).padStart(6, '0')}.png`),
-        type: 'png',
-      });
+  
+  let allExist = true;
+  for (let f = startFrame; f < endFrame; f++) {
+    if (!fs.existsSync(path.join(FRAMES_DIR, `frame_${String(f).padStart(6, '0')}.png`))) {
+      allExist = false; break;
     }
-    console.log(`  Done: frames ${startFrame}-${endFrame}`);
-  } catch (e) {
-    console.log(`  Error at frame level, will retry: ${e.message.slice(0, 80)}`);
-    if (retry < 2) {
-      // Find last successful frame
-      const frames = fs.readdirSync(FRAMES_DIR).filter(f => f.endsWith('.png')).sort();
-      const lastFrame = frames.length ? parseInt(frames[frames.length - 1].match(/\d+/)[0]) : startFrame;
-      const resumeSec = lastFrame / FPS;
-      console.log(`  Resuming from ${resumeSec}s in this chunk`);
-      await browser.close();
-      return renderChunk(Math.max(resumeSec, startSec), endSec, retry + 1);
-    }
-    throw e;
   }
-  await browser.close();
+  if (allExist) { console.log(`  Skip ${startFrame}-${endFrame - 1}`); return; }
+
+  const browser = await puppeteer.launch({
+    executablePath: CHROME,
+    headless: 'new',
+    args: [
+      `--window-size=${WIDTH},${HEIGHT}`,
+      '--no-sandbox', '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage', '--disable-gpu',
+      '--hide-scrollbars', '--mute-audio'
+    ]
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
+    await page.goto(`file://${HTML_PATH}`, { waitUntil: 'networkidle0', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 300));
+
+    for (let f = startFrame; f < endFrame; f++) {
+      const t = f / FPS;
+      await page.evaluate((time) => window.seekTo(time), t);
+      const fp = path.join(FRAMES_DIR, `frame_${String(f).padStart(6, '0')}.png`);
+      await page.screenshot({ path: fp, type: 'png', clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT } });
+      if (f % (FPS * 30) === 0) console.log(`  ${f}/${endFrame - 1} (${(f / FPS).toFixed(1)}s)`);
+    }
+  } finally {
+    await browser.close();
+  }
 }
 
 async function main() {
-  if (fs.existsSync(FRAMES_DIR)) fs.rmSync(FRAMES_DIR, { recursive: true });
-  fs.mkdirSync(FRAMES_DIR, { recursive: true });
+  const totalFrames = TOTAL_DURATION * FPS;
+  console.log(`Rendering ${totalFrames} frames (${TOTAL_DURATION}s @ ${FPS}fps, ${Math.ceil(TOTAL_DURATION / CHUNK_SEC)} chunks)`);
+  const startTime = Date.now();
 
-  for (let s = 0; s < TOTAL_DURATION; s += CHUNK_SEC) {
-    const end = Math.min(s + CHUNK_SEC, TOTAL_DURATION);
-    await renderChunk(s, end);
+  for (let sec = 0; sec < TOTAL_DURATION; sec += CHUNK_SEC) {
+    const chunkEnd = Math.min(sec + CHUNK_SEC, TOTAL_DURATION);
+    const cs = Date.now();
+    process.stdout.write(`Chunk ${sec}-${chunkEnd}s ... `);
+    await renderChunk(sec, chunkEnd);
+    console.log(`${((Date.now() - cs) / 1000).toFixed(1)}s (total: ${((Date.now() - startTime) / 1000).toFixed(0)}s, ${((sec / TOTAL_DURATION) * 100).toFixed(0)}%)`);
   }
 
-  const frameCount = fs.readdirSync(FRAMES_DIR).filter(f => f.endsWith('.png')).length;
-  console.log(`\nTotal frames: ${frameCount}`);
-  console.log('Encoding MP4...');
-  execSync(
-    `ffmpeg -y -framerate ${FPS} -i "${FRAMES_DIR}/frame_%06d.png" ` +
-    `-c:v libx264 -pix_fmt yuv420p -preset slow -crf 18 -movflags +faststart "${OUTPUT}"`,
-    { stdio: 'pipe' }
-  );
-  console.log(`Done: ${OUTPUT} (${(fs.statSync(OUTPUT).size / 1024 / 1024).toFixed(1)}MB)`);
+  console.log(`\nDone in ${((Date.now() - startTime) / 1000 / 60).toFixed(1)}min`);
+  console.log(`ffmpeg -y -framerate ${FPS} -i ${FRAMES_DIR}/frame_%06d.png -c:v libx264 -crf 18 -pix_fmt yuv420p -preset slow ../assets/splatdb-explainer.mp4`);
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+main().catch(e => { console.error(e); process.exit(1); });

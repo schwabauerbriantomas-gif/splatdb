@@ -5,7 +5,7 @@
 <h1 align="center">SplatDB</h1>
 
 <p align="center">
-A native Rust vector search engine powered by Gaussian Splatting embeddings and hierarchical retrieval.
+Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a single Rust binary.
 </p>
 
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
@@ -26,8 +26,36 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 
 ---
 
+## Why SplatDB?
+
+SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possible brute-force ANN on a single metric, Faiss wins. SplatDB's differentials are:
+
+- **Uncertainty-aware retrieval**: Queries return confidence scores derived from κ (concentration). Ambiguous or out-of-distribution queries get flagged as "low confidence." No other vector DB does this.
+- **GraphSplat hybrid search**: Vector similarity + knowledge graph traversal in one engine. LangChain and LlamaIndex typically need 3 separate tools (vector store, graph DB, fusion layer) to achieve the same result.
+- **Agent memory**: Built-in MCP server for long-term AI agent memory. Connect to Claude in 2 minutes — no glue code needed.
+- **Single binary, pure Rust**: No Python runtime, no Java, no Docker dependency. One `cargo build --release` and you're done.
+
+### Comparison
+
+| Feature | SplatDB | Faiss | Pinecone | Qdrant | LanceDB |
+|---------|---------|-------|----------|--------|---------|
+| Language | Rust | C++ | Go/Rust | Rust | Rust |
+| Gaussian Splats | ✅ | — | — | — | — |
+| Uncertainty scores | ✅ | — | — | — | — |
+| Knowledge Graph | ✅ | — | — | — | — |
+| MCP server | ✅ | — | — | — | — |
+| Self-hosted | ✅ | ✅ | ❌ | ✅ | ✅ |
+| GPU custom kernels | PTX | CUDA | Cloud | ❌ | ❌ |
+| HNSW | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **Honest note**: Faiss remains the gold standard for raw throughput on pure ANN benchmarks. Qdrant and LanceDB are more mature production databases with richer filtering, sharding, and ecosystem integrations. SplatDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory in a single lightweight binary.
+
+---
+
 ## Table of Contents
 
+- [Why SplatDB?](#why-splatdb)
 - [What Is This?](#what-is-this)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
@@ -45,6 +73,8 @@ A native Rust vector search engine powered by Gaussian Splatting embeddings and 
 - [Energy-Based Model](#energy-based-model)
 - [Module Map](#module-map)
 - [Dependencies](#dependencies)
+- [Roadmap](#roadmap)
+- [Spatial Memory Architecture](#spatial-memory-architecture)
 - [License](#license)
 
 ---
@@ -177,6 +207,8 @@ This reduces search from O(N) to O(N/P) with minimal recall loss.
 
 ### SimCos Embeddings
 
+> ⚠️ **SimCos is for quick demos only.** For production, always use real embeddings (OpenAI, Cohere, MiniLM, etc). SimCos uses trigram hashing — it has no semantic understanding.
+
 When no pre-computed embeddings are provided, SplatDB uses **SimCos** — a similarity-consistent n-gram hashing scheme:
 
 - Character trigrams are extracted from text
@@ -184,7 +216,28 @@ When no pre-computed embeddings are provided, SplatDB uses **SimCos** — a simi
 - Overlapping n-grams between two texts produce high cosine similarity
 - No model loading required — instant, deterministic, zero dependencies
 
-For production use, pass pre-computed embeddings from your preferred model (OpenAI, Cohere, local transformers, etc.).
+SimCos is a **toy embedding** useful for quick demos and testing. For production use, pass pre-computed embeddings from your preferred model (OpenAI, Cohere, local transformers, etc.).
+
+### α, κ, and Uncertainty: A Concrete Example
+
+Two documents can share the same mean (μ) but have very different uncertainty profiles:
+
+```
+Document A: μ=[0.1, 0.3, ...], κ=50 (precise, narrow topic)
+Document B: μ=[0.1, 0.3, ...], κ=5  (broad, covers many sub-topics)
+
+Query: "machine learning"
+→ Document A: high overlap score, high confidence → ranked #1
+→ Document B: moderate overlap, low confidence → ranked lower, flagged as uncertain
+```
+
+A high κ means the document is tightly focused — it matches few queries, but when it matches, you can be confident. A low κ means the document is broad — it matches many queries, but results carry less certainty. This is information no plain vector distance can give you.
+
+### When to Use HRM2 Splats vs HNSW
+
+- **HNSW** is the default for production. It indexes μ vectors directly and achieves 0.995+ recall. α and κ are used during re-ranking for confidence scoring.
+- **HRM2 splats** are useful when you need overlap-based similarity (capturing topic breadth), uncertainty estimation, or don't have enough data for a good HNSW graph.
+- **Rule of thumb**: Use HNSW for speed, use HRM2 when uncertainty matters.
 
 ---
 
@@ -214,6 +267,8 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 | SIFT-128 | 100K | 128 | 1,533s* | 1.70ms | 2.32ms | 2.56ms | **591** | **0.995** |
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
+
+> **Build time note**: HNSW construction at 100K vectors takes ~25 minutes (M=32, ef_construction=400). This is slower than Faiss HNSW (~30s for 100K) because SplatDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
@@ -283,6 +338,17 @@ let cluster = SplatDBConfig::distributed(Some("cpu"));  // Multi-node deployment
 ```
 
 **Device auto-detection**: Pass `None` to auto-detect (CUDA → Vulkan → CPU). Pass `Some("cuda")`, `Some("vulkan")`, or `Some("cpu")` to force a specific device.
+
+### Choosing a Preset
+
+```
+Start
+  ├─ <10K docs, no GPU? → simple
+  ├─ AI agent, need memory? → mcp (auto GPU)
+  ├─ >100K docs, need speed? → advanced (HNSW M=32)
+  ├─ >5M docs + CUDA? → gpu (M=48, VRAM-persistent)
+  └─ Multi-node? → distributed
+```
 
 ---
 
@@ -426,7 +492,7 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_store` | `text` | `id`, `category`, `embedding` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. |
+| `splatdb_store` | `text` | `id`, `category`, `embedding` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. **For production, always provide real embeddings via the `embedding` field.** |
 | `splatdb_search` | `query` | `top_k`, `embedding` | Semantic search. Returns ranked results with similarity scores. |
 | `splatdb_status` | — | — | Engine status: dimension, doc count, active indexes, quantization state. |
 
@@ -442,8 +508,8 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_graph_add_doc` | `text` | — | Add document node. Auto-embeds text. |
-| `splatdb_graph_add_entity` | `name`, `entity_type` | — | Add entity node (person, org, location, concept). Auto-embeds name. |
+| `splatdb_graph_add_doc` | `text` | — | Add document node. Auto-embeds text via SimCos (**use real embeddings in production**). |
+| `splatdb_graph_add_entity` | `name`, `entity_type` | — | Add entity node (person, org, location, concept). Auto-embeds name via SimCos (**use real embeddings in production**). |
 | `splatdb_graph_add_relation` | `source_id`, `target_id`, `relation_type` | `weight` | Add directed edge between nodes. |
 | `splatdb_graph_traverse` | `start_id` | `max_depth` | BFS traversal from a node. Returns connected subgraph. |
 | `splatdb_graph_search` | `query` | `k` | Hybrid search: vector similarity + graph context boost. |
@@ -571,7 +637,7 @@ Response:
 }
 ```
 
-> **Note**: The default HTTP server uses hash-based pseudo-embeddings. For production use, provide real embeddings from a model (e.g. BGE, DINOv2) via the `embedding` field.
+> **Note**: The default HTTP server uses SimCos hash-based pseudo-embeddings (trigram hashing — no semantic understanding). For production use, provide real embeddings from a model (e.g. OpenAI, Cohere, MiniLM, BGE) via the `embedding` field.
 
 ---
 
@@ -696,6 +762,39 @@ Any string label works. Common patterns:
 3. Return fused ranking
 
 This means: a document that is *similar* to your query AND is *connected* to other relevant documents will rank higher than a similar but isolated document.
+
+### Retrieve + 2-Hop Expansion Example
+
+This is where GraphSplat outperforms plain vector search — it doesn't just find the closest document, it discovers the *context* around it:
+
+```
+Vector-only search for "database indexing strategy":
+  → Doc #47 (score: 0.91) — "Use HNSW for approximate nearest neighbor..."
+
+GraphSplat search for same query (2-hop expansion):
+  → Doc #47   (score: 0.91) — "Use HNSW for approximate nearest neighbor..."
+  → Entity #3 (score: 0.82) — "HNSW algorithm" [connected via MENTIONS]
+  → Doc #12   (score: 0.78) — "HNSW build time tradeoffs: ef_construction..."
+                           [connected to Entity #3 via MENTIONS]
+  → Doc #89   (score: 0.74) — "Faiss IVF-PQ comparison with HNSW..."
+                           [connected to Doc #12 via RELATED_TO]
+
+Result: Agent gets the full context — the strategy, the tradeoffs, and the alternatives.
+        A flat vector search would have returned Doc #47 and stopped.
+```
+
+```rust
+// The code behind the example above
+let results = graph.hybrid_search(&query_embedding, 10);
+
+// For each result, expand 2 hops to discover related context
+for result in &results {
+    let context = graph.traverse(result.node_id, 2); // 2-hop BFS
+    // Returns: connected docs, entities, relations — full context graph
+}
+```
+
+This is what LangChain and LlamaIndex try to do with multiple tools (vector store + graph DB + fusion). GraphSplat does it natively in a single query.
 
 ### API
 
@@ -851,6 +950,97 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `parking_lot` | High-performance synchronization primitives | No |
 | `bytemuck` | Zero-cost byte casting for GPU | No |
 | `cudarc` | CUDA GPU kernels | Yes (`--features cuda`) |
+
+---
+
+## Roadmap
+
+These are planned improvements, not yet implemented:
+
+- **Docker image**: `docker run splatdb` for instant trial without Rust/CUDA setup
+- **Faiss benchmark comparison**: Same hardware, same dataset, honest side-by-side numbers
+- **LongMemEval benchmark**: Validate agent memory use case with the conversational memory standard
+- **Test coverage reporting**: CI integration with `tarpaulin` or `llvm-cov`
+- **CI with GPU**: GitHub Actions runner with CUDA for integration testing
+- **Verbatim storage**: Store original document text alongside splats for exact recall
+- **Spatial memory structure**: Wings/Rooms/Halls/Tunnels inspired by spatial memory architectures (see [Spatial Memory](#spatial-memory-architecture) below)
+
+---
+
+## Spatial Memory Architecture
+
+> Inspired by [MemPalace](https://github.com/milla-jovovich/mempalace) — organizing memory like a physical space.
+
+SplatDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
+
+```
+┌─────────────────────────────────────────────────┐
+│  Wing = Project / Persona / Domain              │
+│  ┌──────────────┐  ┌──────────────┐            │
+│  │ Room = Theme  │  │ Room = Theme  │            │
+│  │ (auth,        │  │ (billing,     │            │
+│  │  migration)   │  │  payments)    │            │
+│  │  ┌──────────┐ │  │  ┌──────────┐ │            │
+│  │  │ Hall =   │ │  │  │ Hall =   │ │            │
+│  │  │ Type     │ │  │  │ Type     │ │            │
+│  │  │ facts    │ │  │  │ events   │ │            │
+│  │  │ decisions│ │  │  │ errors   │ │            │
+│  │  └──────────┘ │  │  └──────────┘ │            │
+│  └──────────────┘  └──────────────┘            │
+│         │                │                      │
+│         └─── Tunnel ─────┘                      │
+│         (shared room across wings)              │
+└─────────────────────────────────────────────────┘
+```
+
+### How It Maps to SplatDB
+
+| Spatial Concept | SplatDB Equivalent | Purpose |
+|----------------|-------------------|---------|
+| **Wing** | Top-level metadata tag | Scope queries to a project/persona |
+| **Room** | KMeans++ coarse cluster + label | Semantic grouping within a wing |
+| **Hall** | Memory type (fact, decision, event, error) | Filter by what kind of memory |
+| **Tunnel** | GraphSplat edge between wings | Cross-project connections |
+
+### Why This Matters
+
+**Flat vector search** searches everything equally. **Spatial search** filters first:
+
+```
+Query: "auth decisions from project X"
+
+1. Filter by wing: "project-x"           → reduces to ~10% of corpus
+2. Filter by room: "auth"                 → reduces to ~2% of corpus
+3. Filter by hall: "decisions"            → reduces to ~0.5% of corpus
+4. Vector search within that subspace     → high recall, minimal noise
+```
+
+This is structurally identical to how MemPalace achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
+
+### Tunnels = Cross-Wing Knowledge Graph
+
+When the same room (e.g., "auth") appears in two wings (e.g., "project-x" and "project-y"), a **tunnel** connects them automatically via GraphSplat:
+
+```rust
+// Auto-detected: "auth" room exists in both wings
+graph.add_relation(wing_x_auth_room, wing_y_auth_room, "TUNNEL", 1.0);
+
+// Query that benefits:
+// "How did we handle auth in other projects?" → follows tunnel → cross-project insight
+```
+
+This turns your knowledge graph from a flat adjacency list into a **navigable spatial structure** — exactly what human memory does naturally.
+
+### Status
+
+Spatial memory is a planned feature. The building blocks exist:
+- ✅ KMeans++ coarse/fine clustering (becomes Rooms)
+- ✅ GraphSplat with BFS traversal (becomes Tunnels)
+- ✅ Metadata tags on documents (becomes Wings)
+- ✅ BM25 + vector hybrid (can filter by hall type)
+- 🔲 Named cluster labels
+- 🔲 Auto-tunnel detection between wings
+- 🔲 Spatial query API (`search --wing project-x --room auth --hall decisions`)
 
 ---
 
