@@ -326,7 +326,7 @@ Seven presets cover edge devices to GPU clusters. Each preset configures all sub
 | `mcp` | AI agent memory | 100K | 8-bit TurboQuant | ✅ | ✅ RRF | Auto | — | — |
 | `advanced` | AI agents | 1M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | ✅ M=32 | — |
 | `training` | Model research | 500K | — | — | — | Optional | — | — |
-| `distributed` | Multi-node | 10M | 4-bit TurboQuant | — | ✅ RRF | Optional | — | — |
+| `distributed` | Multi-node | 10M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | — | — |
 | `gpu` | CUDA servers | 5M | 4-bit TurboQuant | ✅ | ✅ | ✅ | ✅ M=48 | — |
 
 ```rust
@@ -418,7 +418,7 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 | Command | Description |
 |---------|-------------|
 | `soc-check` | Check system criticality state |
-| `soc-avalanche --iterations 100` | Trigger avalanche reorganization |
+| `soc-avalanche --seed 42` | Trigger avalanche reorganization |
 | `soc-relax --iterations 50` | Relax the system toward lower energy |
 
 ### Document Commands
@@ -436,7 +436,7 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 | `graph-add-doc --text "content"` | Add document node to graph |
 | `graph-add-entity --name "entity" --entity-type person` | Add entity node |
 | `graph-add-relation --source-id 1 --target-id 2 --relation-type MENTIONS` | Add edge |
-| `graph-traverse --start-id 1 --max-depth 3` | BFS traversal |
+| `graph-traverse --text \"query\" --max-depth 3` | BFS traversal from embedding-matched node |
 | `graph-search --query "search text" --k 10` | Hybrid graph+vector search |
 | `graph-stats` | Graph statistics |
 
@@ -447,6 +447,26 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 | `serve --host 0.0.0.0 --port 8199` | Start HTTP API server |
 | `mcp` | Start MCP server (stdio JSON-RPC 2.0) |
 | `preset-info` | Show which subsystems each preset enables |
+
+### ML & Entity Commands
+
+| Command | Description |
+|---------|-------------|
+| `extract-entities --text "content" --min-score 0.3` | Extract entities via structural patterns and n-grams |
+| `eval-embeddings --dim 64 --n-queries 10` | Evaluate embedding quality with synthetic benchmark |
+
+### Data Lake Commands
+
+| Command | Description |
+|---------|-------------|
+| `lake-list` | List datasets in the data lake |
+| `lake-register --id ds1 --name "My Dataset" --n-vectors 10000 --dim 640` | Register a dataset in the data lake |
+
+### Benchmark Commands
+
+| Command | Description |
+|---------|-------------|
+| `bench-hnsw --train data.bin --queries q.bin --gt ground.bin --dim 128` | HNSW benchmark with recall measurement |
 
 ---
 
@@ -513,7 +533,7 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 | `splatdb_graph_add_doc` | `text` | — | Add document node. Auto-embeds text via SimCos (**use real embeddings in production**). |
 | `splatdb_graph_add_entity` | `name`, `entity_type` | — | Add entity node (person, org, location, concept). Auto-embeds name via SimCos (**use real embeddings in production**). |
 | `splatdb_graph_add_relation` | `source_id`, `target_id`, `relation_type` | `weight` | Add directed edge between nodes. |
-| `splatdb_graph_traverse` | `start_id` | `max_depth` | BFS traversal from a node. Returns connected subgraph. |
+| `splatdb_graph_traverse` | `text` | `max_depth`, `add_doc` | BFS traversal. Auto-embeds query, finds nearest node, traverses graph. Use `--add-doc` to add the text as a document first. |
 | `splatdb_graph_search` | `query` | `k` | Hybrid search: vector similarity + graph context boost. |
 | `splatdb_graph_search_entities` | `query` | `k` | Search entity nodes by embedding similarity. |
 | `splatdb_graph_stats` | — | — | Node counts, edge counts, entity/document breakdown. |
