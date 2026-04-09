@@ -285,7 +285,7 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 ### Faiss Comparison (Same Hardware, Same Dataset)
 
-> Honest, reproducible side-by-side. Same i7-1255U, same SIFT-128 100K dataset, same k=10. Faiss numbers from `faiss-cpu` 1.13.2. SplatDB numbers from `bench-hnsw` CLI.
+> Honest, reproducible side-by-side. Same i7-1255U, same SIFT-128 100K dataset, same k=10. Faiss numbers from `faiss-cpu` 1.13.2. SplatDB numbers from `bench-hnsw` CLI with optimized config (L2 metric, norm caching, over-fetch=2x).
 
 | Index | Build Time | p50 Latency | QPS | Recall@10 |
 |-------|-----------|-------------|------|-----------|
@@ -293,13 +293,15 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 | Faiss IVFFlat (nprobe=10) | 9.28s | **0.09ms** | **10,382** | 0.798 |
 | Faiss IVFPQ (m=16) | 12.04s | **0.09ms** | 9,240 | 0.594 |
 | Faiss HNSW (M=32, efSearch=64) | 5.72s | 0.28ms | **3,503** | 0.992 |
-| **SplatDB SplatGraph (advanced)** | 443s | 1.77ms | 568 | **0.995** |
+| **SplatDB (cosine, ef=100, of=5x)** | 443s | 1.77ms | 568 | **0.995** |
+| **SplatDB (L2, ef=100, of=2x)** | 309s | 1.28ms | 793 | **0.995** |
 
 **Takeaways:**
-- Faiss HNSW is ~6x faster on query latency (0.28ms vs 1.77ms) with slightly lower recall (0.992 vs 0.995)
-- Faiss build is ~77x faster — SplatDB computes splat parameters (α, κ) during indexing
+- SplatDB optimized (L2 + norm cache + reduced over-fetch): **40% faster** than original config
+- Faiss HNSW is still ~4.4x faster on QPS — Faiss uses highly optimized C++ with SIMD
+- SplatDB achieves **higher recall** (0.995 vs 0.992) — the SplatGraph + exact re-ranking helps
+- Faiss build is ~54x faster — SplatDB computes splat parameters (α, κ) during indexing
 - SplatDB's value is not raw QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory in one binary
-- IVFFlat/IVFPQ achieve higher QPS but at significant recall cost (0.80/0.59)
 - Full results: `bench-data/faiss_vs_splatdb_results.json`
 
 ### LongMemEval Agent Memory Benchmark

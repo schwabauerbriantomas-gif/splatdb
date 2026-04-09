@@ -85,7 +85,7 @@ impl SplatStore {
                 config.hnsw_m,
                 config.hnsw_ef_construction,
                 config.hnsw_ef_search,
-                "cosine",
+                &config.hnsw_metric,
                 42,
             ))
         } else {
@@ -256,8 +256,7 @@ impl SplatStore {
         let m = self.config.hnsw_m;
         let ef_construction = self.config.hnsw_ef_construction;
         let ef_search = self.config.hnsw_ef_search;
-        // Use "cosine" as default metric matching SplatStore::new()
-        let metric = "cosine";
+        let metric = &self.config.hnsw_metric;
 
         match crate::hnsw_index::HNSWIndex::load(&path, m, ef_construction, ef_search, metric, 42) {
             Ok(loaded) => {
@@ -472,7 +471,7 @@ impl SplatStore {
         if let Some(ref hnsw) = self.hnsw {
             if hnsw.is_built() {
                 // Over-fetch from HNSW for better recall, then exact re-rank
-                let fetch_k = (k * 5).min(n);
+                let fetch_k = (k * self.config.over_fetch).min(n);
                 let hresults = hnsw.search(*query, fetch_k);
 
                 // Re-rank with exact distances

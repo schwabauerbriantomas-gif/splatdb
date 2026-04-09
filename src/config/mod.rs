@@ -113,6 +113,8 @@ pub struct SplatDBConfig {
     pub hnsw_m: usize,
     pub hnsw_ef_construction: usize,
     pub hnsw_ef_search: usize,
+    pub hnsw_metric: String,
+    pub over_fetch: usize,
 
     // --- LSH Configuration ---
     pub enable_lsh: bool,
@@ -267,6 +269,8 @@ impl Default for SplatDBConfig {
             hnsw_m: 16,
             hnsw_ef_construction: 200,
             hnsw_ef_search: 50,
+            hnsw_metric: "cosine".to_string(),
+            over_fetch: 5,
 
             // LSH
             enable_lsh: false,

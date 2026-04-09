@@ -324,6 +324,18 @@ pub enum Commands {
         /// Max splat capacity
         #[arg(long, default_value = "100000")]
         max_splats: usize,
+        /// Distance metric: "l2" or "cosine" (default: "l2" for fair SIFT comparison)
+        #[arg(long, default_value = "l2")]
+        metric: String,
+        /// HNSW ef_search override (default: 50)
+        #[arg(long)]
+        ef_search: Option<usize>,
+        /// HNSW ef_construction override (default: 200)
+        #[arg(long)]
+        ef_construction: Option<usize>,
+        /// Over-fetch multiplier for re-ranking (default: 2)
+        #[arg(long, default_value = "2")]
+        over_fetch: usize,
     },
     /// Search with spatial memory filters (Wing/Room/Hall)
     SpatialSearch {
@@ -506,7 +518,11 @@ pub fn dispatch(cli: Cli) {
             samples,
             data_dir,
             max_splats,
-        } => search_cmds::cmd_bench_hnsw(train, queries, gt, dim, k, samples, data_dir, max_splats),
+            metric,
+            ef_search,
+            ef_construction,
+            over_fetch,
+        } => search_cmds::cmd_bench_hnsw(train, queries, gt, dim, k, samples, data_dir, max_splats, metric, ef_search, ef_construction, over_fetch),
         // ── Spatial Memory ──
         Commands::SpatialSearch {
             query,
