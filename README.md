@@ -1,6 +1,12 @@
-# SplatDB
+<p align="center">
+  <img src="logo.svg" alt="SplatDB Logo" width="200" height="200"/>
+</p>
 
+<h1 align="center">SplatDB</h1>
+
+<p align="center">
 A native Rust vector search engine powered by Gaussian Splatting embeddings and hierarchical retrieval.
+</p>
 
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
