@@ -1145,10 +1145,10 @@ Spatial memory has an initial implementation. The building blocks exist:
 - ✅ GraphSplat with BFS traversal (becomes Tunnels)
 - ✅ Metadata tags on documents (becomes Wings)
 - ✅ BM25 + vector hybrid (can filter by hall type)
-- 🔲 Named cluster labels auto-assigned from document content
+- ✅ Named cluster labels auto-assigned from document content (TF keyword extraction, EN+ES stopwords)
 - ✅ Full search pipeline integration (spatial pre-filter → vector search via `find_neighbors_filtered`)
 - ✅ MCP tools: `splatdb_spatial_search`, `splatdb_spatial_info`
-- 🔲 Spatial query API (`search --wing project-x --room auth --hall decisions`)
+- ✅ Spatial query API (`search --wing project-x --room auth --hall decisions`)
 
 ---
 
