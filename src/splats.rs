@@ -778,6 +778,63 @@ impl SplatStore {
     pub fn n_active(&self) -> usize {
         self.n_active
     }
+
+    /// Find k nearest neighbors among a **subset** of vector indices.
+    ///
+    /// This is the core of spatial pre-filtering: instead of computing distances
+    /// against ALL N vectors, we only compute against the candidate set.
+    /// Complexity: O(|candidates| × dim) instead of O(N × dim).
+    ///
+    /// Returns results sorted by distance (ascending).
+    pub fn find_neighbors_filtered(
+        &self,
+        query: &ArrayView1<f32>,
+        candidate_indices: &[usize],
+        k: usize,
+    ) -> Vec<NeighborResult> {
+        if candidate_indices.is_empty() || k == 0 {
+            return Vec::new();
+        }
+        let k = k.min(candidate_indices.len());
+        let index_data = self.mu.slice(ndarray::s![..self.n_active, ..]);
+
+        // Compute distances only for candidates
+        let mut scored: Vec<(f32, usize)> = candidate_indices
+            .iter()
+            .filter(|&&idx| idx < self.n_active)
+            .map(|&idx| {
+                let row = index_data.row(idx);
+                let dist_sq: f32 = row
+                    .iter()
+                    .zip(query.iter())
+                    .map(|(a, b)| {
+                        let d = a - b;
+                        d * d
+                    })
+                    .sum();
+                (dist_sq, idx)
+            })
+            .collect();
+
+        // Partial sort top-k
+        if k < scored.len() {
+            scored.select_nth_unstable_by(k, |a, b| {
+                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        scored[..k].sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        scored[..k]
+            .iter()
+            .map(|&(dist_sq, idx)| NeighborResult {
+                mu: index_data.row(idx).to_vec(),
+                alpha: self.alpha[idx],
+                kappa: self.kappa[idx],
+                index: idx,
+                distance: dist_sq.sqrt(),
+            })
+            .collect()
+    }
     /// Maximum splat capacity.
     pub fn max_splats(&self) -> usize {
         self.max_splats
@@ -1338,5 +1395,59 @@ mod tests {
             "Self-query should be near-zero distance, got {}",
             results[0].distance
         );
+    }
+
+    #[test]
+    fn test_find_neighbors_filtered() {
+        let mut store = SplatStore::new(SplatDBConfig::default());
+        // Insert 100 vectors in 2 distinct clusters
+        let dim = store.get_statistics().embedding_dim;
+        let mut all_data = Vec::new();
+
+        // Cluster A: centered around [1, 0, 0, ...]
+        for i in 0..50 {
+            let mut v = vec![0.0f32; dim];
+            v[0] = 1.0 + (i as f32) * 0.001;
+            all_data.extend_from_slice(&v);
+        }
+        // Cluster B: centered around [-1, 0, 0, ...]
+        for i in 0..50 {
+            let mut v = vec![0.0f32; dim];
+            v[0] = -1.0 - (i as f32) * 0.001;
+            all_data.extend_from_slice(&v);
+        }
+        let arr = Array2::from_shape_vec((100, dim), all_data).unwrap();
+        assert!(store.add_splat(&arr));
+        assert_eq!(store.n_active(), 100);
+
+        // Query near cluster A
+        let mut query = vec![0.0f32; dim];
+        query[0] = 1.0;
+        let q = Array1::from_vec(query);
+
+        // Filter to only cluster A indices (0..50)
+        let cluster_a: Vec<usize> = (0..50).collect();
+        let results_a = store.find_neighbors_filtered(&q.view(), &cluster_a, 5);
+        assert_eq!(results_a.len(), 5);
+        // All results should be from cluster A
+        for r in &results_a {
+            assert!(r.index < 50, "Expected cluster A index, got {}", r.index);
+            assert!(r.distance < 0.2, "Distance too high: {}", r.distance);
+        }
+
+        // Filter to only cluster B indices (50..100) — should return farther results
+        let cluster_b: Vec<usize> = (50..100).collect();
+        let results_b = store.find_neighbors_filtered(&q.view(), &cluster_b, 5);
+        assert_eq!(results_b.len(), 5);
+        // All results from cluster B but distances should be ~2.0+
+        for r in &results_b {
+            assert!(r.index >= 50, "Expected cluster B index, got {}", r.index);
+            assert!(r.distance > 1.5, "Expected large distance, got {}", r.distance);
+        }
+
+        // Empty candidates
+        let empty: Vec<usize> = vec![];
+        let results_empty = store.find_neighbors_filtered(&q.view(), &empty, 5);
+        assert!(results_empty.is_empty());
     }
 }

@@ -468,6 +468,13 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 |---------|-------------|
 | `bench-hnsw --train data.bin --queries q.bin --gt ground.bin --dim 128` | HNSW benchmark with recall measurement |
 
+### Spatial Memory Commands
+
+| Command | Description |
+|---------|-------------|
+| `spatial-search --query "text" --wing project-x --room auth --hall decisions` | Search with spatial filters (Wing/Room/Hall) |
+| `spatial-info` | Show spatial memory structure (wings, rooms, tunnels) |
+
 ---
 
 ## MCP Server (AI Agent Integration)
@@ -514,7 +521,7 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_store` | `text` | `id`, `category`, `embedding` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. **For production, always provide real embeddings via the `embedding` field.** |
+| `splatdb_store` | `text` | `id`, `category`, `embedding`, `wing`, `room`, `hall` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. Spatial params (`wing`/`room`/`hall`) enable pre-filter search via `splatdb_spatial_search`. **For production, always provide real embeddings via the `embedding` field.** |
 | `splatdb_search` | `query` | `top_k`, `embedding` | Semantic search. Returns ranked results with similarity scores. |
 | `splatdb_status` | — | — | Engine status: dimension, doc count, active indexes, quantization state. |
 
@@ -537,6 +544,8 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 | `splatdb_graph_search` | `query` | `k` | Hybrid search: vector similarity + graph context boost. |
 | `splatdb_graph_search_entities` | `query` | `k` | Search entity nodes by embedding similarity. |
 | `splatdb_graph_stats` | — | — | Node counts, edge counts, entity/document breakdown. |
+| `splatdb_spatial_search` | `query` | `wing`, `room`, `hall`, `top_k` | Search with spatial filters. Pre-filters by wing/room/hall metadata before vector search for higher recall. |
+| `splatdb_spatial_info` | — | — | Show spatial memory structure: wings, rooms, halls, tunnels (auto-detected cross-wing connections). |
 
 ### Example: AI Agent Session
 
@@ -999,7 +1008,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
-| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (13 tools, production-hardened) |
+| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (15 tools, production-hardened) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
@@ -1105,13 +1114,18 @@ This turns your knowledge graph from a flat adjacency list into a **navigable sp
 
 ### Status
 
-Spatial memory is a planned feature. The building blocks exist:
+Spatial memory has an initial implementation. The building blocks exist:
+- ✅ `SpatialIndex` with Wing/Room/Hall/Tunnel structures (`src/spatial.rs`)
+- ✅ Spatial query filter (AND logic on wing + room + hall)
+- ✅ Auto-tunnel detection between wings sharing the same room
+- ✅ CLI commands: `spatial-search --wing X --room Y --hall Z`, `spatial-info`
 - ✅ KMeans++ coarse/fine clustering (becomes Rooms)
 - ✅ GraphSplat with BFS traversal (becomes Tunnels)
 - ✅ Metadata tags on documents (becomes Wings)
 - ✅ BM25 + vector hybrid (can filter by hall type)
-- 🔲 Named cluster labels
-- 🔲 Auto-tunnel detection between wings
+- 🔲 Named cluster labels auto-assigned from document content
+- ✅ Full search pipeline integration (spatial pre-filter → vector search via `find_neighbors_filtered`)
+- ✅ MCP tools: `splatdb_spatial_search`, `splatdb_spatial_info`
 - 🔲 Spatial query API (`search --wing project-x --room auth --hall decisions`)
 
 ---

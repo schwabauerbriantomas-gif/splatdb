@@ -45,13 +45,47 @@ fn main() {
 
         if status.success() {
             println!(
-                "cargo:warning=[m2m] CUDA kernels compiled to PTX: {}",
+                "cargo:warning=[m2m] CUDA distance kernels compiled to PTX: {}",
                 ptx_output.display()
             );
-            // Tell cargo to re-run if kernels change
             println!("cargo:rerun-if-changed=kernels/distance.cu");
-            // Embed PTX path as env variable
             println!("cargo:rustc-env=M2M_PTX_PATH={}", ptx_output.display());
+
+            // Compile extended kernels (quantization, clustering, geometry, LSH)
+            let ext_kernel_src = "kernels/extended_kernels.cu";
+            let ext_ptx_output = out_dir.join("extended_kernels.ptx");
+            let mut ext_cmd = Command::new(&nvcc);
+            ext_cmd.args([
+                "--ptx",
+                "--gpu-architecture=sm_86",
+                "--generate-code=arch=compute_86,code=[sm_86,compute_86]",
+                "-O3",
+                "--use_fast_math",
+                "--extra-device-vectorization",
+            ]);
+            if let Some(ref cl) = cl_exe {
+                ext_cmd.args(["-ccbin", cl]);
+            }
+            ext_cmd.args([
+                &format!("--output-file={}", ext_ptx_output.display()),
+                ext_kernel_src,
+            ]);
+            let ext_status = ext_cmd.status().expect("Failed to run nvcc for extended kernels");
+            if ext_status.success() {
+                println!(
+                    "cargo:warning=[m2m] CUDA extended kernels compiled to PTX: {}",
+                    ext_ptx_output.display()
+                );
+                println!("cargo:rerun-if-changed=kernels/extended_kernels.cu");
+                println!(
+                    "cargo:rustc-env=M2M_EXTENDED_PTX_PATH={}",
+                    ext_ptx_output.display()
+                );
+            } else {
+                println!(
+                    "cargo:warning=[m2m] Extended kernel compilation failed — quant/clustering GPU unavailable"
+                );
+            }
         } else {
             println!("cargo:warning=[m2m] nvcc compilation failed — GPU kernels unavailable");
         }

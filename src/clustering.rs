@@ -98,22 +98,33 @@ impl KMeans {
         let mut new_centroids = Array2::zeros((k, dim));
 
         for iteration in 0..self.max_iter {
-            // Assignment step: assign each point to nearest centroid (parallel)
-            let assignments: Vec<(usize, usize, f32)> = (0..n)
-                .into_par_iter()
-                .map(|i| {
-                    let row = data.row(i);
-                    let (best_k, best_dist) = (0..k)
-                        .map(|c| {
-                            let diff = &row - &centroids.row(c);
-                            let d = diff.dot(&diff);
-                            (c, d)
+            // Assignment step: assign each point to nearest centroid
+            // Try GPU path first, fall back to CPU rayon
+            let assignments: Vec<(usize, usize, f32)> = {
+                let flat_data: Vec<f32> = data.rows().into_iter().flat_map(|r| r.to_vec()).collect();
+                let flat_centroids: Vec<f32> = centroids.rows().into_iter().flat_map(|r| r.to_vec()).collect();
+                if let Some((gpu_assign, gpu_dist)) = crate::gpu::kmeans_assign(&flat_data, &flat_centroids, n, k, dim) {
+                    // GPU path succeeded
+                    gpu_assign.into_iter().enumerate().map(|(i, c)| (i, c as usize, gpu_dist[i])).collect()
+                } else {
+                    // CPU fallback with rayon
+                    (0..n)
+                        .into_par_iter()
+                        .map(|i| {
+                            let row = data.row(i);
+                            let (best_k, best_dist) = (0..k)
+                                .map(|c| {
+                                    let diff = &row - &centroids.row(c);
+                                    let d = diff.dot(&diff);
+                                    (c, d)
+                                })
+                                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                                .expect("clusters must not be empty");
+                            (i, best_k, best_dist)
                         })
-                        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-                        .expect("clusters must not be empty");
-                    (i, best_k, best_dist)
-                })
-                .collect();
+                        .collect()
+                }
+            };
 
             new_centroids.fill(0.0);
             counts.iter_mut().for_each(|c| *c = 0);

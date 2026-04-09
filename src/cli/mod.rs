@@ -6,6 +6,7 @@ mod helpers;
 mod index_cmds;
 mod ml_cmds;
 mod search_cmds;
+mod spatial_cmds;
 
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -324,6 +325,26 @@ pub enum Commands {
         #[arg(long, default_value = "100000")]
         max_splats: usize,
     },
+    /// Search with spatial memory filters (Wing/Room/Hall)
+    SpatialSearch {
+        /// Query text or comma-separated vector
+        #[arg(short, long)]
+        query: String,
+        /// Filter by wing (project/persona/domain)
+        #[arg(short, long)]
+        wing: Option<String>,
+        /// Filter by room (semantic cluster label)
+        #[arg(short, long)]
+        room: Option<String>,
+        /// Filter by hall (memory type: fact, decision, event, error)
+        #[arg(short, long)]
+        hall: Option<String>,
+        /// Number of results
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+    },
+    /// Show spatial memory structure (wings, rooms, tunnels)
+    SpatialInfo,
 }
 
 pub fn dispatch(cli: Cli) {
@@ -486,5 +507,14 @@ pub fn dispatch(cli: Cli) {
             data_dir,
             max_splats,
         } => search_cmds::cmd_bench_hnsw(train, queries, gt, dim, k, samples, data_dir, max_splats),
+        // ── Spatial Memory ──
+        Commands::SpatialSearch {
+            query,
+            wing,
+            room,
+            hall,
+            k,
+        } => crate::cli::spatial_cmds::cmd_spatial_search(query, wing, room, hall, k),
+        Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(),
     }
 }

@@ -5,11 +5,18 @@ const fs = require('fs');
 const FPS = 24;
 const WIDTH = 1280;
 const HEIGHT = 720;
-const TOTAL_DURATION = 160;
+const TOTAL_DURATION = 600;
 const CHUNK_SEC = 5;
 const FRAMES_DIR = path.join(__dirname, 'frames');
 
 if (!fs.existsSync(FRAMES_DIR)) fs.mkdirSync(FRAMES_DIR, { recursive: true });
+
+// Clean old frames
+const existing = fs.readdirSync(FRAMES_DIR).filter(f => f.endsWith('.png'));
+if (existing.length > 0) {
+  console.log(`Cleaning ${existing.length} old frames...`);
+  existing.forEach(f => fs.unlinkSync(path.join(FRAMES_DIR, f)));
+}
 
 const HTML_PATH = path.resolve(__dirname, 'scenes.html');
 const CHROME = '/root/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome';
@@ -17,7 +24,7 @@ const CHROME = '/root/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux6
 async function renderChunk(startSec, endSec) {
   const startFrame = Math.floor(startSec * FPS);
   const endFrame = Math.floor(endSec * FPS);
-  
+
   let allExist = true;
   for (let f = startFrame; f < endFrame; f++) {
     if (!fs.existsSync(path.join(FRAMES_DIR, `frame_${String(f).padStart(6, '0')}.png`))) {
@@ -41,14 +48,19 @@ async function renderChunk(startSec, endSec) {
     const page = await browser.newPage();
     await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
     await page.goto(`file://${HTML_PATH}`, { waitUntil: 'networkidle0', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 300));
+    // Wait for page to settle, then set initial state
+    await page.evaluate(() => {
+      document.querySelectorAll('.scene').forEach(el => el.style.opacity = 0);
+      document.getElementById('logoImg').style.opacity = 0;
+    });
+    await new Promise(r => setTimeout(r, 200));
 
     for (let f = startFrame; f < endFrame; f++) {
       const t = f / FPS;
       await page.evaluate((time) => window.seekTo(time), t);
       const fp = path.join(FRAMES_DIR, `frame_${String(f).padStart(6, '0')}.png`);
       await page.screenshot({ path: fp, type: 'png', clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT } });
-      if (f % (FPS * 30) === 0) console.log(`  ${f}/${endFrame - 1} (${(f / FPS).toFixed(1)}s)`);
+      if (f % (FPS * 30) === 0) console.log(`  ${f}/${TOTAL_DURATION * FPS - 1} (${(f / FPS).toFixed(1)}s)`);
     }
   } finally {
     await browser.close();
@@ -65,7 +77,10 @@ async function main() {
     const cs = Date.now();
     process.stdout.write(`Chunk ${sec}-${chunkEnd}s ... `);
     await renderChunk(sec, chunkEnd);
-    console.log(`${((Date.now() - cs) / 1000).toFixed(1)}s (total: ${((Date.now() - startTime) / 1000).toFixed(0)}s, ${((sec / TOTAL_DURATION) * 100).toFixed(0)}%)`);
+    const elapsed = (Date.now() - startTime) / 1000;
+    const pct = ((sec / TOTAL_DURATION) * 100).toFixed(0);
+    const eta = ((elapsed / sec) * (TOTAL_DURATION - sec) / 60).toFixed(1);
+    console.log(`${((Date.now() - cs) / 1000).toFixed(1)}s (${pct}%, ETA ~${eta}min)`);
   }
 
   console.log(`\nDone in ${((Date.now() - startTime) / 1000 / 60).toFixed(1)}min`);

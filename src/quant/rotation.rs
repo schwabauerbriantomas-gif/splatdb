@@ -36,6 +36,39 @@ impl StoredRotation {
     }
 
     /// Apply rotation: y = R · x.
+    /// Uses GPU batch rotation when CUDA is available for multi-vector calls.
+    pub fn apply_batch(&self, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) -> Result<()> {
+        if inputs.is_empty() {
+            return Ok(());
+        }
+        let dim = self.dim;
+
+        // Flatten inputs for GPU path
+        let n = inputs.len();
+        for inp in inputs {
+            check_dim(inp.len(), dim)?;
+        }
+        for out in outputs.iter_mut() {
+            check_dim(out.len(), dim)?;
+        }
+
+        // Try GPU batch rotation
+        let flat_input: Vec<f32> = inputs.iter().flat_map(|v| v.iter().copied()).collect();
+        if let Some(result) = crate::gpu::rotation_gemv(&flat_input, &self.matrix, n, dim) {
+            for (i, out) in outputs.iter_mut().enumerate() {
+                out.copy_from_slice(&result[i * dim..(i + 1) * dim]);
+            }
+            return Ok(());
+        }
+
+        // CPU fallback
+        for (inp, out) in inputs.iter().zip(outputs.iter_mut()) {
+            self.apply(inp, out)?;
+        }
+        Ok(())
+    }
+
+    /// Apply rotation: y = R · x.
     pub fn apply(&self, input: &[f32], output: &mut [f32]) -> Result<()> {
         check_dim(input.len(), self.dim)?;
         check_dim(output.len(), self.dim)?;
