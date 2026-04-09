@@ -45,7 +45,7 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 | Knowledge Graph | ✅ | — | — | — | — |
 | MCP server | ✅ | — | — | — | — |
 | Self-hosted | ✅ | ✅ | ❌ | ✅ | ✅ |
-| GPU custom kernels | PTX | CUDA | Cloud | ❌ | ❌ |
+| GPU custom kernels (14 total) | PTX | CUDA | Cloud | ❌ | ❌ |
 | HNSW | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ |
 
@@ -90,7 +90,7 @@ SplatDB applies **Gaussian Splatting** — a technique from 3D neural rendering 
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, CUDA GPU acceleration with custom PTX kernels, and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in ~26K lines of pure Rust.
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 14 CUDA GPU kernels (6 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in ~29K lines of pure Rust + CUDA.
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -261,12 +261,12 @@ All numbers are **measured on real hardware** and independently validated. No si
 
 ### HNSW Search (v2.5 — current)
 
-HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates.
+HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates. Re-benchmarked April 2026 with CUDA-extended kernel integration.
 
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
-| SIFT-128 | 10K | 128 | 107s* | 0.93ms | 1.19ms | 1.33ms | **1,081** | **0.998** |
-| SIFT-128 | 100K | 128 | 1,533s* | 1.70ms | 2.32ms | 2.56ms | **591** | **0.995** |
+| SIFT-128 | 10K | 128 | 124s* | 0.93ms | 1.35ms | 1.66ms | **1,054** | **0.998** |
+| SIFT-128 | 100K | 128 | 1,284s* | 1.74ms | 2.26ms | 2.52ms | **579** | **0.995** |
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
 
@@ -276,12 +276,12 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 
 | Method | Dataset | N | p50 Latency | QPS | Recall@10 |
 |--------|---------|------|-------------|------|-----------|
-| **HNSW (persisted)** | SIFT-128 | 10K | **0.93ms** | **1,081** | **0.998** |
-| **HNSW (persisted)** | SIFT-128 | 100K | **1.70ms** | **591** | **0.995** |
+| **HNSW (fresh build)** | SIFT-128 | 10K | **0.93ms** | **1,054** | **0.998** |
+| **HNSW (fresh build)** | SIFT-128 | 100K | **1.74ms** | **579** | **0.995** |
 | Linear scan | SIFT-128 | 10K | 1,143ms | 0.9 | 1.000 |
 | HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95 |
 
-HNSW delivers **1,200x speedup** over linear scan at 10K and **660x at 100K**, with >99.5% recall.
+HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, with >99.5% recall.
 
 ### GPU Top-K Search (Custom CUDA Kernels)
 
@@ -298,11 +298,33 @@ Combined distance + top-k selection in one GPU pass. Dataset persists in VRAM be
 
 ### CUDA Kernel Optimizations
 
+**Distance kernels** (`kernels/distance.cu` — 6 kernels):
 - `float4` vectorized loads (640D = 160 × float4 per vector)
 - Shared memory query cache (avoids redundant global reads per thread)
 - Thread-local sorted top-k (max K=32) with shared memory merge
 - `__launch_bounds__(256)` for optimal sm_86 occupancy
 - PTX compiled with `--use_fast_math -O3`
+
+**Extended kernels** (`kernels/extended_kernels.cu` — 8 kernels, added v2.5):
+- `rotation_gemv_kernel` / `rotation_gemv_inverse_kernel` — batch R·x and R^T·x with float4 loads + shared mem query cache
+- `qjl_batch_sketch_kernel` — batch sign(G·x) for QJL quantization (N vectors × G projections)
+- `qjl_batch_ip_estimate_kernel` — batch inner product estimation from sketches with precomputed proj·query
+- `kmeans_assign_kernel` — N×K×D assignment in single kernel (KMeans++ hot path)
+- `cosine_similarity_kernel` — all-pairs cosine sim with tile-based 16×16 upper triangle computation
+- `batch_geodesic_kernel` — pairwise arccos distance between matched vector pairs
+- `lsh_hash_kernel` — batch LSH hash sign bits across T tables × K projections
+
+All extended kernels use float4 vectorized loads, shared memory caching, and `__launch_bounds__(256)`. Each has a CPU fallback via `Option`-returning functions — no CUDA dependency required at runtime.
+
+**Rust GPU layer** (`src/gpu/cuda_extended.rs`):
+- `GpuExtended` — stateless kernel launcher (no persistent GPU state)
+- Public API in `gpu/mod.rs`: `rotation_gemv()`, `rotation_gemv_inverse()`, `qjl_batch_sketch()`, `qjl_batch_ip_estimate()`, `kmeans_assign()`, `cosine_similarity_matrix()`, `batch_geodesic()`, `lsh_batch_hash()`
+- Auto-fallback: if CUDA unavailable, returns `None` and caller uses CPU path
+
+**Integration points** (GPU-accelerated hot paths):
+- `clustering.rs` — KMeans assignment step: GPU → rayon CPU fallback
+- `geometry.rs` — cosine_similarity_matrix + geodesic_distance_batch: GPU → ndarray CPU
+- `quant/rotation.rs` — batch rotation GEMV: GPU → sequential CPU
 
 ### HRM2 vs Linear Scan (Python Prototype — Historical)
 
