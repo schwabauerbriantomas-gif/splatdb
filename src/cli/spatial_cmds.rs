@@ -100,19 +100,14 @@ pub fn cmd_spatial_search(
             spatial_path.display()
         );
         eprintln!("[spatial] Documents must be indexed with wing/room/hall metadata.");
-        eprintln!(
-            "[spatial] Use the MCP server or store API with spatial parameters to populate."
-        );
+        eprintln!("[spatial] Use the MCP server or store API with spatial parameters to populate.");
         return;
     };
 
     // Apply spatial filter
     let filter = SpatialFilter { wing, room, hall };
     let candidate_ids = spatial_index.filter(&filter);
-    eprintln!(
-        "[spatial] Filter matched {} documents",
-        candidate_ids.len()
-    );
+    eprintln!("[spatial] Filter matched {} documents", candidate_ids.len());
 
     if candidate_ids.is_empty() {
         println!("No documents match the spatial filter.");
@@ -212,11 +207,7 @@ pub fn cmd_spatial_info(data_dir: String) {
         println!();
         println!("  Spatial index path: {}", spatial_path.display());
     } else {
-        println!(
-            "\n  Wings: {} ({})",
-            wings.len(),
-            wings.join(", ")
-        );
+        println!("\n  Wings: {} ({})", wings.len(), wings.join(", "));
         println!("  Documents: {}", index.doc_count());
 
         for wing in wings {
@@ -241,10 +232,7 @@ pub fn cmd_spatial_info(data_dir: String) {
             }
         }
 
-        let halls = index
-            .all_hall_values()
-            .into_iter()
-            .collect::<Vec<_>>();
+        let halls = index.all_hall_values().into_iter().collect::<Vec<_>>();
         if !halls.is_empty() {
             println!("\n  Halls: {:?}", halls);
         }

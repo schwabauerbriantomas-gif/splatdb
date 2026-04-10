@@ -70,7 +70,9 @@ fn main() {
                 &format!("--output-file={}", ext_ptx_output.display()),
                 ext_kernel_src,
             ]);
-            let ext_status = ext_cmd.status().expect("Failed to run nvcc for extended kernels");
+            let ext_status = ext_cmd
+                .status()
+                .expect("Failed to run nvcc for extended kernels");
             if ext_status.success() {
                 println!(
                     "cargo:warning=[m2m] CUDA extended kernels compiled to PTX: {}",

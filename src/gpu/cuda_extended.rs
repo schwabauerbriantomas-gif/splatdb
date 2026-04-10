@@ -309,13 +309,7 @@ impl GpuExtended {
 
     /// Pairwise geodesic distance between corresponding vector pairs.
     /// `x` and `y` are [N, D], returns [N] distances.
-    pub fn batch_geodesic(
-        &self,
-        x: &[f32],
-        y: &[f32],
-        n: usize,
-        dim: usize,
-    ) -> Option<Vec<f32>> {
+    pub fn batch_geodesic(&self, x: &[f32], y: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
         let func = self.load_ext_kernel("batch_geodesic_kernel")?;
 
         let x_gpu = self.stream.clone_htod(x).ok()?;

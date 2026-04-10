@@ -21,24 +21,20 @@ use std::collections::{HashMap, HashSet};
 
 /// Common English + Spanish stopwords to filter from cluster labels.
 const STOPWORDS: &[&str] = &[
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "dare", "ought",
-    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "as", "into", "through", "during", "before", "after", "above", "below",
-    "between", "out", "off", "over", "under", "again", "further", "then",
-    "once", "here", "there", "when", "where", "why", "how", "all", "each",
-    "every", "both", "few", "more", "most", "other", "some", "such", "no",
-    "nor", "not", "only", "own", "same", "so", "than", "too", "very",
-    "just", "because", "but", "and", "or", "if", "while", "about", "up",
-    "its", "it", "this", "that", "these", "those", "i", "me", "my", "we",
-    "our", "you", "your", "he", "him", "his", "she", "her", "they", "them",
-    "their", "what", "which", "who", "whom", "el", "la", "los", "las",
-    "un", "una", "unos", "unas", "de", "del", "en", "por", "para", "con",
-    "sin", "sobre", "entre", "hacia", "hasta", "desde", "que", "es", "son",
-    "fue", "ser", "estar", "ha", "han", "se", "no", "si", "su", "sus",
-    "como", "más", "muy", "también", "pero", "yo", "tú", "él", "ella",
-    "nosotros", "ellos", "esto", "eso", "ya", "hay", "puede", "todo",
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "do", "does", "did", "will", "would", "could", "should", "may", "might", "shall", "can",
+    "need", "dare", "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above", "below", "between", "out",
+    "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "all", "each", "every", "both", "few", "more", "most", "other", "some", "such",
+    "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "just", "because",
+    "but", "and", "or", "if", "while", "about", "up", "its", "it", "this", "that", "these",
+    "those", "i", "me", "my", "we", "our", "you", "your", "he", "him", "his", "she", "her", "they",
+    "them", "their", "what", "which", "who", "whom", "el", "la", "los", "las", "un", "una", "unos",
+    "unas", "de", "del", "en", "por", "para", "con", "sin", "sobre", "entre", "hacia", "hasta",
+    "desde", "que", "es", "son", "fue", "ser", "estar", "ha", "han", "se", "no", "si", "su", "sus",
+    "como", "más", "muy", "también", "pero", "yo", "tú", "él", "ella", "nosotros", "ellos", "esto",
+    "eso", "ya", "hay", "puede", "todo",
 ];
 
 /// Named cluster label for a KMeans++ coarse cluster.
@@ -193,7 +189,7 @@ impl SpatialIndex {
             .tunnels
             .iter()
             .map(|t| {
-                let mut pair = vec![t.wing_a.clone(), t.wing_b.clone()];
+                let mut pair = [t.wing_a.clone(), t.wing_b.clone()];
                 pair.sort();
                 (pair[0].clone(), pair[1].clone(), t.room_label.clone())
             })
@@ -206,7 +202,7 @@ impl SpatialIndex {
             let wing_vec: Vec<&String> = wings.iter().collect();
             for i in 0..wing_vec.len() {
                 for j in (i + 1)..wing_vec.len() {
-                    let mut pair = vec![wing_vec[i].clone(), wing_vec[j].clone()];
+                    let mut pair = [wing_vec[i].clone(), wing_vec[j].clone()];
                     pair.sort();
                     let key = (pair[0].clone(), pair[1].clone(), room_label.clone());
                     if !existing.contains(&key) {
@@ -453,9 +449,18 @@ mod tests {
         // Simulate document content
         let texts = {
             let mut m = HashMap::new();
-            m.insert("d1".to_string(), "authentication login token verify user".to_string());
-            m.insert("d2".to_string(), "auth session cookie login redirect".to_string());
-            m.insert("d3".to_string(), "billing payment invoice charge stripe".to_string());
+            m.insert(
+                "d1".to_string(),
+                "authentication login token verify user".to_string(),
+            );
+            m.insert(
+                "d2".to_string(),
+                "auth session cookie login redirect".to_string(),
+            );
+            m.insert(
+                "d3".to_string(),
+                "billing payment invoice charge stripe".to_string(),
+            );
             m
         };
 
