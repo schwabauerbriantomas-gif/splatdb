@@ -54,7 +54,7 @@ async function renderChunk(startSec, endSec) {
     // Wait for page to settle, then set initial state
     await page.evaluate(() => {
       document.querySelectorAll('.scene').forEach(el => el.style.opacity = 0);
-      document.getElementById('logoImg').style.opacity = 0;
+      document.getElementById('logoLayer').style.opacity = 0;
     });
     await new Promise(r => setTimeout(r, 200));
 

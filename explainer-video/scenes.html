@@ -5,248 +5,318 @@
 <meta name="viewport" content="width=1280,height=720">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:1280px;height:720px;overflow:hidden;background:#0a0a1a;font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
-/* Background orbs - no CSS animation, JS drives position */
-.orb{position:fixed;border-radius:50%;pointer-events:none;filter:blur(80px);will-change:transform}
-#orbA{width:500px;height:500px;background:radial-gradient(circle,rgba(14,165,233,.25),transparent 70%);top:-100px;left:-100px}
-#orbB{width:400px;height:400px;background:radial-gradient(circle,rgba(139,92,246,.2),transparent 70%);bottom:-80px;right:-80px}
-#orbC{width:350px;height:350px;background:radial-gradient(circle,rgba(16,185,129,.15),transparent 70%);top:300px;left:500px}
-/* Scanline */
-#scanline{position:fixed;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,rgba(56,189,248,.15),transparent);pointer-events:none;z-index:999}
-/* Gradient bg */
-#gradBg{position:fixed;inset:0;z-index:0;will-change:background}
-/* Logo */
-#logoImg{position:fixed;top:0;left:0;width:1280px;height:720px;z-index:1;display:flex;align-items:center;justify-content:center;pointer-events:none}
-#logoImg img{width:200px;height:200px}
-/* All scenes: position absolute, full viewport, no transitions */
+html,body{width:1280px;height:720px;overflow:hidden;background:#06060f;font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif}
+
+/* ── Ambient BG ── */
+#ambientBg{position:fixed;inset:0;z-index:0}
+#gridOverlay{position:fixed;inset:0;z-index:1;background-image:
+  linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+background-size:60px 60px}
+#scanline{position:fixed;left:0;width:100%;height:3px;z-index:999;pointer-events:none;
+  background:linear-gradient(90deg,transparent 5%,rgba(56,189,248,.12) 50%,transparent 95%)}
+
+/* ── Logo layer — ONLY visible on title/closing ── */
+#logoLayer{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0}
+#logoLayer img{width:180px;height:180px;filter:drop-shadow(0 0 40px rgba(56,189,248,.3))}
+
+/* ── Scenes ── */
 .scene{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;opacity:0;will-change:opacity}
-.scene-inner{max-width:1100px;text-align:center;padding:40px 60px}
-/* Typography */
-h1{font-size:52px;font-weight:800;color:#fff;line-height:1.15;margin-bottom:20px}
-h2{font-size:40px;font-weight:700;color:#fff;line-height:1.2;margin-bottom:16px}
-h3{font-size:28px;font-weight:600;color:#e2e8f0;margin-bottom:12px}
-.sub{font-size:22px;color:#94a3b8;font-weight:400;line-height:1.5}
-.code{font-family:'Courier New',monospace;font-size:18px;color:#38bdf8;background:rgba(14,165,233,.08);border:1px solid rgba(14,165,233,.2);border-radius:8px;padding:16px 24px;text-align:left;margin:12px auto;max-width:800px;line-height:1.6}
-.code .kw{color:#c084fc}.code .str{color:#34d399}.code .num{color:#fb923c}.code .cmt{color:#64748b}
-.badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:14px;font-weight:600;margin:4px}
-.b-blue{background:rgba(14,165,233,.15);color:#38bdf8;border:1px solid rgba(14,165,233,.3)}
-.b-purple{background:rgba(139,92,246,.15);color:#a78bfa;border:1px solid rgba(139,92,246,.3)}
-.b-green{background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)}
-.b-orange{background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3)}
-.b-red{background:rgba(244,63,94,.15);color:#fb7185;border:1px solid rgba(244,63,94,.3)}
-/* Canvas */
+.scene-inner{max-width:1080px;width:100%;text-align:center;padding:40px 60px}
+
+/* ── Typography ── */
+h1{font-size:58px;font-weight:800;color:#fff;letter-spacing:-1.5px;line-height:1.1}
+h2{font-size:38px;font-weight:700;color:#fff;letter-spacing:-0.5px;line-height:1.2;margin-bottom:10px}
+h3{font-size:22px;font-weight:600;color:#cbd5e1;margin-bottom:8px}
+.sub{font-size:20px;color:#94a3b8;font-weight:400;line-height:1.5}
+.accent{color:#38bdf8}
+.accent2{color:#a78bfa}
+.accent3{color:#34d399}
+.accent4{color:#fb923c}
+.dim{color:#64748b}
+
+/* ── Badges ── */
+.badge{display:inline-block;padding:6px 18px;border-radius:100px;font-size:14px;font-weight:600;margin:5px;letter-spacing:.3px}
+.b-blue{background:rgba(14,165,233,.12);color:#38bdf8;border:1px solid rgba(14,165,233,.25)}
+.b-purple{background:rgba(139,92,246,.12);color:#a78bfa;border:1px solid rgba(139,92,246,.25)}
+.b-green{background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.25)}
+.b-orange{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.25)}
+
+/* ── Cards ── */
+.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;text-align:left;max-width:900px;margin:20px auto}
+.card{padding:18px 22px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);backdrop-filter:blur(4px)}
+.card h4{font-size:17px;margin-bottom:5px;letter-spacing:-.2px}
+.card p{font-size:13.5px;color:#94a3b8;line-height:1.45}
+
+/* ── Code block ── */
+.code-block{font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:14px;color:#e2e8f0;background:rgba(10,10,30,.6);
+  border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:20px 28px;text-align:left;margin:16px auto;max-width:780px;line-height:1.7}
+.code-block .kw{color:#c084fc}.code-block .fn{color:#38bdf8}.code-block .str{color:#34d399}.code-block .num{color:#fb923c}.code-block .cmt{color:#475569}
+
+/* ── Terminal ── */
+.terminal{background:rgba(8,8,24,.7);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:20px 24px;text-align:left;
+  max-width:780px;margin:16px auto;font-family:'JetBrains Mono','Courier New',monospace;font-size:13.5px;line-height:1.65;color:#e2e8f0}
+.terminal .prompt{color:#34d399}.terminal .cmd{color:#38bdf8}.terminal .flag{color:#c084fc}.terminal .cmt2{color:#475569}
+
+/* ── Table ── */
+.data-table{width:100%;border-collapse:separate;border-spacing:0 6px;max-width:920px;margin:16px auto}
+.data-table th{font-size:12px;color:#64748b;padding:6px 14px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.8px}
+.data-table td{font-size:14.5px;padding:10px 14px;background:rgba(255,255,255,.025);border-top:1px solid rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.03)}
+.data-table td:first-child{border-left:1px solid rgba(255,255,255,.03);color:#e2e8f0;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:13.5px}
+.data-table td:last-child{border-right:1px solid rgba(255,255,255,.03)}
+.data-table tr:hover td{background:rgba(255,255,255,.04)}
+
+/* ── Pipeline ── */
+.pipeline{display:flex;gap:10px;justify-content:center;align-items:center;margin:22px 0}
+.pipe-step{padding:14px 22px;border-radius:12px;font-size:15px;font-weight:600;border:1.5px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);color:#475569}
+.pipe-step.active{border-color:rgba(56,189,248,.4);background:rgba(14,165,233,.08);color:#fff;box-shadow:0 0 20px rgba(14,165,233,.1)}
+.pipe-arrow{color:#334155;font-size:20px;font-weight:300}
+
+/* ── Canvas ── */
 canvas{display:block}
-#splatCanvas{width:600px;height:600px;margin:0 auto}
-#chartCanvas{width:1100px;height:500px;margin:0 auto}
-#graphCanvas{width:800px;height:500px;margin:0 auto}
-/* Pipeline */
-.pipeline{display:flex;gap:12px;justify-content:center;align-items:center;margin:20px 0}
-.pipe-step{padding:14px 20px;border-radius:10px;font-size:16px;font-weight:600;border:2px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:#64748b;transition:none}
-.pipe-step.active{border-color:#38bdf8;background:rgba(14,165,233,.12);color:#fff}
-.pipe-arrow{color:#475569;font-size:24px}
-/* Feature grid */
-.feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:left;max-width:900px;margin:20px auto}
-.feat-item{padding:16px 20px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
-.feat-item h4{font-size:18px;color:#38bdf8;margin-bottom:6px}
-.feat-item p{font-size:14px;color:#94a3b8;line-height:1.4}
-/* Terminal */
-.terminal{background:#0f172a;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:20px;text-align:left;max-width:800px;margin:16px auto;font-family:'Courier New',monospace;font-size:15px;line-height:1.7;color:#e2e8f0}
-.terminal .prompt{color:#34d399}.terminal .cmd{color:#38bdf8}.terminal .flag{color:#c084fc}.terminal .cmt2{color:#64748b}
-/* Preset table */
-.preset-table{width:100%;border-collapse:separate;border-spacing:0 4px;max-width:1000px;margin:16px auto}
-.preset-table th{font-size:14px;color:#64748b;padding:8px 12px;text-align:left;font-weight:500}
-.preset-table td{font-size:15px;padding:10px 12px;background:rgba(255,255,255,.02);border-top:1px solid rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.03)}
-.preset-table td:first-child{border-left:1px solid rgba(255,255,255,.03);color:#38bdf8;font-weight:600;font-family:'Courier New',monospace}
-.preset-table td:last-child{border-right:1px solid rgba(255,255,255,.03)}
-/* Spatial ASCII */
-.ascii-art{font-family:'Courier New',monospace;font-size:13px;color:#94a3b8;line-height:1.5;text-align:left;max-width:700px;margin:16px auto;background:rgba(0,0,0,.3);padding:20px;border-radius:8px;border:1px solid rgba(255,255,255,.05)}
-.ascii-art .hi{color:#38bdf8}.ascii-art .hp{color:#a78bfa}.ascii-art .hg{color:#34d399}
-/* Status dot */
-.status{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-.s-done{background:#34d399}.s-plan{background:#64748b}
+#splatCanvas{width:520px;height:520px;margin:0 auto}
+#chartCanvas{width:1060px;height:480px;margin:0 auto}
+#graphCanvas{width:760px;height:460px;margin:0 auto}
+
+/* ── Spatial tree ── */
+.tree{font-family:'JetBrains Mono',monospace;font-size:13px;color:#94a3b8;line-height:1.65;text-align:left;max-width:620px;margin:14px auto;
+  background:rgba(0,0,0,.25);padding:22px 26px;border-radius:12px;border:1px solid rgba(255,255,255,.04)}
+.tree .hi{color:#38bdf8;font-weight:600}.tree .hp{color:#a78bfa;font-weight:600}.tree .hg{color:#34d399;font-weight:600}
+
+/* ── Status ── */
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px}
+.dot-ok{background:#34d399}.dot-plan{background:#475569}
+
+/* ── Comparison table ── */
+.cmp-table{width:100%;border-collapse:separate;border-spacing:0 5px;max-width:800px;margin:14px auto}
+.cmp-table th{font-size:12px;color:#64748b;padding:8px 14px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.6px;
+  background:rgba(255,255,255,.02)}
+.cmp-table td{font-size:14px;padding:9px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.03)}
+.cmp-table th:first-child,.cmp-table td:first-child{border-radius:8px 0 0 8px;color:#94a3b8;font-weight:500}
+.cmp-table th:last-child,.cmp-table td:last-child{border-radius:0 8px 8px 0}
+.cmp-table tr:nth-child(even) td{background:rgba(255,255,255,.015)}
 </style>
 </head>
 <body>
-<div id="gradBg"></div>
-<div id="orbA" class="orb"></div>
-<div id="orbB" class="orb"></div>
-<div id="orbC" class="orb"></div>
-<div id="scanline"></div>
-<div id="logoImg"><img src="../logo.svg" alt="SplatDB"></div>
 
-<!-- S0: Title 0-18 -->
+<div id="ambientBg"></div>
+<div id="gridOverlay"></div>
+<div id="scanline"></div>
+<div id="logoLayer"><img src="../logo.svg" alt="SplatDB"></div>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- S0: TITLE — 0-20s                           -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s0" class="scene"><div class="scene-inner">
-  <h1 style="font-size:64px;letter-spacing:-2px">SplatDB</h1>
-  <p class="sub" style="font-size:26px;margin-top:12px">Vector Search with Uncertainty Awareness</p>
-  <div style="margin-top:20px">
+  <div style="height:40px"></div>
+  <h1 style="font-size:72px;letter-spacing:-3px;background:linear-gradient(135deg,#fff 0%,#38bdf8 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent">SplatDB</h1>
+  <p class="sub" style="font-size:24px;margin-top:14px;color:#94a3b8">Vector Search with <span class="accent">Uncertainty Awareness</span></p>
+  <div style="margin-top:22px">
     <span class="badge b-blue">Gaussian Splatting</span>
     <span class="badge b-purple">Knowledge Graph</span>
     <span class="badge b-green">HNSW</span>
     <span class="badge b-orange">GPU CUDA</span>
   </div>
-  <p class="sub" style="font-size:16px;margin-top:16px;color:#64748b">~26K lines of pure Rust • Single binary • No runtime deps</p>
+  <p class="dim" style="font-size:14px;margin-top:18px;letter-spacing:1px">~26K LINES OF PURE RUST · SINGLE BINARY · ZERO RUNTIME DEPS</p>
 </div></div>
 
-<!-- S1: The Problem 18-45 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S1: PROBLEM — 20-50s                         -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s1" class="scene"><div class="scene-inner">
-  <h2>The Vector Search Problem</h2>
-  <p class="sub">Every AI app needs to find similar vectors fast.<br>But traditional approaches lose critical information.</p>
-  <div class="feat-grid" style="margin-top:24px">
-    <div class="feat-item"><h4>Flat Index</h4><p>O(N) scan — exact but slow. 100K vectors = 94ms per query.</p></div>
-    <div class="feat-item"><h4>HNSW</h4><p>Fast ANN but no uncertainty. Can't tell "probably close" from "definitely close".</p></div>
-    <div class="feat-item"><h4>Product Quantization</h4><p>Compresses vectors but destroys distance semantics. 8-bit ≈ 3% recall loss.</p></div>
-    <div class="feat-item"><h4>The Gap</h4><p>No engine captures <em>confidence</em> — how certain are we that this match is relevant?</p></div>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">The Problem</p>
+  <h2 style="font-size:36px">Vector Search Loses <span style="color:#fb7185">Confidence</span></h2>
+  <p class="sub" style="font-size:18px;margin-top:6px">Every AI app needs nearest-neighbor search. But no engine tells you <em>how sure</em> it is.</p>
+  <div class="card-grid" style="margin-top:22px">
+    <div class="card"><h4 style="color:#fb7185">Flat Index</h4><p>O(N) brute force — exact but unusable past 10K. 100K vectors = <b style="color:#fb7185">94ms</b>/query.</p></div>
+    <div class="card"><h4 style="color:#a78bfa">HNSW</h4><p>Fast graph search but zero confidence info. Is the result 99% or 60% certain? You can't tell.</p></div>
+    <div class="card"><h4 style="color:#fb923c">Product Quantization</h4><p>8-bit compression destroys distance semantics. ~3% recall loss with no way to measure it.</p></div>
+    <div class="card"><h4 style="color:#38bdf8">The Missing Piece</h4><p>No engine captures <em>uncertainty</em> — how certain are we that this match matters?</p></div>
   </div>
 </div></div>
 
-<!-- S2: Gaussian Splatting 45-80 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S2: GAUSSIAN SPLATTING — 50-85s             -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s2" class="scene"><div class="scene-inner">
-  <h2>Gaussian Splatting for Search</h2>
-  <p class="sub">From 3D neural rendering to vector search — each document becomes a probabilistic Gaussian.</p>
-  <canvas id="splatCanvas" width="600" height="600"></canvas>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Core Concept</p>
+  <h2>Gaussian Splatting × Search</h2>
+  <p class="sub" style="font-size:17px">From 3D neural rendering to vector search — each document becomes a <span class="accent">probability distribution</span></p>
+  <canvas id="splatCanvas" width="520" height="520"></canvas>
 </div></div>
 
-<!-- S3: Uncertainty α κ 80-115 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S3: UNCERTAINTY — 85-115s                   -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s3" class="scene"><div class="scene-inner">
-  <h2>Uncertainty: μ, α, κ</h2>
-  <p class="sub">Every document stores three values — not just a point, but a probability distribution.</p>
-  <div class="feat-grid" style="margin-top:20px">
-    <div class="feat-item"><h4 style="color:#38bdf8">μ — Mean</h4><p>Position in latent space, like any embedding. But it's the center of a distribution, not a point.</p></div>
-    <div class="feat-item"><h4 style="color:#a78bfa">α — Opacity</h4><p>How much this document "matters". High α = important landmark. Low α = uncertain / noisy.</p></div>
-    <div class="feat-item"><h4 style="color:#34d399">κ — Concentration</h4><p>How "focused" the document is. High κ = precise topic. Low κ = broad, covers many concepts.</p></div>
-    <div class="feat-item"><h4 style="color:#fb923c">Why It Matters</h4><p>Query results include confidence scores. "I'm 95% sure this is relevant" vs "maybe related" — agents can act on certainty.</p></div>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Three Parameters</p>
+  <h2>μ · α · κ</h2>
+  <p class="sub" style="font-size:17px">Not just a point — a probability distribution per document</p>
+  <div class="card-grid" style="margin-top:18px">
+    <div class="card"><h4 style="color:#38bdf8">μ — Mean Position</h4><p>Center of the distribution in latent space. Like any embedding, but with context.</p></div>
+    <div class="card"><h4 style="color:#a78bfa">α — Opacity</h4><p>How much this doc "matters". High α = landmark. Low α = noise. Auto-computed from data density.</p></div>
+    <div class="card"><h4 style="color:#34d399">κ — Concentration</h4><p>How focused the doc is. High κ = one precise topic. Low κ = broad, covers many concepts.</p></div>
+    <div class="card"><h4 style="color:#fb923c">Why It Matters</h4><p>Agents get confidence scores. "95% sure this is relevant" vs "maybe related" — act on certainty.</p></div>
   </div>
 </div></div>
 
-<!-- S4: HRM2 Pipeline 115-155 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S4: HRM2 PIPELINE — 115-150s                -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s4" class="scene"><div class="scene-inner">
-  <h2>HRM2: Two-Level Retrieval</h2>
-  <p class="sub">Hierarchical Residual Multi-resolution search — find the right cluster first, then search within it.</p>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Retrieval Pipeline</p>
+  <h2>HRM2: Two-Level Search</h2>
+  <p class="sub" style="font-size:17px">Hierarchical Residual Multi-resolution — cluster first, search within, rank by uncertainty</p>
   <div class="pipeline" style="margin-top:28px">
-    <div class="pipe-step" id="ps0">① Coarse KMeans++<br><span style="font-size:12px;color:#64748b">32 clusters</span></div>
+    <div class="pipe-step" id="ps0">① Coarse KMeans++<br><span style="font-size:11px;color:#64748b">32 clusters</span></div>
     <div class="pipe-arrow">→</div>
-    <div class="pipe-step" id="ps1">② Fine KMeans++<br><span style="font-size:12px;color:#64748b">128 sub-clusters</span></div>
+    <div class="pipe-step" id="ps1">② Fine KMeans++<br><span style="font-size:11px;color:#64748b">128 sub-clusters</span></div>
     <div class="pipe-arrow">→</div>
-    <div class="pipe-step" id="ps2">③ Probe Top P<br><span style="font-size:12px;color:#64748b">Only search relevant</span></div>
+    <div class="pipe-step" id="ps2">③ Probe Top P<br><span style="font-size:11px;color:#64748b">Only search relevant</span></div>
     <div class="pipe-arrow">→</div>
-    <div class="pipe-step" id="ps3">④ Rank by α, κ<br><span style="font-size:12px;color:#64748b">Uncertainty-weighted</span></div>
+    <div class="pipe-step" id="ps3">④ Rank α, κ<br><span style="font-size:11px;color:#64748b">Uncertainty-weighted</span></div>
   </div>
-  <p class="sub" style="font-size:16px;margin-top:20px">Reduces search from <span style="color:#fb7185">O(N)</span> to <span style="color:#34d399">O(N/P)</span> with minimal recall loss.</p>
+  <p class="sub" style="font-size:15px;margin-top:18px"><span style="color:#fb7185;font-weight:600">O(N)</span> → <span style="color:#34d399;font-weight:600">O(N/P)</span> with minimal recall loss</p>
 </div></div>
 
-<!-- S5: Benchmark Chart 155-205 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S5: BENCHMARK CHART — 150-200s              -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s5" class="scene"><div class="scene-inner">
-  <h2>Performance: SIFT-128 Benchmark</h2>
-  <p class="sub">100K vectors, 1K queries, k=64 — validated with ANN-Benchmarks methodology</p>
-  <canvas id="chartCanvas" width="1100" height="500"></canvas>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">Performance</p>
+  <h2>SIFT-128 Benchmark</h2>
+  <p class="sub" style="font-size:16px">100K vectors · 1K queries · k=64 · Ryzen 5 3400G + RTX 3090</p>
+  <canvas id="chartCanvas" width="1060" height="480"></canvas>
 </div></div>
 
-<!-- S6: HNSW + GPU 205-245 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S6: HNSW + GPU — 200-240s                   -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s6" class="scene"><div class="scene-inner">
-  <h2>HNSW + CUDA Acceleration</h2>
-  <p class="sub">Incremental HNSW indexing with custom CUDA PTX kernels for GPU search.</p>
-  <div class="feat-grid" style="margin-top:20px">
-    <div class="feat-item"><h4 style="color:#38bdf8">Incremental HNSW</h4><p>Insert vectors one at a time — no full rebuild. Add 1000 docs, search immediately.</p></div>
-    <div class="feat-item"><h4 style="color:#a78bfa">Custom PTX Kernels</h4><p>float4 vectorized loads, shared memory query cache, __launch_bounds__(256) for sm_86.</p></div>
-    <div class="feat-item"><h4 style="color:#34d399">GPU Auto-Detection</h4><p>CUDA → Vulkan → CPU fallback. Zero config needed.</p></div>
-    <div class="feat-item"><h4 style="color:#fb923c">Batch Queries</h4><p>Process 4096 queries in parallel on GPU. Auto-tuned block sizes for your hardware.</p></div>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Acceleration</p>
+  <h2>HNSW + CUDA <span class="accent">GPU</span></h2>
+  <p class="sub" style="font-size:17px">Incremental indexing with 14 custom PTX kernels for RTX 3090+</p>
+  <div class="card-grid" style="margin-top:18px">
+    <div class="card"><h4 style="color:#38bdf8">Incremental HNSW</h4><p>Insert one-at-a-time — no full rebuild. Add docs, search immediately.</p></div>
+    <div class="card"><h4 style="color:#a78bfa">Custom PTX Kernels</h4><p>float4 loads, shared memory cache, __launch_bounds__(256) for sm_86.</p></div>
+    <div class="card"><h4 style="color:#34d399">GPU Auto-Detect</h4><p>CUDA → Vulkan → CPU. Zero config. Works on any hardware.</p></div>
+    <div class="card"><h4 style="color:#fb923c">Batch 4096 Queries</h4><p>Parallel GPU processing. Auto-tuned block sizes per hardware.</p></div>
   </div>
 </div></div>
 
-<!-- S7: TurboQuant 245-280 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S7: QUANTIZATION — 240-275s                 -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s7" class="scene"><div class="scene-inner">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Compression</p>
   <h2>TurboQuant &amp; PolarQuant</h2>
-  <p class="sub">Compress vectors 3-8× with minimal recall loss. Two algorithms for different tradeoffs.</p>
-  <div class="feat-grid" style="margin-top:20px">
-    <div class="feat-item"><h4 style="color:#38bdf8">TurboQuant</h4><p>Random projection + binary coding. 4-bit gives ~3% recall loss for 8× memory reduction. Best for large-scale.</p></div>
-    <div class="feat-item"><h4 style="color:#a78bfa">PolarQuant</h4><p>Polar coordinate quantization. Better for high-dimensional vectors (768D+). Preserves angular distance.</p></div>
-    <div class="feat-item"><h4 style="color:#34d399">Compressed Search</h4><p>Search directly on compressed codes — no decompression needed. quant-index → quant-search pipeline.</p></div>
-    <div class="feat-item"><h4 style="color:#fb923c">Hot-Swap</h4><p>Change bits/algorithms without re-ingesting. Re-quantize existing vectors on the fly.</p></div>
+  <p class="sub" style="font-size:17px">3-8× compression with minimal recall loss</p>
+  <div class="card-grid" style="margin-top:18px">
+    <div class="card"><h4 style="color:#38bdf8">TurboQuant</h4><p>Random projection + binary coding. 4-bit → 8× memory reduction, ~3% recall loss.</p></div>
+    <div class="card"><h4 style="color:#a78bfa">PolarQuant</h4><p>Polar coordinate quantization. Better for 768D+ vectors. Preserves angular distance.</p></div>
+    <div class="card"><h4 style="color:#34d399">Direct Search</h4><p>Search compressed codes without decompression. quant-index → quant-search.</p></div>
+    <div class="card"><h4 style="color:#fb923c">Hot-Swap</h4><p>Change bits/algo without re-ingesting. Re-quantize on the fly.</p></div>
   </div>
 </div></div>
 
-<!-- S8: GraphSplat 280-320 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S8: KNOWLEDGE GRAPH — 275-315s              -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s8" class="scene"><div class="scene-inner">
-  <h2>GraphSplat: Knowledge Graph</h2>
-  <p class="sub">Documents + Entities + Relations over Gaussian splats. Hybrid vector + graph search in one engine.</p>
-  <canvas id="graphCanvas" width="800" height="500"></canvas>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Knowledge Graph</p>
+  <h2>GraphSplat</h2>
+  <p class="sub" style="font-size:17px">Documents + Entities + Relations over Gaussian splats</p>
+  <canvas id="graphCanvas" width="760" height="460"></canvas>
 </div></div>
 
-<!-- S9: Semantic Memory 320-355 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S9: SEMANTIC MEMORY — 315-350s              -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s9" class="scene"><div class="scene-inner">
-  <h2>Semantic Memory: BM25 + Vector</h2>
-  <p class="sub">Hybrid search combining lexical (BM25) and semantic (vector) with Reciprocal Rank Fusion.</p>
-  <div class="pipeline" style="margin-top:24px">
-    <div class="pipe-step" id="sm0">BM25 Index<br><span style="font-size:12px;color:#64748b">Keyword match</span></div>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Hybrid Search</p>
+  <h2>BM25 + Vector + RRF</h2>
+  <p class="sub" style="font-size:17px">Lexical + semantic with Reciprocal Rank Fusion + temporal decay</p>
+  <div class="pipeline" style="margin-top:26px">
+    <div class="pipe-step" id="sm0">BM25 Index<br><span style="font-size:11px;color:#64748b">Keyword match</span></div>
     <div class="pipe-arrow">+</div>
-    <div class="pipe-step" id="sm1">Vector Search<br><span style="font-size:12px;color:#64748b">Semantic match</span></div>
+    <div class="pipe-step" id="sm1">Vector Search<br><span style="font-size:11px;color:#64748b">Semantic match</span></div>
     <div class="pipe-arrow">→</div>
-    <div class="pipe-step" id="sm2">RRF Fusion<br><span style="font-size:12px;color:#64748b">60/40 weight</span></div>
+    <div class="pipe-step" id="sm2">RRF Fusion<br><span style="font-size:11px;color:#64748b">60/40 weight</span></div>
     <div class="pipe-arrow">→</div>
-    <div class="pipe-step" id="sm3">Temporal Decay<br><span style="font-size:12px;color:#64748b">Recent = relevant</span></div>
+    <div class="pipe-step" id="sm3">Temporal Decay<br><span style="font-size:11px;color:#64748b">Recent = relevant</span></div>
   </div>
-  <p class="sub" style="font-size:16px;margin-top:16px">Configurable weights: semantic_vector_weight=0.6, semantic_bm25_weight=0.4, decay_halflife=3600s</p>
 </div></div>
 
-<!-- S10: MCP Server 355-400 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S10: MCP SERVER — 350-390s                  -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s10" class="scene"><div class="scene-inner">
-  <h2>MCP Server: AI Agent Integration</h2>
-  <p class="sub">13 tools via JSON-RPC 2.0 over stdio. Plug into Claude Code, Cursor, Hermes, any MCP client.</p>
-  <div class="terminal" style="margin-top:16px;font-size:14px">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">AI Integration</p>
+  <h2>MCP Server — <span class="accent">15 Tools</span></h2>
+  <p class="sub" style="font-size:16px">JSON-RPC 2.0 over stdio. Plug into Claude Code, Cursor, Hermes, any MCP client.</p>
+  <div class="terminal" style="margin-top:16px;font-size:13px">
     <span class="cmt2"># Store a memory</span><br>
     <span class="cmd">splatdb_store</span>(text=<span class="str">"User prefers dark mode"</span>)<br>
     → {<span class="str">"id"</span>: <span class="str">"mem_1"</span>, <span class="str">"status"</span>: <span class="str">"stored"</span>}<br><br>
     <span class="cmt2"># Add entity + relation</span><br>
-    <span class="cmd">splatdb_graph_add_entity</span>(name=<span class="str">"Brian"</span>, entity_type=<span class="str">"person"</span>)<br>
-    <span class="cmd">splatdb_graph_add_relation</span>(source_id=2, target_id=1, relation_type=<span class="str">"MENTIONS"</span>)<br><br>
+    <span class="cmd">splatdb_graph_add_entity</span>(name=<span class="str">"Brian"</span>, type=<span class="str">"person"</span>)<br>
+    <span class="cmd">splatdb_graph_add_relation</span>(src=2, tgt=1, rel=<span class="str">"MENTIONS"</span>)<br><br>
     <span class="cmt2"># Search with graph context</span><br>
     <span class="cmd">splatdb_graph_search</span>(query=<span class="str">"who works on vector search"</span>, k=3)<br>
     → [{<span class="str">"content"</span>: <span class="str">"Brian works on SplatDB..."</span>, <span class="str">"score"</span>: 0.49}]
   </div>
 </div></div>
 
-<!-- S11: CLI Showcase 400-435 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S11: CLI — 390-420s                         -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s11" class="scene"><div class="scene-inner">
-  <h2>CLI: 40+ Commands</h2>
-  <p class="sub">Everything from ingestion to GPU benchmarking in a single binary.</p>
-  <div class="terminal" style="font-size:13px;line-height:1.6">
-    <span class="cmt2"># Index & search</span><br>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Command Line</p>
+  <h2>40+ Commands</h2>
+  <p class="sub" style="font-size:16px">Everything from ingestion to GPU benchmarking in a single binary</p>
+  <div class="terminal" style="font-size:12.5px;line-height:1.6;margin-top:14px">
+    <span class="cmt2"># Index &amp; search</span><br>
     <span class="prompt">$</span> <span class="cmd">splatdb</span> index <span class="flag">--input</span> data.bin <span class="flag">--shard</span> default<br>
     <span class="prompt">$</span> <span class="cmd">splatdb</span> search <span class="flag">--query</span> <span class="str">"0.1,0.2,...,-0.5"</span> <span class="flag">-k</span> 10<br><br>
     <span class="cmt2"># Knowledge graph</span><br>
     <span class="prompt">$</span> <span class="cmd">splatdb</span> graph-add-doc <span class="flag">--text</span> <span class="str">"meeting notes..."</span><br>
     <span class="prompt">$</span> <span class="cmd">splatdb</span> graph-traverse <span class="flag">--text</span> <span class="str">"auth"</span> <span class="flag">--max-depth</span> 3<br><br>
-    <span class="cmt2"># GPU benchmarking</span><br>
-    <span class="prompt">$</span> <span class="cmd">splatdb</span> bench-hnsw <span class="flag">--train</span> sift.bin <span class="flag">--queries</span> q.bin <span class="flag">--dim</span> 128<br>
-    <span class="prompt">$</span> <span class="cmd">splatdb</span> bench-gpu <span class="flag">--n-vectors</span> 100000 <span class="flag">--dim</span> 640<br><br>
+    <span class="cmt2"># GPU benchmark</span><br>
+    <span class="prompt">$</span> <span class="cmd">splatdb</span> bench-gpu <span class="flag">--n-vectors</span> 100000 <span class="flag">--dim</span> 128<br><br>
     <span class="cmt2"># MCP server</span><br>
     <span class="prompt">$</span> <span class="cmd">splatdb</span> mcp  <span class="cmt2"># starts JSON-RPC on stdio</span>
   </div>
 </div></div>
 
-<!-- S12: Presets 435-470 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S12: PRESETS — 420-455s                     -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s12" class="scene"><div class="scene-inner">
-  <h2>7 Configuration Presets</h2>
-  <p class="sub">Edge to GPU clusters — one function call, no manual flag toggling.</p>
-  <table class="preset-table" style="margin-top:16px">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Configuration</p>
+  <h2>7 Presets — Edge to Cluster</h2>
+  <p class="sub" style="font-size:16px">One function call, no manual flag toggling</p>
+  <table class="data-table" style="margin-top:18px">
     <tr><th>Preset</th><th>Capacity</th><th>Graph</th><th>Semantic</th><th>GPU</th><th>HNSW</th></tr>
-    <tr><td>simple</td><td>10K</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
-    <tr><td>mcp</td><td>100K</td><td>✅</td><td>✅ RRF</td><td>Auto</td><td>—</td></tr>
-    <tr><td>advanced</td><td>1M</td><td>✅</td><td>✅ RRF</td><td>Opt.</td><td>M=32</td></tr>
-    <tr><td>gpu</td><td>5M</td><td>✅</td><td>✅</td><td>✅</td><td>M=48</td></tr>
-    <tr><td>distributed</td><td>10M</td><td>✅</td><td>✅ RRF</td><td>Opt.</td><td>—</td></tr>
+    <tr><td>simple</td><td>10K</td><td style="color:#475569">—</td><td style="color:#475569">—</td><td style="color:#475569">—</td><td style="color:#475569">—</td></tr>
+    <tr><td>mcp</td><td>100K</td><td style="color:#34d399">✅</td><td style="color:#34d399">✅ RRF</td><td style="color:#94a3b8">Auto</td><td style="color:#475569">—</td></tr>
+    <tr><td>advanced</td><td>1M</td><td style="color:#34d399">✅</td><td style="color:#34d399">✅ RRF</td><td style="color:#94a3b8">Opt.</td><td style="color:#38bdf8">M=32</td></tr>
+    <tr><td>gpu</td><td>5M</td><td style="color:#34d399">✅</td><td style="color:#34d399">✅</td><td style="color:#34d399">✅</td><td style="color:#38bdf8">M=48</td></tr>
+    <tr><td>distributed</td><td>10M</td><td style="color:#34d399">✅</td><td style="color:#34d399">✅ RRF</td><td style="color:#94a3b8">Opt.</td><td style="color:#475569">—</td></tr>
   </table>
-  <div class="code" style="margin-top:12px;font-size:15px">
-    <span class="kw">use</span> splatdb::config::SplatDBConfig;<br>
-    <span class="kw">let</span> agent = SplatDBConfig::<span class="cmd">mcp</span>(<span class="kw">None</span>); <span class="cmt">// auto GPU detection</span>
+  <div class="code-block" style="margin-top:14px;font-size:13.5px">
+    <span class="kw">use</span> splatdb::config::<span class="fn">SplatDBConfig</span>;<br>
+    <span class="kw">let</span> store = SplatDBConfig::<span class="fn">mcp</span>(<span class="kw">None</span>); <span class="cmt">// auto GPU detection</span>
   </div>
 </div></div>
 
-<!-- S13: Spatial Memory 470-510 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S13: SPATIAL MEMORY — 455-495s              -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s13" class="scene"><div class="scene-inner">
-  <h2>Spatial Memory Architecture</h2>
-  <p class="sub">Inspired by MemPalace — organize memory like physical space</p>
-  <div class="ascii-art" style="margin-top:12px;font-size:12px">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">MemPalace</p>
+  <h2>Spatial Memory</h2>
+  <p class="sub" style="font-size:17px">Organize memory like physical space — wings, rooms, halls</p>
+  <div class="tree" style="margin-top:16px">
 <span class="hi">Wing</span> = Project / Persona / Domain
 ├── <span class="hp">Room</span> = Theme (auth, billing, migration)
 │   ├── <span class="hg">Hall</span> = Type (facts, decisions, events)
@@ -259,43 +329,61 @@ Query: "auth decisions from project-x"
   <span class="hi">1. Filter wing</span>  → ~10% of corpus
   <span class="hp">2. Filter room</span>  → ~2% of corpus
   <span class="hg">3. Filter hall</span>  → ~0.5% of corpus
-  4. Vector search → high recall, minimal noise
+  <span style="color:#fff">4. Vector search → high recall, minimal noise</span>
   </div>
 </div></div>
 
-<!-- S14: Verbatim Storage 510-535 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S14: VERBATIM — 495-525s                    -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s14" class="scene"><div class="scene-inner">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Storage</p>
   <h2>Verbatim Storage</h2>
-  <p class="sub">"Store everything verbatim, never let an LLM decide what to remember"</p>
-  <div class="feat-grid" style="margin-top:20px">
-    <div class="feat-item"><h4 style="color:#38bdf8">Splat (Gaussian)</h4><p>μ, α, κ — the probabilistic representation. Fast search, compressed.</p></div>
-    <div class="feat-item"><h4 style="color:#a78bfa">Closet (AAAK Summary)</h4><p>30× compressed text any LLM reads natively. ~40 tokens instead of ~1200.</p></div>
-    <div class="feat-item"><h4 style="color:#34d399">Drawer (Verbatim)</h4><p>Original document text. Never summarized. Source of truth.</p></div>
-    <div class="feat-item"><h4 style="color:#fb923c">Flow</h4><p>Agent reads Closet → decides if worth it → fetches Drawer only when needed. Saves ~90% tokens.</p></div>
+  <p class="sub" style="font-size:17px">"Store everything verbatim, never let an LLM decide what to remember"</p>
+  <div class="card-grid" style="margin-top:18px">
+    <div class="card"><h4 style="color:#38bdf8">Splat (Gaussian)</h4><p>μ, α, κ — probabilistic representation. Fast search, compressed.</p></div>
+    <div class="card"><h4 style="color:#a78bfa">Closet (AAAK Summary)</h4><p>30× compressed text any LLM reads natively. ~40 tokens instead of ~1200.</p></div>
+    <div class="card"><h4 style="color:#34d399">Drawer (Verbatim)</h4><p>Original document text. Never summarized. Source of truth.</p></div>
+    <div class="card"><h4 style="color:#fb923c">Flow</h4><p>Agent reads Closet → decides if worth it → fetches Drawer. Saves ~90% tokens.</p></div>
   </div>
 </div></div>
 
-<!-- S15: Comparison 535-565 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S15: HONEST POSITIONING — 525-555s          -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s15" class="scene"><div class="scene-inner">
-  <h2>Honest Positioning</h2>
-  <p class="sub">SplatDB doesn't compete on raw QPS with Faiss. It competes on semantic uncertainty.</p>
-  <div style="margin-top:20px;max-width:900px;margin-left:auto;margin-right:auto">
-    <table class="preset-table">
-      <tr><th>Feature</th><th>SplatDB</th><th>Faiss</th><th>Pinecone</th></tr>
-      <tr><td>Uncertainty (α, κ)</td><td style="color:#34d399">✅ Native</td><td>—</td><td>—</td></tr>
-      <tr><td>Knowledge Graph</td><td style="color:#34d399">✅ GraphSplat</td><td>—</td><td>—</td></tr>
-      <tr><td>Hybrid BM25+Vector</td><td style="color:#34d399">✅ Built-in</td><td>—</td><td>Extra $</td></tr>
-      <tr><td>Raw QPS (CPU)</td><td style="color:#fb923c">~1K</td><td style="color:#34d399">~50K+</td><td style="color:#34d399">Managed</td></tr>
-      <tr><td>Self-hosted</td><td style="color:#34d399">✅ Single binary</td><td style="color:#34d399">✅</td><td>—</td></tr>
-      <tr><td>Agent Memory (MCP)</td><td style="color:#34d399">✅ 13 tools</td><td>—</td><td>REST only</td></tr>
-    </table>
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Honest Comparison</p>
+  <h2>Where SplatDB <span class="accent">Fits</span></h2>
+  <p class="sub" style="font-size:16px;margin-top:4px">Not the fastest. Not the most features. The <em>most uncertainty-aware</em>.</p>
+  <div style="display:flex;gap:40px;max-width:1000px;margin:18px auto 0;text-align:left">
+    <div style="flex:1">
+      <h3 style="color:#34d399;font-size:15px;margin-bottom:10px">✅ SplatDB Wins</h3>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Uncertainty (α, κ) — native probabilistic scores</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Knowledge Graph + Vector in one engine</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">BM25 + Vector + RRF — built-in hybrid</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">MCP Server — 15 tools for AI agents</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Spatial Memory — MemPalace architecture</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">GPU top-k — 12K QPS on RTX 3090</p>
+    </div>
+    <div style="flex:1">
+      <h3 style="color:#fb923c;font-size:15px;margin-bottom:10px">⚡ Others Win</h3>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Faiss CPU HNSW — 14.8× faster QPS</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Pinecone — managed cloud, zero ops</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Qdrant — richer ecosystem integrations</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">Milvus — distributed at scale, mature</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1">LanceDB — columnar analytics + vectors</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#94a3b8;font-style:italic">Different tools for different jobs.</p>
+    </div>
   </div>
 </div></div>
 
-<!-- S16: Quickstart 565-585 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S16: QUICKSTART — 555-575s                  -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s16" class="scene"><div class="scene-inner">
-  <h2>Get Started</h2>
-  <div class="terminal" style="margin-top:16px">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Get Started</p>
+  <h2>5 Minutes to Running</h2>
+  <div class="terminal" style="margin-top:14px">
     <span class="cmt2"># Build (requires Rust 1.75+)</span><br>
     <span class="prompt">$</span> <span class="cmd">cargo</span> build <span class="flag">--release</span><br><br>
     <span class="cmt2"># Index vectors</span><br>
@@ -307,41 +395,44 @@ Query: "auth decisions from project-x"
   </div>
 </div></div>
 
-<!-- S17: Results & Roadmap 585-595 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S17: RESULTS — 575-590s                     -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s17" class="scene"><div class="scene-inner">
-  <h2>Results &amp; Roadmap</h2>
-  <div style="display:flex;gap:30px;max-width:1050px;margin:12px auto;text-align:left">
+  <p class="dim" style="font-size:13px;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Results</p>
+  <h2>By the Numbers</h2>
+  <div style="display:flex;gap:30px;max-width:1000px;margin:16px auto 0;text-align:left">
     <div style="flex:1">
-      <h3 style="color:#34d399;font-size:18px;margin-bottom:10px">✅ Completed</h3>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>LongMemEval: <span style="color:#34d399">96.6%</span> recall@10 (paper best: 86.2%)</p>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Faiss side-by-side: honest benchmark</p>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Spatial Memory: Wings/Rooms/Halls</p>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Verbatim Storage + AAAK</p>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Distributed cluster + CLI commands</p>
-      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>289 tests, clippy clean, CI green</p>
+      <h3 style="color:#34d399;font-size:15px;margin-bottom:10px">✅ Shipped</h3>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>LongMemEval <span style="color:#34d399">96.6%</span> recall@10</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>Faiss side-by-side benchmark</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>Spatial Memory Wings/Rooms/Halls</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>Verbatim + AAAK compression</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>Distributed cluster + 7 CLI cmds</p>
+      <p style="margin:5px 0;font-size:13.5px;color:#cbd5e1"><span class="dot dot-ok"></span>295 tests, clippy clean, CI green</p>
     </div>
     <div style="flex:1">
-      <h3 style="color:#38bdf8;font-size:18px;margin-bottom:10px">📊 Key Numbers</h3>
-      <table class="preset-table" style="font-size:13px">
-        <tr><td>SplatDB GPU (RTX 3090)</td><td style="color:#38bdf8">12,195 QPS</td></tr>
-        <tr><td>Faiss HNSW (CPU)</td><td style="color:#a78bfa">9,758 QPS</td></tr>
-        <tr><td>SplatDB HNSW recall</td><td style="color:#34d399">98.6%</td></tr>
-        <tr><td>LongMemEval R@10</td><td style="color:#34d399">96.6%</td></tr>
-        <tr><td>LongMemEval p50</td><td style="color:#38bdf8">0.029ms</td></tr>
-        <tr><td>GPU speedup (top-k)</td><td style="color:#f59e0b">4.1×</td></tr>
+      <h3 style="color:#38bdf8;font-size:15px;margin-bottom:10px">📊 Benchmarks</h3>
+      <table class="data-table" style="font-size:13px">
+        <tr><td>SplatDB GPU</td><td style="color:#38bdf8">12,195 QPS</td></tr>
+        <tr><td>Faiss HNSW</td><td style="color:#a78bfa">9,758 QPS</td></tr>
+        <tr><td>HNSW recall</td><td style="color:#34d399">98.6%</td></tr>
+        <tr><td>LongMemEval</td><td style="color:#34d399">96.6%</td></tr>
+        <tr><td>LME p50</td><td style="color:#38bdf8">0.029ms</td></tr>
+        <tr><td>GPU speedup</td><td style="color:#fb923c">4.1×</td></tr>
       </table>
-      <h3 style="color:#64748b;font-size:16px;margin-top:14px;margin-bottom:8px">🔲 Next</h3>
-      <p style="margin:4px 0;font-size:13px;color:#64748b"><span class="status s-plan"></span>Docker image</p>
-      <p style="margin:4px 0;font-size:13px;color:#64748b"><span class="status s-plan"></span>GPU CI + coverage</p>
     </div>
   </div>
 </div></div>
 
-<!-- S18: Closing 595-600 -->
+<!-- ════════════════════════════════════════════ -->
+<!-- S18: CLOSING — 590-600s                     -->
+<!-- ════════════════════════════════════════════ -->
 <div id="s18" class="scene"><div class="scene-inner">
-  <h1 style="font-size:56px">SplatDB</h1>
-  <p class="sub" style="font-size:22px;margin-top:12px">github.com/schwabauerbriantomas-gif/splatdb</p>
-  <div style="margin-top:16px">
+  <div style="height:40px"></div>
+  <h1 style="font-size:64px;letter-spacing:-2px">SplatDB</h1>
+  <p class="sub" style="font-size:20px;margin-top:10px">github.com/schwabauerbriantomas-gif/splatdb</p>
+  <div style="margin-top:18px">
     <span class="badge b-blue">MIT License</span>
     <span class="badge b-green">Pure Rust</span>
     <span class="badge b-purple">v2.5.0</span>
@@ -350,25 +441,25 @@ Query: "auth decisions from project-x"
 
 <script>
 const SCENES=[
-  {id:'s0',s:0,e:18},
-  {id:'s1',s:18,e:45},
-  {id:'s2',s:45,e:80},
-  {id:'s3',s:80,e:115},
-  {id:'s4',s:115,e:155},
-  {id:'s5',s:155,e:205},
-  {id:'s6',s:205,e:245},
-  {id:'s7',s:245,e:280},
-  {id:'s8',s:280,e:320},
-  {id:'s9',s:320,e:355},
-  {id:'s10',s:355,e:400},
-  {id:'s11',s:400,e:435},
-  {id:'s12',s:435,e:470},
-  {id:'s13',s:470,e:510},
-  {id:'s14',s:510,e:535},
-  {id:'s15',s:535,e:565},
-  {id:'s16',s:565,e:585},
-  {id:'s17',s:585,e:595},
-  {id:'s18',s:595,e:600},
+  {id:'s0',s:0,e:20},
+  {id:'s1',s:20,e:50},
+  {id:'s2',s:50,e:85},
+  {id:'s3',s:85,e:115},
+  {id:'s4',s:115,e:150},
+  {id:'s5',s:150,e:200},
+  {id:'s6',s:200,e:240},
+  {id:'s7',s:240,e:275},
+  {id:'s8',s:275,e:315},
+  {id:'s9',s:315,e:350},
+  {id:'s10',s:350,e:390},
+  {id:'s11',s:390,e:420},
+  {id:'s12',s:420,e:455},
+  {id:'s13',s:455,e:495},
+  {id:'s14',s:495,e:525},
+  {id:'s15',s:525,e:555},
+  {id:'s16',s:555,e:575},
+  {id:'s17',s:575,e:590},
+  {id:'s18',s:590,e:600},
 ];
 window.TOTAL_DURATION=600;
 
@@ -376,187 +467,221 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
 function easeOut(t){return 1-Math.pow(1-t,3)}
 function easeOut4(t){return 1-Math.pow(1-t,4)}
 
-// ── Animated orbs ── NO CSS animation, pure JS ──
-function animOrbs(t){
-  const a=document.getElementById('orbA');
-  const b=document.getElementById('orbB');
-  const c=document.getElementById('orbC');
-  if(a){
-    a.style.transform=`translate(${Math.sin(t*0.3)*60}px,${Math.cos(t*0.2)*40}px)`;
-    b.style.transform=`translate(${Math.cos(t*0.25)*50}px,${Math.sin(t*0.35)*60}px)`;
-    c.style.transform=`translate(${Math.sin(t*0.4)*40}px,${Math.cos(t*0.3)*50}px)`;
+// ── Ambient background: animated gradient + floating particles ──
+let particleCanvas=null,particles=[];
+function initParticles(){
+  particleCanvas=document.createElement('canvas');
+  particleCanvas.width=1280;particleCanvas.height=720;
+  particleCanvas.style.cssText='position:fixed;inset:0;z-index:0;pointer-events:none';
+  document.body.prepend(particleCanvas);
+  for(let i=0;i<40;i++){
+    particles.push({x:Math.random()*1280,y:Math.random()*720,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,
+      r:Math.random()*1.5+.5,a:Math.random()*.15+.03,c:['56,189,248','139,92,246','16,185,129'][Math.floor(Math.random()*3)]});
   }
 }
-
-// ── Gradient bg ──
-function animGradBg(t){
-  const g=document.getElementById('gradBg');
-  if(!g)return;
-  const h1=220+Math.sin(t*0.1)*20;
-  const h2=260+Math.cos(t*0.08)*30;
-  g.style.background=`linear-gradient(${135+t*2}deg,hsl(${h1},40%,6%),hsl(${h2},30%,4%))`;
+function drawParticles(t){
+  if(!particleCanvas)return;
+  const ctx=particleCanvas.getContext('2d');
+  ctx.clearRect(0,0,1280,720);
+  // Gradient
+  const h1=225+Math.sin(t*.08)*15;
+  const h2=265+Math.cos(t*.06)*20;
+  ctx.fillStyle=`linear-gradient(${135+t*1.5}deg,hsl(${h1},35%,5%),hsl(${h2},25%,3%))`;
+  const bgGrad=ctx.createLinearGradient(0,0,1280,720);
+  bgGrad.addColorStop(0,`hsl(${h1},35%,5%)`);
+  bgGrad.addColorStop(1,`hsl(${h2},25%,3%)`);
+  ctx.fillStyle=bgGrad;ctx.fillRect(0,0,1280,720);
+  // Particles
+  particles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0)p.x=1280;if(p.x>1280)p.x=0;
+    if(p.y<0)p.y=720;if(p.y>720)p.y=0;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${p.c},${p.a+Math.sin(t*2+p.x)*.02})`;ctx.fill();
+  });
+  // Soft glow blobs
+  [{x:200,y:200,r:250,c:'14,165,233',a:.06},{x:900,y:500,r:300,c:'139,92,246',a:.04},{x:600,y:100,r:200,c:'16,185,129',a:.03}].forEach(b=>{
+    const bx=b.x+Math.sin(t*.15+b.x)*40;
+    const by=b.y+Math.cos(t*.12+b.y)*30;
+    const g=ctx.createRadialGradient(bx,by,0,bx,by,b.r);
+    g.addColorStop(0,`rgba(${b.c},${b.a})`);
+    g.addColorStop(1,`rgba(${b.c},0)`);
+    ctx.beginPath();ctx.arc(bx,by,b.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+  });
 }
 
 // ── Scanline ──
 function animScanline(t){
   const s=document.getElementById('scanline');
-  if(s)s.style.top=((t*80)%720)+'px';
+  if(s)s.style.top=((t*60)%720)+'px';
 }
 
-// ── Logo ──
+// ── Logo: ONLY on s0 and s18, no overlap ──
 function animLogo(t){
-  const l=document.getElementById('logoImg');
+  const l=document.getElementById('logoLayer');
   if(!l)return;
-  // Logo visible only during s0 and s18
   let op=0;
-  if(t<18){op=t<1?t/1:clamp((18-t)/1.5,0,1);}
-  else if(t>=593){op=clamp((t-593)/2,0,1);}
+  // Title card: logo behind text, fades out early
+  if(t<18){
+    if(t<1.5)op=t/1.5;
+    else if(t<4)op=1;
+    else op=clamp((14-t)/2,0,1); // gone by t=14, text stays till 20
+  }
+  // Closing card
+  else if(t>=592){op=clamp((t-592)/2,0,1);}
   l.style.opacity=op;
-  // Pulse scale
-  const sc=1+Math.sin(t*1.5)*0.03;
-  l.querySelector('img').style.transform=`scale(${sc})`;
+  l.querySelector('img').style.transform=`scale(${1+Math.sin(t*1.2)*.02})`;
 }
 
 // ── Gaussian splat canvas ──
 function drawSplats(ctx,p){
-  ctx.clearRect(0,0,600,600);
-  const cx=300,cy=300;
+  ctx.clearRect(0,0,520,520);
+  const cx=260,cy=260;
   const splats=[
-    {x:300,y:300,r:180,c:'14,165,233',a:.45},
-    {x:200,y:230,r:150,c:'139,92,246',a:.35},
-    {x:410,y:250,r:130,c:'16,185,129',a:.3},
-    {x:260,y:420,r:110,c:'251,146,60',a:.25},
-    {x:400,y:400,r:120,c:'56,189,248',a:.3},
-    {x:160,y:370,r:90,c:'244,63,94',a:.2},
+    {x:260,y:260,r:160,c:'14,165,233',a:.4},
+    {x:170,y:190,r:130,c:'139,92,246',a:.3},
+    {x:370,y:210,r:115,c:'16,185,129',a:.25},
+    {x:220,y:370,r:100,c:'251,146,60',a:.22},
+    {x:350,y:350,r:110,c:'56,189,248',a:.25},
+    {x:140,y:310,r:80,c:'244,63,94',a:.18},
   ];
   splats.forEach((s,i)=>{
-    const t=clamp((p-i*.1)/.25,0,1);
+    const t=clamp((p-i*.08)/.2,0,1);
     const ep=easeOut(t);
     const r=s.r*ep;
     if(r<1)return;
     const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r);
     g.addColorStop(0,`rgba(${s.c},${s.a*ep})`);
-    g.addColorStop(.3,`rgba(${s.c},${s.a*ep*.7})`);
-    g.addColorStop(.6,`rgba(${s.c},${s.a*ep*.3})`);
+    g.addColorStop(.35,`rgba(${s.c},${s.a*ep*.6})`);
+    g.addColorStop(.65,`rgba(${s.c},${s.a*ep*.2})`);
     g.addColorStop(1,`rgba(${s.c},0)`);
     ctx.beginPath();ctx.arc(s.x,s.y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
   });
-  // Query point + rings
-  const qp=clamp((p-.55)/.15,0,1);
+  // Query pulse rings
+  const qp=clamp((p-.5)/.12,0,1);
   if(qp>0){
-    const ringP=(p-.7)%1;
-    if(ringP>0&&ringP<1){
-      ctx.beginPath();ctx.arc(cx,cy,80*ringP,0,Math.PI*2);
-      ctx.strokeStyle=`rgba(255,255,255,${(.3*(1-ringP))*qp})`;ctx.lineWidth=2;ctx.stroke();
+    for(let ring=0;ring<3;ring++){
+      const rp=((p-.6+ring*.2)%1);
+      if(rp>0&&rp<1){
+        ctx.beginPath();ctx.arc(cx,cy,90*rp,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(255,255,255,${(.25*(1-rp))*qp})`;ctx.lineWidth=1.5;ctx.stroke();
+      }
     }
-    const ringP2=((p-.7)+.3)%1;
-    if(ringP2>0&&ringP2<1){
-      ctx.beginPath();ctx.arc(cx,cy,80*ringP2,0,Math.PI*2);
-      ctx.strokeStyle=`rgba(255,255,255,${(.2*(1-ringP2))*qp})`;ctx.lineWidth=1.5;ctx.stroke();
-    }
-    ctx.beginPath();ctx.arc(cx,cy,10*easeOut(qp),0,Math.PI*2);
+    ctx.beginPath();ctx.arc(cx,cy,8*easeOut(qp),0,Math.PI*2);
     ctx.fillStyle=`rgba(255,255,255,${qp})`;ctx.fill();
+    // Connection lines
     [0,1,2,4].forEach((j,i)=>{
-      const lp=clamp((p-.65-i*.06)/.15,0,1);
+      const lp=clamp((p-.6-i*.05)/.12,0,1);
       if(lp>0){
-        ctx.strokeStyle=`rgba(56,189,248,${lp*.5})`;ctx.lineWidth=1.5;
-        ctx.setLineDash([8,6]);
-        ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(splats[j].x,splats[j].y);ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.beginPath();ctx.arc(splats[j].x,splats[j].y,8*lp,0,Math.PI*2);
-        ctx.fillStyle=`rgba(56,189,248,${lp*.6})`;ctx.fill();
+        ctx.strokeStyle=`rgba(56,189,248,${lp*.4})`;ctx.lineWidth=1;
+        ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(splats[j].x,splats[j].y);ctx.stroke();
+        ctx.setLineDash([]);ctx.beginPath();ctx.arc(splats[j].x,splats[j].y,6*lp,0,Math.PI*2);
+        ctx.fillStyle=`rgba(56,189,248,${lp*.5})`;ctx.fill();
       }
     });
   }
   // Labels
-  const lp2=clamp((p-.4)/.2,0,1);
+  const lp2=clamp((p-.35)/.15,0,1);
   if(lp2>0){
-    ctx.font='bold 16px "Segoe UI",system-ui,sans-serif';
-    ctx.textAlign='center';
-    ctx.fillStyle=`rgba(255,255,255,${lp2*.8})`;
-    ctx.fillText('μ',cx,cy+4);
-    ctx.font='13px "Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle=`rgba(148,163,184,${lp2*.7})`;
-    ctx.fillText('α = opacity',cx,cy+50*lp2);
-    ctx.fillText('κ = concentration',cx,cy+68*lp2);
+    ctx.font='bold 18px "Inter","Segoe UI",system-ui,sans-serif';ctx.textAlign='center';
+    ctx.fillStyle=`rgba(255,255,255,${lp2*.85})`;ctx.fillText('μ',cx,cy+5);
+    ctx.font='12px "Inter","Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle=`rgba(148,163,184,${lp2*.7})`;ctx.fillText('α = opacity',cx,cy+48*lp2);
+    ctx.fillText('κ = concentration',cx,cy+64*lp2);
   }
 }
 
-// ── Bar chart ──
+// ── Bar chart — ACCURATE log scale, proper QPS display ──
 function drawChart(ctx,p){
-  ctx.clearRect(0,0,1100,500);
+  ctx.clearRect(0,0,1060,480);
   const methods=[
-    {name:'Linear Scan',qps:10.55,color:'244,63,94',lat:'94.79ms',recall:'—',tag:'baseline'},
-    {name:'SplatDB GPU (RTX 3090)',qps:12195,color:'56,189,248',lat:'0.082ms',recall:'—',tag:'4.1× vs CPU'},
-    {name:'SplatDB HNSW',qps:658,color:'251,146,60',lat:'1.52ms',recall:'98.6%',tag:'recall king'},
-    {name:'Faiss HNSW M=32',qps:9758,color:'139,92,246',lat:'0.10ms',recall:'99.3%',tag:'14.8× QPS'},
-    {name:'Faiss IVF-PQ',qps:10039,color:'52,211,153',lat:'0.10ms',recall:'69.0%',tag:'lossy'},
+    {name:'Linear Scan',qps:10.55,color:'244,63,94',lat:'94.79ms',recall:'—',tag:'BASELINE'},
+    {name:'SplatDB HNSW',qps:658,color:'251,146,60',lat:'1.52ms',recall:'98.6%',tag:'RECALL KING'},
+    {name:'Faiss IVF-PQ',qps:10039,color:'52,211,153',lat:'0.10ms',recall:'69%',tag:'LOSSY'},
+    {name:'Faiss HNSW',qps:9758,color:'139,92,246',lat:'0.10ms',recall:'99.3%',tag:'CPU CHAMP'},
+    {name:'SplatDB GPU',qps:12195,color:'56,189,248',lat:'0.082ms',recall:'—',tag:'🚀 FASTEST'},
   ];
-  const maxQ=11000,barH=45,gap=24,startX=310,maxW=700,startY=44;
 
-  ctx.font='18px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.3)';
-  ctx.textAlign='left';ctx.fillText('SIFT-128 — 100K vectors, Ryzen 5 3400G + RTX 3090, 16GB RAM — log scale',startX,startY-14);
+  const barH=42,gap=20,startX=320,maxW=650,startY=50;
+  // Log scale from 1 to 15000
+  const logMin=0,logMax=Math.log10(15000);
+  function logW(qps){return(Math.log10(Math.max(qps,1))-logMin)/(logMax-logMin)*maxW}
 
-  const logMax=Math.log10(maxQ);
-  function logW(qps){return(Math.log10(Math.max(qps,0.5))/logMax)*maxW}
+  // Grid lines
+  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=1;
+  [10,100,1000,10000].forEach(v=>{
+    const x=startX+logW(v);
+    ctx.beginPath();ctx.moveTo(x,startY-8);ctx.lineTo(x,startY+5*(barH+gap)-8);ctx.stroke();
+    ctx.font='10px "JetBrains Mono",monospace';ctx.fillStyle='rgba(255,255,255,.2)';ctx.textAlign='center';
+    ctx.fillText(v>=1000?(v/1000)+'K':v,x,startY+5*(barH+gap)+6);
+  });
+
+  // Title
+  ctx.font='13px "Inter",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.3)';
+  ctx.textAlign='left';ctx.fillText('QPS — log₁₀ scale',startX,startY-18);
 
   methods.forEach((m,i)=>{
     const y=startY+i*(barH+gap);
-    const t=clamp((p-i*.15)/.25,0,1);
+    const t=clamp((p-i*.12)/.2,0,1);
     const ep=easeOut4(t);
     const w=logW(m.qps)*ep;
 
-    ctx.font='18px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='right';
-    ctx.fillText(m.name,startX-14,y+barH/2+6);
+    // Label
+    ctx.font='600 15px "Inter",system-ui,sans-serif';ctx.fillStyle='#e2e8f0';ctx.textAlign='right';
+    ctx.fillText(m.name,startX-14,y+barH/2+5);
 
-    ctx.fillStyle='rgba(255,255,255,.03)';
-    ctx.beginPath();ctx.roundRect(startX,y,maxW,barH,8);ctx.fill();
+    // Track bg
+    ctx.fillStyle='rgba(255,255,255,.015)';
+    ctx.beginPath();ctx.roundRect(startX,y,maxW,barH,6);ctx.fill();
 
     if(w>2){
+      // Bar gradient
       const grad=ctx.createLinearGradient(startX,0,startX+w,0);
-      grad.addColorStop(0,`rgba(${m.color},.9)`);
-      grad.addColorStop(1,`rgba(${m.color},.5)`);
+      grad.addColorStop(0,`rgba(${m.color},.85)`);
+      grad.addColorStop(1,`rgba(${m.color},.45)`);
       ctx.fillStyle=grad;
-      ctx.beginPath();ctx.roundRect(startX,y,Math.max(w,8),barH,8);ctx.fill();
+      ctx.beginPath();ctx.roundRect(startX,y,Math.max(w,6),barH,6);ctx.fill();
+      // Glow
+      ctx.shadowColor=`rgba(${m.color},.3)`;ctx.shadowBlur=12;
+      ctx.fillStyle='transparent';ctx.beginPath();ctx.roundRect(startX,y,Math.max(w,6),barH,6);ctx.fill();
+      ctx.shadowBlur=0;
     }
 
-    const vp=clamp((p-i*.15-.08)/.18,0,1);
+    // Values
+    const vp=clamp((p-i*.12-.06)/.15,0,1);
     if(vp>0){
-      ctx.font='bold 20px "Courier New",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
-      const displayQPS=m.qps<100?(m.qps*vp).toFixed(1):Math.floor(m.qps*vp);
-      ctx.fillText(`${displayQPS} QPS`,startX+w+12,y+barH/2-2);
-      ctx.font='13px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.35)';
-      ctx.fillText(`${m.lat}  recall: ${m.recall}`,startX+w+12,y+barH/2+16);
-      if(m.tag!=='baseline'){
-        ctx.font='bold 14px "Segoe UI",system-ui,sans-serif';
-        ctx.fillStyle=`rgba(56,189,248,${vp})`;
-        ctx.fillText(m.tag,startX+w+12,y+barH/2+34);
-      }
+      // QPS number
+      ctx.font='bold 18px "JetBrains Mono",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
+      const displayQPS=m.qps<100?(m.qps*vp).toFixed(1):Math.floor(m.qps*vp).toLocaleString();
+      ctx.fillText(displayQPS+' QPS',startX+w+14,y+barH/2-4);
+      // Latency + recall
+      ctx.font='11px "JetBrains Mono",monospace';ctx.fillStyle='rgba(255,255,255,.35)';
+      ctx.fillText(m.lat+'  R:'+m.recall,startX+w+14,y+barH/2+12);
+      // Tag
+      ctx.font='bold 10px "Inter",system-ui,sans-serif';
+      ctx.fillStyle=`rgba(${m.color},${vp})`;
+      ctx.fillText(m.tag,startX+w+14,y+barH/2+26);
     }
   });
 
-  // Faiss vs SplatDB honest callout
-  const ap=clamp((p-.75)/.15,0,1);
+  // Bottom callout
+  const ap=clamp((p-.7)/.12,0,1);
   if(ap>0){
-    ctx.font='bold 22px "Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle=`rgba(251,146,60,${ap})`;ctx.textAlign='center';
-    ctx.fillText('SplatDB GPU: 12,195 QPS | Faiss HNSW: 9,758 QPS | Same hardware, honest numbers',550,startY+5*(barH+gap)+16);
-    ctx.font='15px "Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle=`rgba(148,163,184,${ap*.7})`;
-    ctx.fillText('SplatDB GPU beats Faiss CPU. SplatDB adds uncertainty, semantic memory, MCP, spatial.',550,startY+5*(barH+gap)+42);
+    ctx.font='bold 16px "Inter",system-ui,sans-serif';ctx.fillStyle=`rgba(56,189,248,${ap})`;ctx.textAlign='center';
+    ctx.fillText('Same hardware. Honest numbers. Real benchmark.',530,startY+5*(barH+gap)+30);
   }
 }
 
 // ── Graph canvas ──
 function drawGraph(ctx,p){
-  ctx.clearRect(0,0,800,500);
+  ctx.clearRect(0,0,760,460);
   const nodes=[
-    {x:400,y:250,r:30,c:'56,189,248',label:'Brian',type:'entity'},
-    {x:200,y:150,r:25,c:'139,92,246',label:'SplatDB\ndocs',type:'doc'},
-    {x:600,y:150,r:25,c:'16,185,129',label:'Auth\ndecision',type:'doc'},
-    {x:250,y:380,r:20,c:'251,146,60',label:'Rust',type:'entity'},
-    {x:550,y:380,r:20,c:'244,63,94',label:'CUDA',type:'entity'},
-    {x:150,y:280,r:18,c:'56,189,248',label:'Vector\nSearch',type:'doc'},
+    {x:380,y:230,r:32,c:'56,189,248',label:'Brian',type:'entity'},
+    {x:180,y:130,r:26,c:'139,92,246',label:'SplatDB\ndocs',type:'doc'},
+    {x:580,y:130,r:26,c:'16,185,129',label:'Auth\ndecision',type:'doc'},
+    {x:230,y:360,r:22,c:'251,146,60',label:'Rust',type:'entity'},
+    {x:530,y:360,r:22,c:'244,63,94',label:'CUDA',type:'entity'},
+    {x:130,y:260,r:20,c:'56,189,248',label:'Vector\nSearch',type:'doc'},
   ];
   const edges=[
     {from:0,to:1,label:'WORKS_ON'},{from:0,to:3,label:'USES'},
@@ -564,43 +689,37 @@ function drawGraph(ctx,p){
     {from:0,to:2,label:'MADE'},{from:3,to:4,label:'COMPILES_TO'},
   ];
 
-  // Draw edges
+  // Edges
   edges.forEach((e,i)=>{
-    const t=clamp((p-i*.08)/.2,0,1);
+    const t=clamp((p-i*.07)/.18,0,1);
     if(t<=0)return;
     const a=nodes[e.from],b=nodes[e.to];
-    ctx.strokeStyle=`rgba(148,163,184,${t*.4})`;ctx.lineWidth=1.5;
-    ctx.setLineDash([6,4]);
-    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    ctx.strokeStyle=`rgba(148,163,184,${t*.35})`;ctx.lineWidth=1.5;
+    ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
     ctx.setLineDash([]);
-    // Label
     const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-    ctx.font='11px "Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle=`rgba(148,163,184,${t*.6})`;ctx.textAlign='center';
-    ctx.fillText(e.label,mx,my-6);
+    ctx.font='10px "JetBrains Mono",monospace';ctx.fillStyle=`rgba(148,163,184,${t*.55})`;ctx.textAlign='center';
+    ctx.fillText(e.label,mx,my-5);
   });
 
-  // Draw nodes
+  // Nodes
   nodes.forEach((n,i)=>{
-    const t=clamp((p-i*.06-.1)/.2,0,1);
+    const t=clamp((p-i*.05-.08)/.18,0,1);
     if(t<=0)return;
     const ep=easeOut(t);
     const r=n.r*ep;
     // Glow
-    const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*2);
-    g.addColorStop(0,`rgba(${n.c},${.15*ep})`);
-    g.addColorStop(1,`rgba(${n.c},0)`);
-    ctx.beginPath();ctx.arc(n.x,n.y,r*2,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+    const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*2.2);
+    g.addColorStop(0,`rgba(${n.c},${.12*ep})`);g.addColorStop(1,`rgba(${n.c},0)`);
+    ctx.beginPath();ctx.arc(n.x,n.y,r*2.2,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
     // Circle
     ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
-    ctx.fillStyle=`rgba(${n.c},${.3*ep})`;ctx.fill();
-    ctx.strokeStyle=`rgba(${n.c},${.6*ep})`;ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle=`rgba(${n.c},${.25*ep})`;ctx.fill();
+    ctx.strokeStyle=`rgba(${n.c},${.55*ep})`;ctx.lineWidth=2;ctx.stroke();
     // Label
     if(ep>.5){
-      ctx.font='bold 12px "Segoe UI",system-ui,sans-serif';
-      ctx.fillStyle=`rgba(255,255,255,${ep})`;ctx.textAlign='center';
-      const lines=n.label.split('\n');
-      lines.forEach((l,li)=>ctx.fillText(l,n.x,n.y+4+(li-lines.length/2)*14));
+      ctx.font='bold 11px "Inter",system-ui,sans-serif';ctx.fillStyle=`rgba(255,255,255,${ep})`;ctx.textAlign='center';
+      n.label.split('\n').forEach((l,li)=>ctx.fillText(l,n.x,n.y+4+(li-n.label.split('\n').length/2)*14));
     }
   });
 }
@@ -609,14 +728,13 @@ function drawGraph(ctx,p){
 function animPipeline(p,ids){
   for(let i=0;i<ids.length;i++){
     const el=document.getElementById(ids[i]);
-    if(el)el.classList.toggle('active',p>i*.18+.05);
+    if(el)el.classList.toggle('active',p>i*.15+.04);
   }
 }
 
-// ── Main seekTo ── NO CSS transitions, pure JS opacity ──
+// ── Main seekTo — pure JS opacity, NO CSS transitions ──
 function seekTo(time){
-  // Scene visibility — fadeT controls crossfade
-  const fadeT=0.8;
+  const fadeT=0.7;
   SCENES.forEach(s=>{
     const el=document.getElementById(s.id);
     let op=0;
@@ -629,46 +747,21 @@ function seekTo(time){
     el.style.opacity=op;
   });
 
-  // Global animations
-  animOrbs(time);
-  animGradBg(time);
+  drawParticles(time);
   animScanline(time);
   animLogo(time);
 
-  // S2: Gaussian splat canvas
-  if(time>=45&&time<80){
-    const p=clamp((time-45)/30,0,1);
-    drawSplats(document.getElementById('splatCanvas').getContext('2d'),p);
-  }
-
-  // S4: HRM2 pipeline
-  if(time>=115&&time<155){
-    const p=(time-115)/40;
-    animPipeline(p,['ps0','ps1','ps2','ps3']);
-  }
-
-  // S5: Benchmark chart
-  if(time>=155&&time<205){
-    const p=clamp((time-155)/40,0,1);
-    drawChart(document.getElementById('chartCanvas').getContext('2d'),p);
-  }
-
-  // S8: Graph canvas
-  if(time>=280&&time<320){
-    const p=clamp((time-280)/30,0,1);
-    drawGraph(document.getElementById('graphCanvas').getContext('2d'),p);
-  }
-
-  // S9: Semantic Memory pipeline
-  if(time>=320&&time<355){
-    const p=(time-320)/35;
-    animPipeline(p,['sm0','sm1','sm2','sm3']);
-  }
+  if(time>=50&&time<85){const p=clamp((time-50)/28,0,1);drawSplats(document.getElementById('splatCanvas').getContext('2d'),p);}
+  if(time>=115&&time<150){animPipeline((time-115)/35,['ps0','ps1','ps2','ps3']);}
+  if(time>=150&&time<200){drawChart(document.getElementById('chartCanvas').getContext('2d'),clamp((time-150)/35,0,1));}
+  if(time>=275&&time<315){drawGraph(document.getElementById('graphCanvas').getContext('2d'),clamp((time-275)/28,0,1));}
+  if(time>=315&&time<350){animPipeline((time-315)/35,['sm0','sm1','sm2','sm3']);}
 }
 
-// Initial state: everything invisible
+// Init
 document.querySelectorAll('.scene').forEach(el=>el.style.opacity=0);
-document.getElementById('logoImg').style.opacity=0;
+document.getElementById('logoLayer').style.opacity=0;
+initParticles();
 </script>
 </body>
 </html>
