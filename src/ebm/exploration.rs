@@ -1,6 +1,6 @@
 //! EBM Exploration — exploration of the energy landscape.
 //! Find high-uncertainty regions, sample uncertain points, suggest exploration.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 /// A region in energy space.
 #[derive(Debug, Clone)]

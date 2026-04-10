@@ -1,4 +1,4 @@
-# SplatDB Security Audit Report
+# SplatsDB Security Audit Report
 
 **Date:** 2026-04-05
 **Scope:** Full codebase — 82 source files, all dependencies

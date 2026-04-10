@@ -1,4 +1,4 @@
-//! Energy functions for the SplatDB Gaussian Splat landscape.
+//! Energy functions for the SplatsDB Gaussian Splat landscape.
 //!
 //! Ported from Python m2m/energy.py.
 //!

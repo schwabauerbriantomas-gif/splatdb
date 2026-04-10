@@ -1,8 +1,8 @@
-//! Dataset Transformer — data transformations for SplatDB datasets.
+//! Dataset Transformer — data transformations for SplatsDB datasets.
 //!
 //! Handles normalization, splitting, augmentation, format conversion,
 //! and Gaussian Splat generation via KMeans clustering.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,7 @@ impl Default for TransformConfig {
     }
 }
 
-/// Dataset transformer for SplatDB.
+/// Dataset transformer for SplatsDB.
 pub struct DatasetTransformer {
     config: TransformConfig,
     mean: Option<Array1<f32>>,

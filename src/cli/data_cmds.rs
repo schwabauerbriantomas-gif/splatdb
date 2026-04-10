@@ -2,12 +2,12 @@
 
 use std::path::PathBuf;
 
-use splatdb::quantization::{QuantAlgorithm, QuantConfig, QuantizedStore};
-use splatdb::{SplatDBConfig, SplatStore};
+use splatsdb::quantization::{QuantAlgorithm, QuantConfig, QuantizedStore};
+use splatsdb::{SplatsDBConfig, SplatStore};
 
 use super::helpers::*;
 
-pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatDBConfig, verbose: bool) {
+pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatsDBConfig, verbose: bool) {
     let (store, persist) = load_or_create_store(&data_dir, &config);
     let stats = store.get_statistics();
 
@@ -23,7 +23,7 @@ pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatDBConfig, ve
             out["shards"] = serde_json::json!(p.list_shards());
         }
         let strategy =
-            splatdb::interfaces::select_index_strategy(stats.n_active, stats.embedding_dim);
+            splatsdb::interfaces::select_index_strategy(stats.n_active, stats.embedding_dim);
         out["index_strategy"] = serde_json::json!({
             "recommended": strategy.recommended,
             "reason": strategy.reason,
@@ -36,7 +36,7 @@ pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatDBConfig, ve
     );
 }
 
-pub fn cmd_soc_check(data_dir: String, config: SplatDBConfig) {
+pub fn cmd_soc_check(data_dir: String, config: SplatsDBConfig) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -47,8 +47,8 @@ pub fn cmd_soc_check(data_dir: String, config: SplatDBConfig) {
         std::process::exit(1);
     }
 
-    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(
         mu.expect("mu checked above"),
         alpha.expect("alpha checked above"),
@@ -69,7 +69,7 @@ pub fn cmd_soc_check(data_dir: String, config: SplatDBConfig) {
     );
 }
 
-pub fn cmd_soc_avalanche(data_dir: String, config: SplatDBConfig, seed: Option<usize>) {
+pub fn cmd_soc_avalanche(data_dir: String, config: SplatsDBConfig, seed: Option<usize>) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -80,8 +80,8 @@ pub fn cmd_soc_avalanche(data_dir: String, config: SplatDBConfig, seed: Option<u
         std::process::exit(1);
     }
 
-    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(
         mu.expect("mu checked above"),
         alpha.expect("alpha checked above"),
@@ -100,7 +100,7 @@ pub fn cmd_soc_avalanche(data_dir: String, config: SplatDBConfig, seed: Option<u
     );
 }
 
-pub fn cmd_soc_relax(data_dir: String, config: SplatDBConfig, iterations: usize) {
+pub fn cmd_soc_relax(data_dir: String, config: SplatsDBConfig, iterations: usize) {
     let (store, _) = load_or_create_store(&data_dir, &config);
     let mu = store.get_mu();
     let alpha = store.get_alpha();
@@ -111,8 +111,8 @@ pub fn cmd_soc_relax(data_dir: String, config: SplatDBConfig, iterations: usize)
         std::process::exit(1);
     }
 
-    let energy_api = splatdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
+    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
+    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
     soc.update_splats(
         mu.expect("mu checked above"),
         alpha.expect("alpha checked above"),
@@ -132,7 +132,7 @@ pub fn cmd_soc_relax(data_dir: String, config: SplatDBConfig, iterations: usize)
     );
 }
 
-pub fn cmd_save(data_dir: String, config: SplatDBConfig, shard: String) {
+pub fn cmd_save(data_dir: String, config: SplatsDBConfig, shard: String) {
     let (store, persist) = load_or_create_store(&data_dir, &config);
     let persist = match persist {
         Some(p) => p,
@@ -296,7 +296,7 @@ pub fn cmd_quant_index(input: PathBuf, bits: u8, algorithm: String, seed: u64) {
     };
     let dim = vectors.ncols();
     eprintln!(
-        "[splatdb] Quantizing {} vectors ({}D, {}-bit)",
+        "[splatsdb] Quantizing {} vectors ({}D, {}-bit)",
         vectors.nrows(),
         dim,
         bits
@@ -388,9 +388,9 @@ pub fn cmd_quant_status(dim: usize) {
 }
 
 pub fn cmd_gpu_info() {
-    let cuda_available = splatdb::gpu::is_cuda_available();
-    let gpu_info = splatdb::gpu::gpu_info();
-    let device = splatdb::config::detect_device();
+    let cuda_available = splatsdb::gpu::is_cuda_available();
+    let gpu_info = splatsdb::gpu::gpu_info();
+    let device = splatsdb::config::detect_device();
 
     println!(
         "{}",
@@ -407,11 +407,11 @@ pub fn cmd_gpu_info() {
 
 pub fn cmd_preset_info(preset: Option<String>) {
     let presets = vec![
-        ("simple", SplatDBConfig::simple(None)),
-        ("advanced", SplatDBConfig::advanced(None)),
-        ("training", SplatDBConfig::training(None)),
-        ("distributed", SplatDBConfig::distributed(None)),
-        ("gpu", SplatDBConfig::gpu(None)),
+        ("simple", SplatsDBConfig::simple(None)),
+        ("advanced", SplatsDBConfig::advanced(None)),
+        ("training", SplatsDBConfig::training(None)),
+        ("distributed", SplatsDBConfig::distributed(None)),
+        ("gpu", SplatsDBConfig::gpu(None)),
     ];
 
     let filtered: Vec<_> = if let Some(ref name) = preset {
@@ -482,12 +482,12 @@ pub fn cmd_preset_info(preset: Option<String>) {
 }
 
 pub fn cmd_serve(port: u16, host: &str) {
-    println!("[splatdb] Starting API server on {}:{}...", host, port);
+    println!("[splatsdb] Starting API server on {}:{}...", host, port);
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     let host_owned = host.to_string();
     rt.block_on(async {
-        if let Err(e) = splatdb::api_server::run_server(&host_owned, port).await {
-            eprintln!("[splatdb] Server error: {}", e);
+        if let Err(e) = splatsdb::api_server::run_server(&host_owned, port).await {
+            eprintln!("[splatsdb] Server error: {}", e);
             std::process::exit(1);
         }
     });

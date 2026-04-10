@@ -1,6 +1,6 @@
-//! Cluster client for distributed SplatDB search.
+//! Cluster client for distributed SplatsDB search.
 //! Handles query routing, result aggregation, and failover.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 
@@ -19,8 +19,8 @@ pub enum ClusterError {
 /// Type alias for local search function: takes (query, k) → Vec<(doc_id, distance)>
 pub type LocalSearchFn = Box<dyn FnMut(&[f32], usize) -> Vec<(usize, f64)>>;
 
-/// Client for interacting with a SplatDB cluster.
-pub struct SplatDBClusterClient {
+/// Client for interacting with a SplatsDB cluster.
+pub struct SplatsDBClusterClient {
     coordinator_url: Option<String>,
     fallback_edges: Vec<String>,
     in_memory_router: Option<ClusterRouter>,
@@ -30,7 +30,7 @@ pub struct SplatDBClusterClient {
     aggregator: ResultAggregator,
 }
 
-impl SplatDBClusterClient {
+impl SplatsDBClusterClient {
     pub fn new(
         coordinator_url: Option<String>,
         fallback_edges: Vec<String>,
@@ -169,7 +169,7 @@ mod tests {
         router.register_edge("e1", "localhost:8001", 1.0);
         router.register_edge("e2", "localhost:8002", 1.0);
 
-        let mut client = SplatDBClusterClient::new_embedded(router);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
 
         // Register mock search functions
         client.register_edge_search_fn(
@@ -198,7 +198,7 @@ mod tests {
         router.register_edge("e1", "localhost:8001", 1.0);
         router.register_edge("e2", "localhost:8002", 1.0);
 
-        let mut client = SplatDBClusterClient::new_embedded(router);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
         let edges = vec!["e1".to_string(), "e2".to_string()];
 
         let docs: Vec<String> = (0..100).map(|i| format!("doc_{}", i)).collect();
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_no_router_returns_error() {
-        let mut client = SplatDBClusterClient::new(None, Vec::new(), None);
+        let mut client = SplatsDBClusterClient::new(None, Vec::new(), None);
         let result = client.search(&[0.1], 10, "broadcast");
         assert!(result.is_err());
     }
@@ -255,7 +255,7 @@ mod tests {
         }
 
         // 3. Build client with mock search functions simulating per-edge data
-        let mut client = SplatDBClusterClient::new_embedded(router);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
 
         for edge_id in &edge_ids {
             let docs = per_edge_docs.get(edge_id).cloned().unwrap_or_default();

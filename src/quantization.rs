@@ -1,4 +1,4 @@
-//! TurboQuant integration for SplatDB Vector Search.
+//! TurboQuant integration for SplatsDB Vector Search.
 //!
 //! Compresses 640D splat embeddings to 4-8 bits per value with minimal accuracy loss.
 //! Uses data-oblivious quantization — no training, no codebooks, instant indexing.

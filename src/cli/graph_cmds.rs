@@ -2,7 +2,7 @@
 //!
 //! Wraps the `graph_splat::GaussianGraphStore` operations for CLI use.
 
-use splatdb::graph_splat::GaussianGraphStore;
+use splatsdb::graph_splat::GaussianGraphStore;
 
 use super::helpers::*;
 

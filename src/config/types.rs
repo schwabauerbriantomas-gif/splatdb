@@ -1,6 +1,6 @@
-//! SplatDB Configuration Types
+//! SplatsDB Configuration Types
 //!
-//! Enums and data types used by SplatDBConfig.
+//! Enums and data types used by SplatsDBConfig.
 
 use serde::{Deserialize, Serialize};
 use std::any::Any;

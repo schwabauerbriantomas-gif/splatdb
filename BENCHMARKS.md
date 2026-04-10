@@ -1,4 +1,4 @@
-# BENCHMARKS.md — SplatDB Rust
+# BENCHMARKS.md — SplatsDB Rust
 
 > All benchmarks measured on **2026-03-29**.  
 > Hardware: AMD Ryzen 5 3400G (4c/8t), 32GB DDR4, NVIDIA RTX 3090 (24GB VRAM, sm_86, CUDA 12.4).  

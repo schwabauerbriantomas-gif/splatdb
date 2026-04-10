@@ -5,7 +5,7 @@
 //! - Warm (RAM): Recently accessed splats
 //! - Cold (Disk/HashMap): Infrequently accessed splats
 //!
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};

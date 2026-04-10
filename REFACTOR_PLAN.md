@@ -1,4 +1,4 @@
-# SplatDB Security Refactoring Plan — 98 Findings
+# SplatsDB Security Refactoring Plan — 98 Findings
 
 ## Group 1: Replace unsafe transmutes with bytemuck (14 instances, 6 files)
 - [ ] Add `bytemuck` to Cargo.toml

@@ -1,6 +1,6 @@
 //! GPU Vector Index — persistent index for fast batch search.
 //! CPU implementation using ndarray (ready for GPU backend swap).
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 //!
 //! Memory layout mirrors the GPU design:
 //!   - Index Buffer: [N x D] uploaded once, never reallocated

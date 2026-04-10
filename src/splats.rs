@@ -1,11 +1,11 @@
-//! SplatStore - Main API for SplatDB Vector Search.
+//! SplatStore - Main API for SplatsDB Vector Search.
 //! Ported from Python splats.py. CPU-only.
 
 use crate::dataset_transformer;
 use crate::interfaces::VectorIndex;
 use ndarray::{Array1, Array2, ArrayView1};
 
-use crate::config::SplatDBConfig;
+use crate::config::SplatsDBConfig;
 use crate::hrm2_engine::HRM2Engine;
 
 /// Result of a neighbor search.
@@ -26,7 +26,7 @@ pub struct NeighborResult {
 /// - `enable_lsh` → CrossPolytopeLSH for approximate search
 /// - `enable_semantic_memory` → SemanticMemoryDB for hybrid text+vector search
 pub struct SplatStore {
-    config: SplatDBConfig,
+    config: SplatsDBConfig,
     max_splats: usize,
     n_active: usize,
     mu: Array2<f32>,
@@ -49,7 +49,7 @@ pub struct SplatStore {
 
 impl SplatStore {
     /// New.
-    pub fn new(config: SplatDBConfig) -> Self {
+    pub fn new(config: SplatsDBConfig) -> Self {
         let max_splats = config.max_splats;
         let dim = config.latent_dim;
         let n_coarse = (((max_splats as f64).sqrt() / 10.0) as usize).max(10);
@@ -210,7 +210,7 @@ impl SplatStore {
         // Auto-save HNSW if data_dir provided
         if let Some(dir) = data_dir {
             if let Err(e) = self.save_hnsw(dir) {
-                eprintln!("[splatdb] Warning: failed to save HNSW index: {}", e);
+                eprintln!("[splatsdb] Warning: failed to save HNSW index: {}", e);
             }
         }
     }
@@ -225,7 +225,7 @@ impl SplatStore {
 
         // Try to load persisted HNSW first
         if self.hnsw.is_some() && self.try_load_hnsw(data_dir) {
-            eprintln!("[splatdb] Loaded persisted HNSW index from disk");
+            eprintln!("[splatsdb] Loaded persisted HNSW index from disk");
             self.hnsw_indexed_count = self.n_active;
 
             // Still need to build other indexes (HRM2, quant, LSH) if not done
@@ -264,7 +264,7 @@ impl SplatStore {
                 true
             }
             Err(e) => {
-                eprintln!("[splatdb] Warning: failed to load HNSW index: {}", e);
+                eprintln!("[splatsdb] Warning: failed to load HNSW index: {}", e);
                 false
             }
         }
@@ -281,7 +281,7 @@ impl SplatStore {
             let path = dir.join("hnsw_index.bin");
             hnsw.save(&path)?;
             eprintln!(
-                "[splatdb] Saved HNSW index ({} vectors) to {}",
+                "[splatsdb] Saved HNSW index ({} vectors) to {}",
                 hnsw.n_items(),
                 path.display()
             );
@@ -337,7 +337,7 @@ impl SplatStore {
         if count > 0 {
             if let Err(e) = self.save_hnsw(data_dir) {
                 eprintln!(
-                    "[splatdb] Warning: failed to save HNSW after incremental sync: {}",
+                    "[splatsdb] Warning: failed to save HNSW after incremental sync: {}",
                     e
                 );
             }
@@ -360,7 +360,7 @@ impl SplatStore {
             self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
-                    eprintln!("[splatdb] Warning: failed to save HNSW after insert: {}", e);
+                    eprintln!("[splatsdb] Warning: failed to save HNSW after insert: {}", e);
                 }
             }
         }
@@ -385,7 +385,7 @@ impl SplatStore {
             self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
-                    eprintln!("[splatdb] Warning: failed to save HNSW after batch: {}", e);
+                    eprintln!("[splatsdb] Warning: failed to save HNSW after batch: {}", e);
                 }
             }
         }
@@ -1047,15 +1047,15 @@ pub struct SplatStoreStats {
 mod tests {
     use super::*;
 
-    fn test_config() -> SplatDBConfig {
-        let mut c = SplatDBConfig::default();
+    fn test_config() -> SplatsDBConfig {
+        let mut c = SplatsDBConfig::default();
         c.max_splats = 1000;
         c.latent_dim = 64;
         c
     }
 
-    fn test_config_with_hnsw() -> SplatDBConfig {
-        let mut c = SplatDBConfig::default();
+    fn test_config_with_hnsw() -> SplatsDBConfig {
+        let mut c = SplatsDBConfig::default();
         c.max_splats = 2000;
         c.latent_dim = 32;
         c.enable_hnsw = true;
@@ -1257,7 +1257,7 @@ mod tests {
 
     #[test]
     fn test_incremental_hnsw_persistence() {
-        let dir = std::env::temp_dir().join("splatdb_incremental_test");
+        let dir = std::env::temp_dir().join("splatsdb_incremental_test");
         std::fs::create_dir_all(&dir).unwrap();
         let data_dir = dir.to_str().unwrap();
 
@@ -1398,7 +1398,7 @@ mod tests {
 
     #[test]
     fn test_find_neighbors_filtered() {
-        let mut store = SplatStore::new(SplatDBConfig::default());
+        let mut store = SplatStore::new(SplatsDBConfig::default());
         // Insert 100 vectors in 2 distinct clusters
         let dim = store.get_statistics().embedding_dim;
         let mut all_data = Vec::new();

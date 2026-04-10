@@ -1,6 +1,6 @@
 //! Backend Communication Protocol — structured messaging, health checks,
 //! performance metrics, and dead letter queue.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -28,7 +28,7 @@ pub enum Priority {
     Critical = 2,
 }
 
-/// Structured message between SplatDB backends.
+/// Structured message between SplatsDB backends.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendMessage {
     pub sender: String,
@@ -142,7 +142,7 @@ pub struct BackendMetrics {
     pub uptime_seconds: f64,
 }
 
-/// Communication protocol between SplatDB backends.
+/// Communication protocol between SplatsDB backends.
 ///
 /// Provides:
 /// - Priority message bus

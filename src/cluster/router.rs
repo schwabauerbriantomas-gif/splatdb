@@ -1,6 +1,6 @@
 //! Cluster router with energy-aware routing support.
 //! Wraps EnergyRouter and LoadBalancer for unified routing.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::{HashMap, HashSet};
 

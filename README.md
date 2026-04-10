@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="logo.svg" alt="SplatDB Logo" width="200" height="200"/>
+  <img src="assets/logo-splatsdb.png" alt="SplatsDB Logo" width="200" height="200"/>
 </p>
 
-<h1 align="center">SplatDB</h1>
+<h1 align="center">SplatsDB</h1>
 
 <p align="center">
 Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a single Rust binary.
 </p>
 
-[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-295%20passing-brightgreen.svg)]()
@@ -18,24 +18,24 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 ---
 
 <p align="center">
-  <a href="https://github.com/schwabauerbriantomas-gif/splatdb/releases/download/v2.5.0/splatdb-explainer.mp4">
-    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-10_min-00e5ff?style=for-the-badge" alt="SplatDB Explainer Video"/>
+  <a href="https://github.com/schwabauerbriantomas-gif/splatsdb/releases/download/v2.5.0/splatsdb-explainer.mp4">
+    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-10_min-00e5ff?style=for-the-badge" alt="SplatsDB Explainer Video"/>
   </a>
 </p>
 
 > **🎬 10-minute explainer** — Gaussian Splatting, HRM2 retrieval, GPU benchmarks, and real Faiss comparison in 10 minutes.
 
 <p align="center">
-  <img src="demo-search.png" alt="SplatDB Search Demo" width="720"/>
+  <img src="assets/splatsdb-confidence.png" alt="SplatsDB Confidence Scoring Demo" width="720"/>
 </p>
 
 <p align="center"><sub>Search returns confidence scores based on κ (concentration) — agents know when to trust results.</sub></p>
 
 ---
 
-## Why SplatDB?
+## Why SplatsDB?
 
-SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possible brute-force ANN on a single metric, Faiss wins. SplatDB's differentials are:
+SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possible brute-force ANN on a single metric, Faiss wins. SplatsDB's differentials are:
 
 - **Uncertainty-aware retrieval**: Queries return confidence scores derived from κ (concentration). Ambiguous or out-of-distribution queries get flagged as "low confidence." No other vector DB does this.
 - **GraphSplat hybrid search**: Vector similarity + knowledge graph traversal in one engine. LangChain and LlamaIndex typically need 3 separate tools (vector store, graph DB, fusion layer) to achieve the same result.
@@ -44,7 +44,7 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 
 ### Comparison
 
-| Feature | SplatDB | Faiss | Pinecone | Qdrant | Milvus/Zilliz | LanceDB |
+| Feature | SplatsDB | Faiss | Pinecone | Qdrant | Milvus/Zilliz | LanceDB |
 |---------|---------|-------|----------|--------|---------------|---------|
 | Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
 | License | MIT | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
@@ -63,13 +63,13 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 | Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Pricing (cloud managed) | **Free** | N/A | $50–$500/mo | Usage-based | $99–$155/mo | Free |
 
-> **Honest note**: Faiss remains the gold standard for raw CPU throughput on pure ANN benchmarks (HNSW 14.8× faster QPS on CPU). However, SplatDB GPU (RTX 3090) beats Faiss CPU at 12,195 QPS. Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
+> **Honest note**: Faiss remains the gold standard for raw CPU throughput on pure ANN benchmarks (HNSW 14.8× faster QPS on CPU). However, SplatsDB GPU (RTX 3090) beats Faiss CPU at 12,195 QPS. Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatsDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
 
 ---
 
 ## Table of Contents
 
-- [Why SplatDB?](#why-splatdb)
+- [Why SplatsDB?](#why-splatsdb)
 - [What Is This?](#what-is-this)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
@@ -93,14 +93,14 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 
 ## What Is This?
 
-SplatDB applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
+SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
 
 - **Richer similarity semantics** via splat overlap instead of point-to-point distance
 - **Natural compression** through distribution parameters (3–8 bit quantization)
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 14 CUDA GPU kernels (6 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatDB provides a full-featured vector search engine in ~29K lines of pure Rust + CUDA.
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 14 CUDA GPU kernels (6 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~29K lines of pure Rust + CUDA.
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -111,6 +111,8 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 ---
 
 ## Architecture
+
+<p align="center"><img src="assets/splatsdb-architecture.png" alt="SplatsDB Architecture" width="900"/></p>
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -145,18 +147,18 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 
 ### 30-Second Trial (No Rust Needed)
 
-Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatdb/releases) and run:
+Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatsdb/releases) and run:
 
 ```bash
 # Index pre-computed embeddings (any dimension, any provider)
 # Format: [u64 n] [u64 dim] [f32 × n × dim]
-splatdb index --input embeddings.bin
+splatsdb index --input embeddings.bin
 
 # Search with a query vector
-splatdb search --query "0.12,0.45,-0.33,..." -k 10
+splatsdb search --query "0.12,0.45,-0.33,..." -k 10
 
 # Or start MCP server for your AI agent
-splatdb mcp
+splatsdb mcp
 ```
 
 ### With Real Embeddings (OpenAI / Cohere / Local)
@@ -177,14 +179,14 @@ print(f'Wrote {n} vectors, dim={dim}')
 "
 
 # Step 2: Index and search
-splatdb index --input embeddings.bin
-splatdb search --query "0.12,0.45,-0.33,..." -k 10
+splatsdb index --input embeddings.bin
+splatsdb search --query "0.12,0.45,-0.33,..." -k 10
 
 # Step 3 (optional): MCP server for agents
-splatdb mcp  # starts JSON-RPC on stdio
+splatsdb mcp  # starts JSON-RPC on stdio
 ```
 
-> **Note**: The MCP server can auto-embed text using a local embedding service (`all-MiniLM-L6-v2` via `SPLATDB_EMBED_URL`). For production, always provide real embeddings — the built-in SimCos hash is for demos only.
+> **Note**: The MCP server can auto-embed text using a local embedding service (`all-MiniLM-L6-v2` via `SPLATSDB_EMBED_URL`). For production, always provide real embeddings — the built-in SimCos hash is for demos only.
 
 ### Build from Source
 
@@ -209,24 +211,24 @@ cargo test --lib
 
 ```bash
 # Check engine status
-./target/release/splatdb status --verbose
+./target/release/splatsdb status --verbose
 
 # Search with a query vector
-./target/release/splatdb search --query "0.1,0.2,0.3,...,-0.5" -k 10
+./target/release/splatsdb search --query "0.1,0.2,0.3,...,-0.5" -k 10
 
 # Start MCP server for AI agent integration
-./target/release/splatdb mcp
+./target/release/splatsdb mcp
 
 # Start HTTP API server
-./target/release/splatdb serve --host 0.0.0.0 --port 8199
+./target/release/splatsdb serve --host 0.0.0.0 --port 8199
 
 # Ingest vectors from binary file
-./target/release/splatdb ingest --input vectors.bin --n-clusters 100
+./target/release/splatsdb ingest --input vectors.bin --n-clusters 100
 ```
 
 ### Binary Format
 
-SplatDB uses a simple binary format for vector data:
+SplatsDB uses a simple binary format for vector data:
 
 ```
 [ u64: number of rows ] [ u64: number of columns ] [ f32 × rows × cols: data ]
@@ -238,7 +240,7 @@ SplatDB uses a simple binary format for vector data:
 
 ### Gaussian Splat Embeddings
 
-Traditional vector databases store raw embedding vectors and compute point-to-point distances. SplatDB represents each document as a **probabilistic Gaussian**:
+Traditional vector databases store raw embedding vectors and compute point-to-point distances. SplatsDB represents each document as a **probabilistic Gaussian**:
 
 - **μ (mean)**: Position in embedding space — the "center" of the concept
 - **α (opacity)**: How strongly this document is represented — akin to importance weight
@@ -270,7 +272,7 @@ This reduces search from O(N) to O(N/P) with minimal recall loss.
 
 > ⚠️ **SimCos is for quick demos only.** For production, always use real embeddings (OpenAI, Cohere, MiniLM, etc). SimCos uses trigram hashing — it has no semantic understanding.
 
-When no pre-computed embeddings are provided, SplatDB uses **SimCos** — a similarity-consistent n-gram hashing scheme:
+When no pre-computed embeddings are provided, SplatsDB uses **SimCos** — a similarity-consistent n-gram hashing scheme:
 
 - Character trigrams are extracted from text
 - Each trigram is hashed into the embedding dimension
@@ -304,6 +306,8 @@ A high κ means the document is tightly focused — it matches few queries, but 
 
 ## Benchmarks
 
+<p align="center"><img src="assets/splatsdb-benchmarks.png" alt="SplatsDB Benchmarks" width="900"/></p>
+
 All numbers are **measured on real hardware** and independently validated. No simulated or estimated data.
 
 ### Methodology
@@ -329,7 +333,7 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
 
-> **Build time note**: HNSW construction at 100K vectors takes ~25 minutes (M=32, ef_construction=400). This is slower than Faiss HNSW (~30s for 100K) because SplatDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
+> **Build time note**: HNSW construction at 100K vectors takes ~25 minutes (M=32, ef_construction=400). This is slower than Faiss HNSW (~30s for 100K) because SplatsDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
@@ -344,22 +348,22 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 ### Faiss Comparison (Same Hardware, Same Dataset)
 
-> Honest, reproducible side-by-side. Same Ryzen 5 3400G + RTX 3090, same SIFT-128 100K dataset, same k=64. Faiss from `faiss-cpu` 1.13.2. SplatDB from `bench-hnsw` + `bench-gpu` CLI.
+> Honest, reproducible side-by-side. Same Ryzen 5 3400G + RTX 3090, same SIFT-128 100K dataset, same k=64. Faiss from `faiss-cpu` 1.13.2. SplatsDB from `bench-hnsw` + `bench-gpu` CLI.
 
 || Index | Build Time | p50 Latency | p99 Latency | QPS | Recall@64 |
 |-------|-----------|-------------|-------------|------|-----------|
 | Faiss HNSW (M=32, efSearch=100) | 24.5s | 0.10ms | 0.18ms | **9,758** | 0.9926 |
 | Faiss IVFFlat (nprobe=32) | 3.0s | 0.10ms | 0.15ms | **10,039** | 0.69 |
-| SplatDB HNSW (CPU, ef=100) | 88s | 1.52ms | 2.52ms | 658 | **0.986** |
-| **SplatDB GPU (RTX 3090, k=10)** | — | **0.082ms** | **0.095ms** | **12,195** | — |
+| SplatsDB HNSW (CPU, ef=100) | 88s | 1.52ms | 2.52ms | 658 | **0.986** |
+| **SplatsDB GPU (RTX 3090, k=10)** | — | **0.082ms** | **0.095ms** | **12,195** | — |
 
 **Takeaways:**
-- SplatDB GPU (12,195 QPS) **beats Faiss HNSW CPU** (9,758 QPS) — 1.25× faster
+- SplatsDB GPU (12,195 QPS) **beats Faiss HNSW CPU** (9,758 QPS) — 1.25× faster
 - GPU speedup over CPU: **4.1×** for brute-force top-k
-- Faiss HNSW CPU is still 14.8× faster than SplatDB HNSW CPU — Faiss uses highly optimized C++ with BLAS/SIMD
-- SplatDB achieves competitive recall (0.986 vs 0.993)
-- SplatDB build is ~3.6× slower — computes splat parameters (α, κ) during indexing
-- SplatDB's value is not just QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in one binary
+- Faiss HNSW CPU is still 14.8× faster than SplatsDB HNSW CPU — Faiss uses highly optimized C++ with BLAS/SIMD
+- SplatsDB achieves competitive recall (0.986 vs 0.993)
+- SplatsDB build is ~3.6× slower — computes splat parameters (α, κ) during indexing
+- SplatsDB's value is not just QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in one binary
 - Full results: `bench-data/benchmark_results_hardware.json`
 
 ### LongMemEval Agent Memory Benchmark
@@ -388,9 +392,9 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 | temporal-reasoning | 133 | 95.5% |
 | single-session-user | 70 | 88.6% |
 
-**SplatDB HNSW search** (500 sessions, 384d, 500 queries, spatial pre-filter → ~48 candidates): 3,125 QPS, P50 0.029ms, P95 0.036ms
+**SplatsDB HNSW search** (500 sessions, 384d, 500 queries, spatial pre-filter → ~48 candidates): 3,125 QPS, P50 0.029ms, P95 0.036ms
 
-**What this validates**: With real sentence embeddings, SplatDB achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
+**What this validates**: With real sentence embeddings, SplatsDB achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
 
 - Full results: `bench-data/longmemeval_full_results.json`
 - Benchmark script: `bench-data/longmemeval_full.py`
@@ -446,7 +450,7 @@ An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 1
 | Method | Latency | QPS | Speedup |
 |--------|---------|-----|---------|
 | Linear scan | 94.79 ms | 10.55 | baseline |
-| SplatDB HRM2 | 0.99 ms | 1,012.77 | **32.4x** |
+| SplatsDB HRM2 | 0.99 ms | 1,012.77 | **32.4x** |
 
 ---
 
@@ -465,13 +469,13 @@ Seven presets cover edge devices to GPU clusters. Each preset configures all sub
 | `gpu` | CUDA servers | 5M | 4-bit TurboQuant | ✅ | ✅ | ✅ | ✅ M=48 | — |
 
 ```rust
-use splatdb::config::SplatDBConfig;
+use splatsdb::config::SplatsDBConfig;
 
-let edge    = SplatDBConfig::simple(None);              // Raspberry Pi
-let agent   = SplatDBConfig::mcp(None);                 // AI agent memory (auto GPU)
-let heavy   = SplatDBConfig::advanced(Some("cuda"));    // Full-featured with GPU
-let server  = SplatDBConfig::gpu(None);                 // Maximum GPU performance
-let cluster = SplatDBConfig::distributed(Some("cpu"));  // Multi-node deployment
+let edge    = SplatsDBConfig::simple(None);              // Raspberry Pi
+let agent   = SplatsDBConfig::mcp(None);                 // AI agent memory (auto GPU)
+let heavy   = SplatsDBConfig::advanced(Some("cuda"));    // Full-featured with GPU
+let server  = SplatsDBConfig::gpu(None);                 // Maximum GPU performance
+let cluster = SplatsDBConfig::distributed(Some("cpu"));  // Multi-node deployment
 ```
 
 **Device auto-detection**: Pass `None` to auto-detect (CUDA → Vulkan → CPU). Pass `Some("cuda")`, `Some("vulkan")`, or `Some("cpu")` to force a specific device.
@@ -491,13 +495,13 @@ Start
 
 ## CLI Reference
 
-SplatDB provides a comprehensive CLI for all operations. Global options apply to every command.
+SplatsDB provides a comprehensive CLI for all operations. Global options apply to every command.
 
 ### Global Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--data-dir <DIR>` | `./splatdb_data` | Storage directory |
+| `--data-dir <DIR>` | `./splatsdb_data` | Storage directory |
 | `--dim <DIM>` | `64` | Vector dimensionality |
 | `--max-splats <N>` | `100000` | Maximum splat capacity |
 | `--backend <BACKEND>` | `sqlite` | Metadata storage backend (`sqlite` or `json`) |
@@ -614,14 +618,14 @@ SplatDB provides a comprehensive CLI for all operations. Global options apply to
 
 ## MCP Server (AI Agent Integration)
 
-SplatDB includes a built-in **Model Context Protocol** server for direct integration with AI agents. The MCP server uses stdio transport with JSON-RPC 2.0 and auto-loads the `mcp` preset with GPU auto-detection.
+SplatsDB includes a built-in **Model Context Protocol** server for direct integration with AI agents. The MCP server uses stdio transport with JSON-RPC 2.0 and auto-loads the `mcp` preset with GPU auto-detection.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SPLATDB_DOC_PATH` | `~/.hermes/splatdb_docs.db` | SQLite database path for document persistence |
-| `SPLATDB_EMBED_URL` | `http://127.0.0.1:8788/embed` | Embedding service URL (MiniLM or compatible) |
+| `SPLATSDB_DOC_PATH` | `~/.hermes/splatsdb_docs.db` | SQLite database path for document persistence |
+| `SPLATSDB_EMBED_URL` | `http://127.0.0.1:8788/embed` | Embedding service URL (MiniLM or compatible) |
 
 ### Security & Stability Features
 
@@ -641,8 +645,8 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 ```json
 {
   "mcp_servers": {
-    "splatdb": {
-      "command": "/path/to/splatdb",
+    "splatsdb": {
+      "command": "/path/to/splatsdb",
       "args": ["mcp"],
       "timeout": 30
     }
@@ -656,52 +660,52 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_store` | `text` | `id`, `category`, `embedding`, `wing`, `room`, `hall` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. Spatial params (`wing`/`room`/`hall`) enable pre-filter search via `splatdb_spatial_search`. **For production, always provide real embeddings via the `embedding` field.** |
-| `splatdb_search` | `query` | `top_k`, `embedding` | Semantic search. Returns ranked results with similarity scores. |
-| `splatdb_status` | — | — | Engine status: dimension, doc count, active indexes, quantization state. |
+| `splatsdb_store` | `text` | `id`, `category`, `embedding`, `wing`, `room`, `hall` | Store a memory. Auto-embeds text via SimCos, or accepts pre-computed embedding. Spatial params (`wing`/`room`/`hall`) enable pre-filter search via `splatsdb_spatial_search`. **For production, always provide real embeddings via the `embedding` field.** |
+| `splatsdb_search` | `query` | `top_k`, `embedding` | Semantic search. Returns ranked results with similarity scores. |
+| `splatsdb_status` | — | — | Engine status: dimension, doc count, active indexes, quantization state. |
 
 #### Document Store (SQLite-Backed)
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_doc_add` | `id`, `text` | `metadata` (JSON) | Store document with metadata. Persists to SQLite. Survives restarts. |
-| `splatdb_doc_get` | `id` | — | Retrieve document by ID. Returns text, metadata, timestamps. |
-| `splatdb_doc_del` | `id` | — | Soft-delete a document. |
+| `splatsdb_doc_add` | `id`, `text` | `metadata` (JSON) | Store document with metadata. Persists to SQLite. Survives restarts. |
+| `splatsdb_doc_get` | `id` | — | Retrieve document by ID. Returns text, metadata, timestamps. |
+| `splatsdb_doc_del` | `id` | — | Soft-delete a document. |
 
 #### Knowledge Graph (GraphSplat)
 
 | Tool | Required Params | Optional Params | Description |
 |------|----------------|-----------------|-------------|
-| `splatdb_graph_add_doc` | `text` | — | Add document node. Auto-embeds text via SimCos (**use real embeddings in production**). |
-| `splatdb_graph_add_entity` | `name`, `entity_type` | — | Add entity node (person, org, location, concept). Auto-embeds name via SimCos (**use real embeddings in production**). |
-| `splatdb_graph_add_relation` | `source_id`, `target_id`, `relation_type` | `weight` | Add directed edge between nodes. |
-| `splatdb_graph_traverse` | `text` | `max_depth`, `add_doc` | BFS traversal. Auto-embeds query, finds nearest node, traverses graph. Use `--add-doc` to add the text as a document first. |
-| `splatdb_graph_search` | `query` | `k` | Hybrid search: vector similarity + graph context boost. |
-| `splatdb_graph_search_entities` | `query` | `k` | Search entity nodes by embedding similarity. |
-| `splatdb_graph_stats` | — | — | Node counts, edge counts, entity/document breakdown. |
-| `splatdb_spatial_search` | `query` | `wing`, `room`, `hall`, `top_k` | Search with spatial filters. Pre-filters by wing/room/hall metadata before vector search for higher recall. |
-| `splatdb_spatial_info` | — | — | Show spatial memory structure: wings, rooms, halls, tunnels (auto-detected cross-wing connections). |
+| `splatsdb_graph_add_doc` | `text` | — | Add document node. Auto-embeds text via SimCos (**use real embeddings in production**). |
+| `splatsdb_graph_add_entity` | `name`, `entity_type` | — | Add entity node (person, org, location, concept). Auto-embeds name via SimCos (**use real embeddings in production**). |
+| `splatsdb_graph_add_relation` | `source_id`, `target_id`, `relation_type` | `weight` | Add directed edge between nodes. |
+| `splatsdb_graph_traverse` | `text` | `max_depth`, `add_doc` | BFS traversal. Auto-embeds query, finds nearest node, traverses graph. Use `--add-doc` to add the text as a document first. |
+| `splatsdb_graph_search` | `query` | `k` | Hybrid search: vector similarity + graph context boost. |
+| `splatsdb_graph_search_entities` | `query` | `k` | Search entity nodes by embedding similarity. |
+| `splatsdb_graph_stats` | — | — | Node counts, edge counts, entity/document breakdown. |
+| `splatsdb_spatial_search` | `query` | `wing`, `room`, `hall`, `top_k` | Search with spatial filters. Pre-filters by wing/room/hall metadata before vector search for higher recall. |
+| `splatsdb_spatial_info` | — | — | Show spatial memory structure: wings, rooms, halls, tunnels (auto-detected cross-wing connections). |
 
 ### Example: AI Agent Session
 
 ```
-Agent: splatdb_store(text="User prefers dark mode and Spanish language")
+Agent: splatsdb_store(text="User prefers dark mode and Spanish language")
 → {"id": "mem_1", "status": "stored"}
 
-Agent: splatdb_graph_add_entity(name="Brian", entity_type="person")
+Agent: splatsdb_graph_add_entity(name="Brian", entity_type="person")
 → {"entity_type": "person", "name": "Brian", "node_id": 1}
 
-Agent: splatdb_graph_add_doc(text="Brian works on SplatDB, a vector search engine")
+Agent: splatsdb_graph_add_doc(text="Brian works on SplatsDB, a vector search engine")
 → {"node_id": 2, "node_type": "document"}
 
-Agent: splatdb_graph_add_relation(source_id=2, target_id=1, relation_type="MENTIONS")
+Agent: splatsdb_graph_add_relation(source_id=2, target_id=1, relation_type="MENTIONS")
 → {"ok": true, "relation_type": "MENTIONS"}
 
-Agent: splatdb_search(query="user preferences", top_k=5)
+Agent: splatsdb_search(query="user preferences", top_k=5)
 → {"results": [{"id": "mem_1", "score": 0.95, "text": "User prefers dark mode..."}]}
 
-Agent: splatdb_graph_search(query="who works on vector search", k=3)
-→ {"results": [{"content": "Brian works on SplatDB...", "score": 0.49}]}
+Agent: splatsdb_graph_search(query="who works on vector search", k=3)
+→ {"results": [{"content": "Brian works on SplatsDB...", "score": 0.49}]}
 ```
 
 ### Persistence
@@ -715,14 +719,14 @@ The MCP server uses SQLite with WAL mode for document storage. On restart, all d
 Start an HTTP server for integration with Python, Node.js, or any HTTP client:
 
 ```bash
-./target/release/splatdb serve --host 0.0.0.0 --port 8199 --data-dir ./data
+./target/release/splatsdb serve --host 0.0.0.0 --port 8199 --data-dir ./data
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--host` | `127.0.0.1` | Bind address |
 | `--port` | `8199` | Listen port |
-| `--data-dir` | `./splatdb_data` | Storage directory |
+| `--data-dir` | `./splatsdb_data` | Storage directory |
 | `--dim` | `64` | Vector dimensionality |
 | `--max-splats` | `100000` | Max capacity |
 | `--backend` | `sqlite` | Metadata backend |
@@ -810,11 +814,11 @@ Response:
 ## Rust API
 
 ```rust
-use splatdb::{SplatDBConfig, SplatStore};
+use splatsdb::{SplatsDBConfig, SplatStore};
 
 fn main() {
-    // Choose a preset (or use SplatDBConfig::default())
-    let config = SplatDBConfig::mcp(None);  // AI agent memory, auto GPU
+    // Choose a preset (or use SplatsDBConfig::default())
+    let config = SplatsDBConfig::mcp(None);  // AI agent memory, auto GPU
     let mut store = SplatStore::new(config);
 
     // Insert vectors
@@ -856,7 +860,7 @@ fn main() {
 
 ## GPU Acceleration
 
-SplatDB supports CUDA GPU acceleration via custom PTX kernels compiled at build time.
+SplatsDB supports CUDA GPU acceleration via custom PTX kernels compiled at build time.
 
 ### Requirements
 
@@ -892,20 +896,20 @@ With 100K vectors (640D) on an RTX 3090:
 
 ```bash
 # Show CUDA device info
-./target/release/splatdb gpu-info
+./target/release/splatsdb gpu-info
 
 # Benchmark GPU vs CPU
-./target/release/splatdb bench-gpu --n-vectors 100000 --dim 640 --n-queries 100 --top-k 10
+./target/release/splatsdb bench-gpu --n-vectors 100000 --dim 640 --n-queries 100 --top-k 10
 
 # Full pipeline benchmark (ingest + index + search + GPU)
-./target/release/splatdb bench-gpu-ingest --n-vectors 100000 --dim 640 --n-queries 100
+./target/release/splatsdb bench-gpu-ingest --n-vectors 100000 --dim 640 --n-queries 100
 ```
 
 ---
 
 ## Knowledge Graph (GraphSplat)
 
-SplatDB includes a built-in knowledge graph that augments vector search with structured relationships.
+SplatsDB includes a built-in knowledge graph that augments vector search with structured relationships.
 
 ### Node Types
 
@@ -965,13 +969,13 @@ This is what LangChain and LlamaIndex try to do with multiple tools (vector stor
 ### API
 
 ```rust
-use splatdb::graph_splat::GaussianGraphStore;
+use splatsdb::graph_splat::GaussianGraphStore;
 
 let mut graph = GaussianGraphStore::new();
 
 // Add nodes
-let doc_id = graph.add_document("SplatDB is a vector search engine", &embedding)?;
-let entity_id = graph.add_entity("SplatDB", "software", &name_embedding)?;
+let doc_id = graph.add_document("SplatsDB is a vector search engine", &embedding)?;
+let entity_id = graph.add_entity("SplatsDB", "software", &name_embedding)?;
 
 // Add relation
 graph.add_relation(doc_id, entity_id, "MENTIONS", 1.0)?;
@@ -990,7 +994,7 @@ let entities = graph.search_entities(&query_embedding, 5);
 
 ## Vector Compression (TurboQuant / PolarQuant)
 
-SplatDB supports data-oblivious vector compression that requires **no training data, no codebooks, no fine-tuning**.
+SplatsDB supports data-oblivious vector compression that requires **no training data, no codebooks, no fine-tuning**.
 
 ### Algorithms
 
@@ -1003,13 +1007,13 @@ SplatDB supports data-oblivious vector compression that requires **no training d
 
 ```bash
 # Build compressed index
-./target/release/splatdb quant-index --algorithm turbo --bits 4
+./target/release/splatsdb quant-index --algorithm turbo --bits 4
 
 # Search compressed codes
-./target/release/splatdb quant-search --query "0.1,..." --top-k 10
+./target/release/splatsdb quant-search --query "0.1,..." --top-k 10
 
 # Check status
-./target/release/splatdb quant-status
+./target/release/splatsdb quant-status
 ```
 
 ### Compression Ratio
@@ -1023,7 +1027,7 @@ With 4-bit TurboQuant on 640D vectors:
 
 ## Semantic Memory
 
-SplatDB combines **BM25 text search** with **vector similarity** using Reciprocal Rank Fusion (RRF).
+SplatsDB combines **BM25 text search** with **vector similarity** using Reciprocal Rank Fusion (RRF).
 
 ### How RRF Works
 
@@ -1043,7 +1047,7 @@ Optional: recent memories can be weighted higher via exponential decay with conf
 
 > Inspired by [MemPalace's](https://github.com/milla-jovovich/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
 
-Most vector DBs store only embeddings — the original text is lost or truncated. SplatDB's planned verbatim storage keeps three layers per document:
+Most vector DBs store only embeddings — the original text is lost or truncated. SplatsDB's planned verbatim storage keeps three layers per document:
 
 | Layer | Content | Size | Purpose |
 |-------|---------|------|---------|
@@ -1060,7 +1064,7 @@ MCP query → Vector search finds top-5 splats
          → Drawer lookup: exact original text returned
 ```
 
-This is the opposite of how Pinecone/Qdrant handle text — they truncate or discard it. SplatDB keeps the source of truth because for agent memory, losing *why* a decision was made kills future recall.
+This is the opposite of how Pinecone/Qdrant handle text — they truncate or discard it. SplatsDB keeps the source of truth because for agent memory, losing *why* a decision was made kills future recall.
 
 **Status**: Planned. The building blocks exist (SQLite persistence, BM25 text index, MCP server). Pending: summary extraction pipeline and drawer API.
 
@@ -1072,17 +1076,17 @@ The concept: a compressed representation that any LLM can read natively without 
 
 ```
 Original text (1,200 tokens):
-  "On January 15th, 2025, the team decided to migrate from Faiss to SplatDB
+  "On January 15th, 2025, the team decided to migrate from Faiss to SplatsDB
    for the production vector search pipeline. The primary motivation was the
    need for uncertainty-aware retrieval and knowledge graph integration.
    Brian will lead the migration, targeting completion by end of Q1."
 
 Compressed (~40 tokens, 30x):
-  "2025-01-15: migrate Faiss→SplatDB prod. reason: uncertainty+KG.
+  "2025-01-15: migrate Faiss→SplatsDB prod. reason: uncertainty+KG.
    lead: Brian. target: Q1 end."
 ```
 
-**Why this matters for SplatDB:**
+**Why this matters for SplatsDB:**
 - TurboQuant gives 8x on vectors → 30x on text is the bigger win for agent memory
 - MCP server can return compressed summaries within token budgets
 - Agent only fetches full drawer when needed → saves ~90% tokens on average query
@@ -1093,7 +1097,7 @@ Compressed (~40 tokens, 30x):
 
 ## Energy-Based Model
 
-SplatDB models the embedding space as an energy landscape:
+SplatsDB models the embedding space as an energy landscape:
 
 ```
 E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
@@ -1112,13 +1116,13 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ```bash
 # Check current energy state
-./target/release/splatdb soc-check
+./target/release/splatsdb soc-check
 
 # Trigger avalanche (reorganize splats for better coverage)
-./target/release/splatdb soc-avalanche --iterations 100
+./target/release/splatsdb soc-avalanche --iterations 100
 
 # Relax toward lower energy
-./target/release/splatdb soc-relax --iterations 50
+./target/release/splatsdb soc-relax --iterations 50
 ```
 
 ---
@@ -1180,7 +1184,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ### 🔜 Planned
 
-- **Docker image**: `docker run splatdb` for instant trial without Rust/CUDA setup
+- **Docker image**: `docker run splatsdb` for instant trial without Rust/CUDA setup
 - **Test coverage reporting**: CI integration with `tarpaulin` or `llvm-cov`
 - **CI with GPU**: GitHub Actions runner with CUDA for integration testing
 - **Verbatim storage**: Store original document text alongside splats for exact recall (alpha — concept defined, implementation pending)
@@ -1192,7 +1196,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 > Inspired by [MemPalace](https://github.com/milla-jovovich/mempalace) — organizing memory like a physical space.
 
-SplatDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
+SplatsDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -1214,9 +1218,9 @@ SplatDB's KMeans++ clusters are currently pure geometry — they group vectors b
 └─────────────────────────────────────────────────┘
 ```
 
-### How It Maps to SplatDB
+### How It Maps to SplatsDB
 
-| Spatial Concept | SplatDB Equivalent | Purpose |
+| Spatial Concept | SplatsDB Equivalent | Purpose |
 |----------------|-------------------|---------|
 | **Wing** | Top-level metadata tag | Scope queries to a project/persona |
 | **Room** | KMeans++ coarse cluster + label | Semantic grouping within a wing |
@@ -1265,12 +1269,14 @@ Spatial memory has an initial implementation. The building blocks exist:
 - ✅ BM25 + vector hybrid (can filter by hall type)
 - ✅ Named cluster labels auto-assigned from document content (TF keyword extraction, EN+ES stopwords)
 - ✅ Full search pipeline integration (spatial pre-filter → vector search via `find_neighbors_filtered`)
-- ✅ MCP tools: `splatdb_spatial_search`, `splatdb_spatial_info`
+- ✅ MCP tools: `splatsdb_spatial_search`, `splatsdb_spatial_info`
 - ✅ Spatial query API (`search --wing project-x --room auth --hall decisions`)
 
 ---
 
 ## Competitive Landscape
+
+<p align="center"><img src="assets/splatsdb-features.png" alt="SplatsDB Feature Comparison" width="900"/></p>
 
 ### Market Position (DB-Engines Vector DBMS Ranking, April 2026)
 
@@ -1283,7 +1289,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 | 9 | Weaviate | 4.42 | Go, BSD-3 |
 | 11 | Chroma | — | Python+Rust, embedded |
 | 16 | LanceDB | — | Rust, embedded, emergent |
-| — | **SplatDB** | — | Rust, embedded+cluster, MIT |
+| — | **SplatsDB** | — | Rust, embedded+cluster, MIT |
 
 ### Cloud Pricing Comparison
 
@@ -1295,9 +1301,9 @@ Spatial memory has an initial implementation. The building blocks exist:
 | Weaviate Cloud | 14-day trial | $45/mo Flex | $400/mo |
 | Chroma Cloud | $0 + usage | $250/mo Team | Custom |
 | LanceDB | **Free** (self-hosted) | — | — |
-| **SplatDB** | **Free forever** | — | — |
+| **SplatsDB** | **Free forever** | — | — |
 
-### Where SplatDB Wins
+### Where SplatsDB Wins
 
 1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval: **96.6% recall@10** with spatial pre-filter vs 86.2% best in original paper.
 
@@ -1307,7 +1313,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 4. **Embedded + Cluster** — Works as CLI tool, Rust library, MCP server, or distributed cluster. Milvus and Qdrant require a separate server process. Chroma is embedded but limited to single-node.
 
-5. **Cost** — Free, self-hosted, no usage limits. Pinecone charges $50/mo minimum. Zilliz starts at $99/GB. SplatDB runs on a $5 VPS.
+5. **Cost** — Free, self-hosted, no usage limits. Pinecone charges $50/mo minimum. Zilliz starts at $99/GB. SplatsDB runs on a $5 VPS.
 
 ### Where Competitors Win (Honest Assessment)
 
@@ -1316,15 +1322,15 @@ Spatial memory has an initial implementation. The building blocks exist:
 | Raw QPS (single-node) | Faiss | 4–6x faster (optimized C++ + SIMD) |
 | Ecosystem integrations | Milvus, Qdrant | LangChain, LlamaIndex, Haystack, 50+ connectors |
 | Managed cloud | Pinecone, Qdrant | Zero-ops deployments, auto-scaling |
-| Dataset scale (proven) | Milvus | Billions of vectors (SplatDB tested to 100K) |
+| Dataset scale (proven) | Milvus | Billions of vectors (SplatsDB tested to 100K) |
 | Multi-tenancy | Qdrant | Native sharding per tenant |
 | Maturity | All competitors | Years of production use, large communities |
 
-### SplatDB's Niche
+### SplatsDB's Niche
 
 **AI agents with long-term conversational memory, RAG pipelines, and knowledge management** — where spatial pre-filtering, MCP integration, and zero-cost self-hosting matter more than raw QPS at billion-scale.
 
-The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph, no distributed sharding. SplatDB trades ecosystem maturity for deeper agent memory features.
+The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph, no distributed sharding. SplatsDB trades ecosystem maturity for deeper agent memory features.
 
 ---
 

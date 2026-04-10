@@ -1,6 +1,6 @@
-//! GPU Auto-Tuning and optimization for SplatDB.
+//! GPU Auto-Tuning and optimization for SplatsDB.
 //! Detects hardware, benchmarks performance, configures optimal parameters.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

@@ -2,7 +2,7 @@
 //!
 //! Metrics: precision@k, recall@k, anomaly detection, cross-backend comparison.
 //! Pattern: MASFactory ReflectionAgent.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ pub struct ReflectorStats {
 const MAX_HISTORY: usize = 200;
 const DEGRADATION_WINDOW: usize = 10;
 
-/// Quality reflector for SplatDB search results.
+/// Quality reflector for SplatsDB search results.
 pub struct QualityReflector {
     precision_warning: f64,
     precision_critical: f64,

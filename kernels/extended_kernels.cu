@@ -1,4 +1,4 @@
-// SplatDB Extended CUDA Kernels — Quantization, Clustering, Geometry, LSH
+// SplatsDB Extended CUDA Kernels — Quantization, Clustering, Geometry, LSH
 // Optimized for sm_86 (RTX 3090), CUDA 12.4
 // All kernels assume row-major [N, D] layout
 //

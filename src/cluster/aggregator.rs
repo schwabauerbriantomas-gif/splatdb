@@ -1,6 +1,6 @@
 //! Result aggregator for distributed search.
 //! Supports RRF (Reciprocal Rank Fusion) and score-based merge.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

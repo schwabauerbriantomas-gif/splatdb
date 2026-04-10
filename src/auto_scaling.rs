@@ -1,6 +1,6 @@
-//! Auto-Scaling for SplatDB Cluster.
+//! Auto-Scaling for SplatsDB Cluster.
 //! Automatic scaling based on metrics, trends, and predictions.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 
@@ -190,7 +190,7 @@ pub enum Trend {
     Stable,
 }
 
-/// Auto-scaler for SplatDB Cluster.
+/// Auto-scaler for SplatsDB Cluster.
 ///
 /// Monitors metrics and makes scaling decisions automatically.
 pub struct AutoScaler {

@@ -1,8 +1,8 @@
 use std::fmt;
 
-/// Unified error type for SplatDB operations.
+/// Unified error type for SplatsDB operations.
 #[derive(Debug)]
-pub enum SplatDBError {
+pub enum SplatsDBError {
     IndexNotBuilt,
     NoBackends,
     InvalidConfig(String),
@@ -11,22 +11,22 @@ pub enum SplatDBError {
     DimensionMismatch { expected: usize, got: usize },
 }
 
-impl fmt::Display for SplatDBError {
+impl fmt::Display for SplatsDBError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SplatDBError::IndexNotBuilt => write!(f, "index has not been built"),
-            SplatDBError::NoBackends => write!(f, "no search backends available"),
-            SplatDBError::InvalidConfig(msg) => write!(f, "invalid config: {msg}"),
-            SplatDBError::StorageError(msg) => write!(f, "storage error: {msg}"),
-            SplatDBError::SearchError(msg) => write!(f, "search error: {msg}"),
-            SplatDBError::DimensionMismatch { expected, got } => {
+            SplatsDBError::IndexNotBuilt => write!(f, "index has not been built"),
+            SplatsDBError::NoBackends => write!(f, "no search backends available"),
+            SplatsDBError::InvalidConfig(msg) => write!(f, "invalid config: {msg}"),
+            SplatsDBError::StorageError(msg) => write!(f, "storage error: {msg}"),
+            SplatsDBError::SearchError(msg) => write!(f, "search error: {msg}"),
+            SplatsDBError::DimensionMismatch { expected, got } => {
                 write!(f, "dimension mismatch: expected {expected}, got {got}")
             }
         }
     }
 }
 
-impl std::error::Error for SplatDBError {}
+impl std::error::Error for SplatsDBError {}
 
 #[cfg(test)]
 mod tests {
@@ -35,22 +35,22 @@ mod tests {
     #[test]
     fn test_display_messages() {
         let cases = vec![
-            (SplatDBError::IndexNotBuilt, "index has not been built"),
-            (SplatDBError::NoBackends, "no search backends available"),
+            (SplatsDBError::IndexNotBuilt, "index has not been built"),
+            (SplatsDBError::NoBackends, "no search backends available"),
             (
-                SplatDBError::InvalidConfig("bad param".into()),
+                SplatsDBError::InvalidConfig("bad param".into()),
                 "invalid config: bad param",
             ),
             (
-                SplatDBError::StorageError("disk full".into()),
+                SplatsDBError::StorageError("disk full".into()),
                 "storage error: disk full",
             ),
             (
-                SplatDBError::SearchError("timeout".into()),
+                SplatsDBError::SearchError("timeout".into()),
                 "search error: timeout",
             ),
             (
-                SplatDBError::DimensionMismatch {
+                SplatsDBError::DimensionMismatch {
                     expected: 128,
                     got: 64,
                 },
@@ -71,12 +71,12 @@ mod tests {
     #[test]
     fn test_error_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<SplatDBError>();
+        assert_send_sync::<SplatsDBError>();
     }
 
     #[test]
     fn test_error_debug_format() {
-        let err = SplatDBError::DimensionMismatch {
+        let err = SplatsDBError::DimensionMismatch {
             expected: 64,
             got: 32,
         };

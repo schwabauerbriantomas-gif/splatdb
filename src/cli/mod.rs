@@ -476,7 +476,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "medium")]
         size: String,
     },
-    /// Benchmark LongMemEval with SplatDB native pipeline (spatial filter + vector search)
+    /// Benchmark LongMemEval with SplatsDB native pipeline (spatial filter + vector search)
     BenchLongMemEval {
         /// Binary file with session embeddings [u64 n][u64 dim][f32 data]
         #[arg(long)]
@@ -607,7 +607,7 @@ pub fn dispatch(cli: Cli) {
             n_queries,
         } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
         Commands::Serve { port, host } => data_cmds::cmd_serve(port, &host),
-        Commands::Mcp => splatdb::mcp_server::run_mcp_server(),
+        Commands::Mcp => splatsdb::mcp_server::run_mcp_server(),
         // ── Graph Splat ──
         Commands::GraphAddDoc { text, embedding } => graph_cmds::cmd_graph_add_doc(text, embedding),
         Commands::GraphAddEntity {

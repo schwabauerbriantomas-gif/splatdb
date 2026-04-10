@@ -7,7 +7,7 @@
 //! - Result caching with TTL
 //! - Adaptive caching based on memory
 //!
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

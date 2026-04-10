@@ -3,13 +3,13 @@
 use ndarray::{Array1, Array2};
 use std::path::PathBuf;
 
-use splatdb::{
-    storage::persistence::{SplatDBPersistence, StorageBackend},
-    SplatDBConfig, SplatStore,
+use splatsdb::{
+    storage::persistence::{SplatsDBPersistence, StorageBackend},
+    SplatsDBConfig, SplatStore,
 };
 
-pub fn make_config(dim: usize, max_splats: usize) -> SplatDBConfig {
-    SplatDBConfig {
+pub fn make_config(dim: usize, max_splats: usize) -> SplatsDBConfig {
+    SplatsDBConfig {
         latent_dim: dim,
         max_splats,
         ..Default::default()
@@ -28,14 +28,14 @@ pub fn make_persistence(
     data_dir: &str,
     backend: &str,
     rw: bool,
-) -> Result<SplatDBPersistence, Box<dyn std::error::Error + Send + Sync>> {
-    SplatDBPersistence::with_backend(data_dir, resolve_backend(backend), rw)
+) -> Result<SplatsDBPersistence, Box<dyn std::error::Error + Send + Sync>> {
+    SplatsDBPersistence::with_backend(data_dir, resolve_backend(backend), rw)
 }
 
 pub fn load_or_create_store(
     data_dir: &str,
-    config: &SplatDBConfig,
-) -> (SplatStore, Option<SplatDBPersistence>) {
+    config: &SplatsDBConfig,
+) -> (SplatStore, Option<SplatsDBPersistence>) {
     let persist = make_persistence(data_dir, "sqlite", true).ok();
     let mut store = SplatStore::new(config.clone());
 
@@ -43,7 +43,7 @@ pub fn load_or_create_store(
         if let Ok(Some(vectors)) = p.load_vectors("default") {
             store.add_splat(&vectors);
             eprintln!(
-                "[splatdb] Loaded {} vectors from default shard",
+                "[splatsdb] Loaded {} vectors from default shard",
                 vectors.nrows()
             );
             // Try loading persisted HNSW first; only build from scratch if needed
@@ -122,7 +122,7 @@ pub fn load_vectors_bin(path: &PathBuf) -> Result<Array2<f32>, String> {
     Array2::from_shape_vec((rows, cols), data).map_err(|e| format!("Shape error: {}", e))
 }
 
-pub fn format_neighbors(results: &[splatdb::splats::NeighborResult], format: &str) -> String {
+pub fn format_neighbors(results: &[splatsdb::splats::NeighborResult], format: &str) -> String {
     match format {
         "json" => {
             let entries: Vec<serde_json::Value> = results

@@ -1,8 +1,8 @@
 //! Verbatim Storage and AAAK Compression CLI commands.
 
-use splatdb::text_compression;
-use splatdb::verbatim::VerbatimResult;
-use splatdb::SplatDBConfig;
+use splatsdb::text_compression;
+use splatsdb::verbatim::VerbatimResult;
+use splatsdb::SplatsDBConfig;
 
 use super::helpers::*;
 
@@ -15,7 +15,7 @@ pub fn cmd_verbatim_store(
     text: String,
     category: Option<String>,
 ) {
-    let config = SplatDBConfig::default();
+    let config = SplatsDBConfig::default();
     let (store, persist) = load_or_create_store(&data_dir, &config);
 
     let dim = store.get_statistics().embedding_dim;
@@ -74,7 +74,7 @@ pub fn cmd_verbatim_get(_data_dir: String, _backend: String, _id: String) {
     }
 }
 
-pub fn cmd_verbatim_search(data_dir: String, config: SplatDBConfig, query: String, k: usize) {
+pub fn cmd_verbatim_search(data_dir: String, config: SplatsDBConfig, query: String, k: usize) {
     let (mut store, persist) = load_or_create_store(&data_dir, &config);
 
     if store.n_active() == 0 {

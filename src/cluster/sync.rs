@@ -1,5 +1,5 @@
 //! Sync queue for offline actions and coordinator reconnection.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::time::Instant;
 

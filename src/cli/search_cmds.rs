@@ -3,13 +3,13 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use splatdb::SplatDBConfig;
+use splatsdb::SplatsDBConfig;
 
 use super::helpers::*;
 
 pub fn cmd_search(
     data_dir: String,
-    config: SplatDBConfig,
+    config: SplatsDBConfig,
     query: String,
     k: usize,
     format: String,
@@ -28,7 +28,7 @@ pub fn cmd_search(
 
 pub fn cmd_search_file(
     data_dir: String,
-    config: SplatDBConfig,
+    config: SplatsDBConfig,
     input: PathBuf,
     k: usize,
     format: String,
@@ -47,23 +47,23 @@ pub fn cmd_search_file(
 
 pub fn cmd_fused_search(
     data_dir: String,
-    config: SplatDBConfig,
+    config: SplatsDBConfig,
     query: Option<String>,
     query_file: Option<PathBuf>,
     k: usize,
 ) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
-    eprintln!("[splatdb] Query dim: {}", q.len());
+    eprintln!("[splatsdb] Query dim: {}", q.len());
     let (store, _) = load_or_create_store(&data_dir, &config);
-    eprintln!("[splatdb] Store n_active: {}", store.n_active());
+    eprintln!("[splatsdb] Store n_active: {}", store.n_active());
     let t0 = std::time::Instant::now();
-    eprintln!("[splatdb] Starting search...");
+    eprintln!("[splatsdb] Starting search...");
     let results = store.find_neighbors(&q.view(), k);
     let elapsed = t0.elapsed();
-    eprintln!("[splatdb] Search complete");
+    eprintln!("[splatsdb] Search complete");
     let formatted = format_neighbors(&results, "json");
     eprintln!(
-        "[splatdb] Fused search: {} results in {:?}",
+        "[splatsdb] Fused search: {} results in {:?}",
         results.len(),
         elapsed
     );
@@ -79,7 +79,7 @@ pub fn cmd_hnsw_search(
     k: usize,
 ) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
-    let mut cfg = SplatDBConfig::advanced(None);
+    let mut cfg = SplatsDBConfig::advanced(None);
     cfg.latent_dim = dim;
     cfg.max_splats = max_splats;
     cfg.device = "cpu".to_string();
@@ -88,8 +88,8 @@ pub fn cmd_hnsw_search(
     cfg.finalize();
 
     let (mut store, _) = load_or_create_store(&data_dir, &cfg);
-    eprintln!("[splatdb] HNSW enabled in config: {}", cfg.enable_hnsw);
-    eprintln!("[splatdb] Store has HNSW: {}", store.has_hnsw());
+    eprintln!("[splatsdb] HNSW enabled in config: {}", cfg.enable_hnsw);
+    eprintln!("[splatsdb] Store has HNSW: {}", store.has_hnsw());
     if !store.has_hnsw() {
         eprintln!("HNSW not enabled. Use 'advanced' or 'gpu' preset.");
         std::process::exit(1);
@@ -97,16 +97,16 @@ pub fn cmd_hnsw_search(
     // HNSW was already loaded or built in load_or_create_store via build_index_if_needed.
     // Only rebuild as a fallback if somehow not built.
     if store.hnsw_is_built() {
-        eprintln!("[splatdb] Using pre-built HNSW index");
+        eprintln!("[splatsdb] Using pre-built HNSW index");
     } else {
-        eprintln!("[splatdb] HNSW index not built, building now...");
+        eprintln!("[splatsdb] HNSW index not built, building now...");
         store.build_index_with_save(Some(&data_dir));
     }
     let t0 = std::time::Instant::now();
     let results = store.find_neighbors_fused(&q.view(), k);
     let elapsed = t0.elapsed();
     eprintln!(
-        "[splatdb] HNSW search: {} results in {:?}",
+        "[splatsdb] HNSW search: {} results in {:?}",
         results.len(),
         elapsed
     );
@@ -122,7 +122,7 @@ pub fn cmd_lsh_search(
     k: usize,
 ) {
     let q = resolve_query(query.as_deref(), query_file.as_ref());
-    let mut cfg = SplatDBConfig {
+    let mut cfg = SplatsDBConfig {
         latent_dim: dim,
         max_splats,
         enable_lsh: true,
@@ -142,7 +142,7 @@ pub fn cmd_lsh_search(
     let results = store.find_neighbors_fused(&q.view(), k);
     let elapsed = t0.elapsed();
     eprintln!(
-        "[splatdb] LSH search: {} results in {:?}",
+        "[splatsdb] LSH search: {} results in {:?}",
         results.len(),
         elapsed
     );
@@ -156,7 +156,7 @@ pub fn cmd_quant_search(
     query: String,
     top_k: usize,
 ) {
-    use splatdb::quantization::{QuantConfig, QuantizedStore};
+    use splatsdb::quantization::{QuantConfig, QuantizedStore};
 
     let q_vec = match parse_query(&query) {
         Ok(v) => v,
@@ -267,7 +267,7 @@ pub fn cmd_bench_hnsw(
 
     // Create store with advanced preset (HNSW enabled)
     let dir = data_dir.unwrap_or_else(|| "./bench_temp/hnsw_bench".to_string());
-    let mut cfg = SplatDBConfig::advanced(None);
+    let mut cfg = SplatsDBConfig::advanced(None);
     cfg.latent_dim = dim;
     cfg.max_splats = max_splats;
     cfg.device = "cpu".to_string();
@@ -289,7 +289,7 @@ pub fn cmd_bench_hnsw(
         metric, cfg.hnsw_ef_search, cfg.hnsw_ef_construction, cfg.over_fetch
     );
     eprintln!("[bench-hnsw] Creating SplatStore with advanced preset (HNSW enabled)...");
-    let mut store = splatdb::SplatStore::new(cfg.clone());
+    let mut store = splatsdb::SplatStore::new(cfg.clone());
 
     // Add training vectors to store
     store.add_splat(&vectors);

@@ -1,5 +1,5 @@
 //! Sharding strategies for cluster document distribution.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use crate::cluster::health::GeoLocation;
 

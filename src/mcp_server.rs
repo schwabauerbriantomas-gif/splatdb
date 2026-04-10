@@ -1,6 +1,6 @@
 //! MCP (Model Context Protocol) Server — stdio transport
 //!
-//! Exposes SplatDB Vector Search as an MCP server for AI agent integration.
+//! Exposes SplatsDB Vector Search as an MCP server for AI agent integration.
 //! Uses JSON-RPC 2.0 over stdin/stdout (stdio transport).
 //! All logs go to stderr to keep the protocol channel clean.
 //!
@@ -14,7 +14,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use crate::config::SplatDBConfig;
+use crate::config::SplatsDBConfig;
 use crate::splats::SplatStore;
 use crate::storage::metadata_store::{DocumentRecord, MetadataStore};
 use crate::storage::sqlite_store::SqliteMetadataStore;
@@ -30,7 +30,7 @@ const MAX_DOC_TEXT_CACHE: usize = 10_000;
 const MAX_WARM_START_DOCS: usize = 50_000;
 
 fn embedding_service_url() -> String {
-    std::env::var("SPLATDB_EMBED_URL").unwrap_or_else(|_| EMBEDDING_SERVICE_URL_DEFAULT.to_string())
+    std::env::var("SPLATSDB_EMBED_URL").unwrap_or_else(|_| EMBEDDING_SERVICE_URL_DEFAULT.to_string())
 }
 
 #[cfg(unix)]
@@ -161,8 +161,8 @@ struct JsonRpcError {
 fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
-            "name": "splatdb_store",
-            "description": "Store a memory in the SplatDB vector search engine. Returns the memory ID.",
+            "name": "splatsdb_store",
+            "description": "Store a memory in the SplatsDB vector search engine. Returns the memory ID.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -178,8 +178,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_search",
-            "description": "Search for similar memories in the SplatDB vector store. Returns ranked results with similarity scores.",
+            "name": "splatsdb_search",
+            "description": "Search for similar memories in the SplatsDB vector store. Returns ranked results with similarity scores.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -191,16 +191,16 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_status",
-            "description": "Get the current status of the SplatDB vector store (number of memories, dimensions, active indexes).",
+            "name": "splatsdb_status",
+            "description": "Get the current status of the SplatsDB vector store (number of memories, dimensions, active indexes).",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
             }
         }),
         json!({
-            "name": "splatdb_doc_add",
-            "description": "Add a document with metadata to the SplatDB store. Persists to SQLite.",
+            "name": "splatsdb_doc_add",
+            "description": "Add a document with metadata to the SplatsDB store. Persists to SQLite.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -212,8 +212,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_doc_get",
-            "description": "Retrieve a document by ID from the SplatDB store (SQLite-backed).",
+            "name": "splatsdb_doc_get",
+            "description": "Retrieve a document by ID from the SplatsDB store (SQLite-backed).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -223,8 +223,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_doc_del",
-            "description": "Delete a document from the SplatDB store (SQLite-backed, soft delete).",
+            "name": "splatsdb_doc_del",
+            "description": "Delete a document from the SplatsDB store (SQLite-backed, soft delete).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -235,7 +235,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         // ── Graph Splat tools ──────────────────────────────────────────────
         json!({
-            "name": "splatdb_graph_add_doc",
+            "name": "splatsdb_graph_add_doc",
             "description": "Add a document node to the knowledge graph. Auto-embeds the text.",
             "inputSchema": {
                 "type": "object",
@@ -246,7 +246,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_add_entity",
+            "name": "splatsdb_graph_add_entity",
             "description": "Add an entity node to the knowledge graph. Auto-embeds the name.",
             "inputSchema": {
                 "type": "object",
@@ -258,7 +258,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_add_relation",
+            "name": "splatsdb_graph_add_relation",
             "description": "Add a directed edge between two nodes in the knowledge graph.",
             "inputSchema": {
                 "type": "object",
@@ -272,7 +272,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_traverse",
+            "name": "splatsdb_graph_traverse",
             "description": "BFS traversal from a start node in the knowledge graph.",
             "inputSchema": {
                 "type": "object",
@@ -284,7 +284,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_search",
+            "name": "splatsdb_graph_search",
             "description": "Hybrid search over the knowledge graph (vector similarity + graph context boost). Auto-embeds query.",
             "inputSchema": {
                 "type": "object",
@@ -296,7 +296,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_search_entities",
+            "name": "splatsdb_graph_search_entities",
             "description": "Search entity nodes by embedding similarity. Auto-embeds query.",
             "inputSchema": {
                 "type": "object",
@@ -308,7 +308,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_graph_stats",
+            "name": "splatsdb_graph_stats",
             "description": "Get knowledge graph statistics (node counts, edge counts, etc.).",
             "inputSchema": {
                 "type": "object",
@@ -317,7 +317,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         // ── Spatial Memory tools ──
         serde_json::json!({
-            "name": "splatdb_spatial_search",
+            "name": "splatsdb_spatial_search",
             "description": "Search memories with spatial filters. Organize memory like physical space: Wings (projects), Rooms (topics), Halls (types). Filters reduce the search space before vector distance computation for higher recall with less noise.",
             "inputSchema": {
                 "type": "object",
@@ -347,8 +347,8 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         serde_json::json!({
-            "name": "splatdb_spatial_info",
-            "description": "Show the spatial memory structure: all Wings (projects), Rooms (topics), Halls (memory types), and Tunnels (cross-wing connections). Use this to understand the organization before querying with splatdb_spatial_search.",
+            "name": "splatsdb_spatial_info",
+            "description": "Show the spatial memory structure: all Wings (projects), Rooms (topics), Halls (memory types), and Tunnels (cross-wing connections). Use this to understand the organization before querying with splatsdb_spatial_search.",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
@@ -356,7 +356,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         // ── Verbatim Storage tools ──────────────────────────────────────
         json!({
-            "name": "splatdb_verbatim_search",
+            "name": "splatsdb_verbatim_search",
             "description": "Search with confidence scoring to prevent hallucination. Returns results with HIGH/MEDIUM/LOW confidence based on vector distance, plus original verbatim text for verification.",
             "inputSchema": {
                 "type": "object",
@@ -368,7 +368,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_compress",
+            "name": "splatsdb_compress",
             "description": "Compress text using AAAK (semantic + binary compression). Returns semantically compressed text that LLMs can read natively, plus binary compressed data for storage.",
             "inputSchema": {
                 "type": "object",
@@ -379,7 +379,7 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
-            "name": "splatdb_decompress",
+            "name": "splatsdb_decompress",
             "description": "Decompress AAAK binary data back to LLM-readable semantic text.",
             "inputSchema": {
                 "type": "object",
@@ -1354,7 +1354,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                     "tools": { "listChanged": false }
                 },
                 "serverInfo": {
-                    "name": "splatdb",
+                    "name": "splatsdb",
                     "version": "2.5.0"
                 }
             })),
@@ -1385,24 +1385,24 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 .unwrap_or(json!({}));
 
             let result = match tool_name {
-                "splatdb_store" => handle_store(state, &arguments),
-                "splatdb_search" => handle_search(state, &arguments),
-                "splatdb_status" => handle_status(state),
-                "splatdb_doc_add" => handle_doc_add(state, &arguments),
-                "splatdb_doc_get" => handle_doc_get(state, &arguments),
-                "splatdb_doc_del" => handle_doc_del(state, &arguments),
-                "splatdb_graph_add_doc" => handle_graph_add_doc(state, &arguments),
-                "splatdb_graph_add_entity" => handle_graph_add_entity(state, &arguments),
-                "splatdb_graph_add_relation" => handle_graph_add_relation(state, &arguments),
-                "splatdb_graph_traverse" => handle_graph_traverse(state, &arguments),
-                "splatdb_graph_search" => handle_graph_search(state, &arguments),
-                "splatdb_graph_search_entities" => handle_graph_search_entities(state, &arguments),
-                "splatdb_graph_stats" => handle_graph_stats(state),
-                "splatdb_spatial_search" => handle_spatial_search(state, &arguments),
-                "splatdb_spatial_info" => handle_spatial_info(state),
-                "splatdb_verbatim_search" => handle_verbatim_search(state, &arguments),
-                "splatdb_compress" => handle_compress(&arguments),
-                "splatdb_decompress" => handle_decompress(&arguments),
+                "splatsdb_store" => handle_store(state, &arguments),
+                "splatsdb_search" => handle_search(state, &arguments),
+                "splatsdb_status" => handle_status(state),
+                "splatsdb_doc_add" => handle_doc_add(state, &arguments),
+                "splatsdb_doc_get" => handle_doc_get(state, &arguments),
+                "splatsdb_doc_del" => handle_doc_del(state, &arguments),
+                "splatsdb_graph_add_doc" => handle_graph_add_doc(state, &arguments),
+                "splatsdb_graph_add_entity" => handle_graph_add_entity(state, &arguments),
+                "splatsdb_graph_add_relation" => handle_graph_add_relation(state, &arguments),
+                "splatsdb_graph_traverse" => handle_graph_traverse(state, &arguments),
+                "splatsdb_graph_search" => handle_graph_search(state, &arguments),
+                "splatsdb_graph_search_entities" => handle_graph_search_entities(state, &arguments),
+                "splatsdb_graph_stats" => handle_graph_stats(state),
+                "splatsdb_spatial_search" => handle_spatial_search(state, &arguments),
+                "splatsdb_spatial_info" => handle_spatial_info(state),
+                "splatsdb_verbatim_search" => handle_verbatim_search(state, &arguments),
+                "splatsdb_compress" => handle_compress(&arguments),
+                "splatsdb_decompress" => handle_decompress(&arguments),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
 
@@ -1445,30 +1445,30 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
 // ============================================================================
 
 pub fn run_mcp_server() {
-    eprintln!("[splatdb] MCP server v2.5 starting (stdio transport)...");
+    eprintln!("[splatsdb] MCP server v2.5 starting (stdio transport)...");
 
-    let config = SplatDBConfig::mcp(None);
+    let config = SplatsDBConfig::mcp(None);
     let mut store = SplatStore::new(config);
 
     // Initialize SQLite doc store
-    let db_path = std::env::var("SPLATDB_DOC_PATH")
+    let db_path = std::env::var("SPLATSDB_DOC_PATH")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-            std::path::PathBuf::from(format!("{home}/.hermes/splatdb_docs.db"))
+            std::path::PathBuf::from(format!("{home}/.hermes/splatsdb_docs.db"))
         });
     let doc_store = match SqliteMetadataStore::new(db_path.clone()) {
         Ok(ds) => {
-            eprintln!("[splatdb] SQLite doc store: {:?}", db_path);
+            eprintln!("[splatsdb] SQLite doc store: {:?}", db_path);
             ds
         }
         Err(e) => {
             eprintln!(
-                "[splatdb] WARNING: SQLite init failed ({}), docs won't persist",
+                "[splatsdb] WARNING: SQLite init failed ({}), docs won't persist",
                 e
             );
             SqliteMetadataStore::new(std::path::PathBuf::from(":memory:")).unwrap_or_else(|e| {
-                eprintln!("[splatdb] FATAL: in-memory SQLite failed: {}", e);
+                eprintln!("[splatsdb] FATAL: in-memory SQLite failed: {}", e);
                 std::process::exit(1);
             })
         }
@@ -1486,13 +1486,13 @@ pub fn run_mcp_server() {
             let total = ids.len();
             if total > MAX_WARM_START_DOCS {
                 eprintln!(
-                    "[splatdb] Warm start: {} docs found, capping at {} for performance",
+                    "[splatsdb] Warm start: {} docs found, capping at {} for performance",
                     total, MAX_WARM_START_DOCS
                 );
             }
             for (i, doc_id) in ids.iter().enumerate().take(MAX_WARM_START_DOCS) {
                 if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
-                    eprintln!("[splatdb] Warm start interrupted by shutdown signal");
+                    eprintln!("[splatsdb] Warm start interrupted by shutdown signal");
                     break;
                 }
                 if let Ok(Some(record)) = doc_store.get(doc_id) {
@@ -1520,7 +1520,7 @@ pub fn run_mcp_server() {
                 }
                 if i > 0 && i % 100 == 0 {
                     eprintln!(
-                        "[splatdb] Warm start: {}/{} docs loaded",
+                        "[splatsdb] Warm start: {}/{} docs loaded",
                         i,
                         total.min(MAX_WARM_START_DOCS)
                     );
@@ -1529,13 +1529,13 @@ pub fn run_mcp_server() {
             if !ids.is_empty() {
                 store.hnsw_sync_incremental();
                 eprintln!(
-                    "[splatdb] Warm start: reloaded {}/{} documents from SQLite",
+                    "[splatsdb] Warm start: reloaded {}/{} documents from SQLite",
                     doc_texts.len().min(MAX_WARM_START_DOCS),
                     total
                 );
             }
         }
-        Err(e) => eprintln!("[splatdb] Warm start: could not list docs: {}", e),
+        Err(e) => eprintln!("[splatsdb] Warm start: could not list docs: {}", e),
     }
 
     let state = Mutex::new(McpState {
@@ -1561,16 +1561,16 @@ pub fn run_mcp_server() {
         }
     }
 
-    eprintln!("[splatdb] MCP server ready. Waiting for JSON-RPC on stdin...");
+    eprintln!("[splatsdb] MCP server ready. Waiting for JSON-RPC on stdin...");
     eprintln!(
-        "[splatdb] Env vars: SPLATDB_EMBED_URL={}, SPLATDB_DOC_PATH={}",
-        std::env::var("SPLATDB_EMBED_URL").unwrap_or_else(|_| "(default)".into()),
-        std::env::var("SPLATDB_DOC_PATH").unwrap_or_else(|_| "(default)".into())
+        "[splatsdb] Env vars: SPLATSDB_EMBED_URL={}, SPLATSDB_DOC_PATH={}",
+        std::env::var("SPLATSDB_EMBED_URL").unwrap_or_else(|_| "(default)".into()),
+        std::env::var("SPLATSDB_DOC_PATH").unwrap_or_else(|_| "(default)".into())
     );
 
     for line in reader.lines() {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
-            eprintln!("[splatdb] Shutdown requested, exiting main loop.");
+            eprintln!("[splatsdb] Shutdown requested, exiting main loop.");
             break;
         }
         match line {
@@ -1584,7 +1584,7 @@ pub fn run_mcp_server() {
                     Ok(r) => {
                         // Validate jsonrpc version
                         if r.jsonrpc != "2.0" {
-                            eprintln!("[splatdb] invalid jsonrpc version: {}", r.jsonrpc);
+                            eprintln!("[splatsdb] invalid jsonrpc version: {}", r.jsonrpc);
                             let resp = JsonRpcResponse {
                                 jsonrpc: "2.0".into(),
                                 id: r.id.clone(),
@@ -1603,11 +1603,11 @@ pub fn run_mcp_server() {
                             stdout.flush().ok();
                             continue;
                         }
-                        eprintln!("[splatdb] <- method={}", r.method);
+                        eprintln!("[splatsdb] <- method={}", r.method);
                         r
                     }
                     Err(e) => {
-                        eprintln!("[splatdb] parse error: {}", e);
+                        eprintln!("[splatsdb] parse error: {}", e);
                         let resp = JsonRpcResponse {
                             jsonrpc: "2.0".into(),
                             id: None,
@@ -1633,22 +1633,22 @@ pub fn run_mcp_server() {
                     let out = match serde_json::to_string(&resp) {
                         Ok(s) => s,
                         Err(e) => {
-                            eprintln!("[splatdb] serialization error: {}", e);
+                            eprintln!("[splatsdb] serialization error: {}", e);
                             r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#.to_string()
                         }
                     };
                     let preview: String = out.chars().take(200).collect();
-                    eprintln!("[splatdb] -> {}...", preview);
+                    eprintln!("[splatsdb] -> {}...", preview);
                     writeln!(stdout, "{}", out).ok();
                     stdout.flush().ok();
                 }
             }
             Err(e) => {
-                eprintln!("[splatdb] stdin error: {}", e);
+                eprintln!("[splatsdb] stdin error: {}", e);
                 break;
             }
         }
     }
 
-    eprintln!("[splatdb] MCP server shutting down (stdin closed).");
+    eprintln!("[splatsdb] MCP server shutting down (stdin closed).");
 }

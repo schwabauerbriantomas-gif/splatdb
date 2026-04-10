@@ -1,12 +1,12 @@
-//! Preset configurations for SplatDB.
+//! Preset configurations for SplatsDB.
 //!
 //! Convenience constructors for common deployment scenarios.
 
 use super::detect_device;
 use super::types::*;
-use super::SplatDBConfig;
+use super::SplatsDBConfig;
 
-impl SplatDBConfig {
+impl SplatsDBConfig {
     /// Handle device auto-detection and flags.
     pub fn finalize(&mut self) {
         if self.device == "auto" {
