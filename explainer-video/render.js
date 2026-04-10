@@ -13,9 +13,12 @@ if (!fs.existsSync(FRAMES_DIR)) fs.mkdirSync(FRAMES_DIR, { recursive: true });
 
 // Clean old frames
 const existing = fs.readdirSync(FRAMES_DIR).filter(f => f.endsWith('.png'));
+if (existing.length === 14400) {
+  console.log('All 14400 frames exist, nothing to render.');
+  process.exit(0);
+}
 if (existing.length > 0) {
-  console.log(`Cleaning ${existing.length} old frames...`);
-  existing.forEach(f => fs.unlinkSync(path.join(FRAMES_DIR, f)));
+  console.log(`Found ${existing.length} existing frames, rendering missing ones only.`);
 }
 
 const HTML_PATH = path.resolve(__dirname, 'scenes.html');
