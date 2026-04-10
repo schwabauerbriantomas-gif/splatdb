@@ -3,7 +3,7 @@ name = "splatdb"
 version = "2.5.0"
 edition = "2021"
 description = "SplatDB - Gaussian Splat vector search engine"
-license = "AGPL-3.0"
+license = "MIT"
 
 [features]
 default = []

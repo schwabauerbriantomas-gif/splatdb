@@ -9,20 +9,27 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 </p>
 
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-285%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-26K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-295%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-29K-informational.svg)]()
+[![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
 
 <p align="center">
   <a href="https://github.com/schwabauerbriantomas-gif/splatdb/releases/download/v2.5.0/splatdb-explainer.mp4">
-    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-60s-00e5ff?style=for-the-badge" alt="SplatDB Explainer Video"/>
+    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-10_min-00e5ff?style=for-the-badge" alt="SplatDB Explainer Video"/>
   </a>
 </p>
 
 > **🎬 10-minute explainer** — Gaussian Splatting, HRM2 retrieval, GPU benchmarks, and real Faiss comparison in 10 minutes.
+
+<p align="center">
+  <img src="demo-search.png" alt="SplatDB Search Demo" width="720"/>
+</p>
+
+<p align="center"><sub>Search returns confidence scores based on κ (concentration) — agents know when to trust results.</sub></p>
 
 ---
 
@@ -40,7 +47,7 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 | Feature | SplatDB | Faiss | Pinecone | Qdrant | Milvus/Zilliz | LanceDB |
 |---------|---------|-------|----------|--------|---------------|---------|
 | Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
-| License | AGPL-3.0 | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
+| License | MIT | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 | Gaussian Splats | ✅ | — | — | — | — | — |
 | Uncertainty scores | ✅ | — | — | — | — | — |
 | Knowledge Graph | ✅ | — | — | — | — | — |
@@ -77,11 +84,6 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 - [Knowledge Graph (GraphSplat)](#knowledge-graph-graphsplat)
 - [Vector Compression (TurboQuant / PolarQuant)](#vector-compression-turboquant--polarquant)
 - [Semantic Memory](#semantic-memory)
-- [Verbatim Storage (Planned)](#verbatim-storage-planned)
-- [Text Compression (Planned)](#text-compression-planned)
-- [Energy-Based Model](#energy-based-model)
-- [Module Map](#module-map)
-- [Dependencies](#dependencies)
 - [Roadmap](#roadmap)
 - [Spatial Memory Architecture](#spatial-memory-architecture)
 - [Competitive Landscape](#competitive-landscape)
@@ -141,7 +143,50 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 
 ## Quick Start
 
-### Prerequisites
+### 30-Second Trial (No Rust Needed)
+
+Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatdb/releases) and run:
+
+```bash
+# Index pre-computed embeddings (any dimension, any provider)
+# Format: [u64 n] [u64 dim] [f32 × n × dim]
+splatdb index --input embeddings.bin
+
+# Search with a query vector
+splatdb search --query "0.12,0.45,-0.33,..." -k 10
+
+# Or start MCP server for your AI agent
+splatdb mcp
+```
+
+### With Real Embeddings (OpenAI / Cohere / Local)
+
+```bash
+# Step 1: Generate embeddings with your provider
+# OpenAI:
+python3 -c "
+import openai, struct, numpy as np
+client = openai.OpenAI()
+texts = ['Machine learning basics', 'Neural network architectures']
+resp = client.embeddings.create(input=texts, model='text-embedding-3-small')
+vecs = np.array([d.embedding for d in resp.data], dtype=np.float32)
+n, dim = vecs.shape
+with open('embeddings.bin','wb') as f:
+    f.write(struct.pack('<QQ',n,dim)); f.write(vecs.tobytes())
+print(f'Wrote {n} vectors, dim={dim}')
+"
+
+# Step 2: Index and search
+splatdb index --input embeddings.bin
+splatdb search --query "0.12,0.45,-0.33,..." -k 10
+
+# Step 3 (optional): MCP server for agents
+splatdb mcp  # starts JSON-RPC on stdio
+```
+
+> **Note**: The MCP server can auto-embed text using a local embedding service (`all-MiniLM-L6-v2` via `SPLATDB_EMBED_URL`). For production, always provide real embeddings — the built-in SimCos hash is for demos only.
+
+### Build from Source
 
 - **Rust** 1.56+ (Edition 2021)
 - **C compiler** (for SQLite bundling via `rusqlite`)
@@ -198,6 +243,12 @@ Traditional vector databases store raw embedding vectors and compute point-to-po
 - **μ (mean)**: Position in embedding space — the "center" of the concept
 - **α (opacity)**: How strongly this document is represented — akin to importance weight
 - **κ (concentration)**: How focused the representation is — high κ means precise, low κ means broad
+
+**ELI5**: Imagine each document is a paint splat on a wall.
+- A doc about "Golden Retriever puppies" has **high κ** — a tiny, precise dot.
+- A doc about "dogs in general" has **low κ** — a big, blurry splat.
+- **α** is how bright the paint is — important docs are brighter.
+- When you search, we measure how much your query overlaps each splat. The AI knows *how confident* it is about each match.
 
 Similarity is computed as **splat overlap** (integral of two Gaussians), which naturally captures:
 - Documents that cover broad topics (low κ) match more queries, but with lower confidence
@@ -295,12 +346,12 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 > Honest, reproducible side-by-side. Same Ryzen 5 3400G + RTX 3090, same SIFT-128 100K dataset, same k=64. Faiss from `faiss-cpu` 1.13.2. SplatDB from `bench-hnsw` + `bench-gpu` CLI.
 
-| Index | Build Time | p50 Latency | QPS | Recall@64 |
-|-------|-----------|-------------|------|-----------|
-| Faiss HNSW (M=32, efSearch=100) | 24.5s | 0.10ms | **9,758** | 0.9926 |
-| Faiss IVFFlat (nprobe=32) | 3.0s | 0.10ms | **10,039** | 0.69 |
-| SplatDB HNSW (CPU, ef=100) | 88s | 1.52ms | 658 | **0.986** |
-| **SplatDB GPU (RTX 3090, k=10)** | — | **0.082ms** | **12,195** | — |
+|| Index | Build Time | p50 Latency | p99 Latency | QPS | Recall@64 |
+|-------|-----------|-------------|-------------|------|-----------|
+| Faiss HNSW (M=32, efSearch=100) | 24.5s | 0.10ms | 0.18ms | **9,758** | 0.9926 |
+| Faiss IVFFlat (nprobe=32) | 3.0s | 0.10ms | 0.15ms | **10,039** | 0.69 |
+| SplatDB HNSW (CPU, ef=100) | 88s | 1.52ms | 2.52ms | 658 | **0.986** |
+| **SplatDB GPU (RTX 3090, k=10)** | — | **0.082ms** | **0.095ms** | **12,195** | — |
 
 **Takeaways:**
 - SplatDB GPU (12,195 QPS) **beats Faiss HNSW CPU** (9,758 QPS) — 1.25× faster
@@ -1120,15 +1171,20 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Roadmap
 
-These are planned improvements, not yet implemented:
+### ✅ Done
+
+- ~~**Faiss benchmark comparison**: Same hardware, same dataset, honest side-by-side numbers~~ → See [Faiss Comparison](#faiss-comparison-same-hardware-same-dataset)
+- ~~**LongMemEval benchmark**: Validate agent memory use case with the conversational memory standard~~ → See [LongMemEval Agent Memory Benchmark](#longmemeval-agent-memory-benchmark)
+- ~~**Spatial memory structure**: Wings/Rooms/Halls/Tunnels**~~ → See [Spatial Memory](#spatial-memory-architecture)
+- ~~**GPU CUDA kernels**: 14 PTX kernels for RTX 3090~~ → See [GPU Acceleration](#gpu-acceleration)
+
+### 🔜 Planned
 
 - **Docker image**: `docker run splatdb` for instant trial without Rust/CUDA setup
-- ~~**Faiss benchmark comparison**: Same hardware, same dataset, honest side-by-side numbers~~ ✅ See [Faiss Comparison](#faiss-comparison-same-hardware-same-dataset)
-- ~~**LongMemEval benchmark**: Validate agent memory use case with the conversational memory standard~~ ✅ See [LongMemEval Agent Memory Benchmark](#longmemeval-agent-memory-benchmark)
 - **Test coverage reporting**: CI integration with `tarpaulin` or `llvm-cov`
 - **CI with GPU**: GitHub Actions runner with CUDA for integration testing
-- **Verbatim storage**: Store original document text alongside splats for exact recall
-- **Spatial memory structure**: Wings/Rooms/Halls/Tunnels inspired by spatial memory architectures (see [Spatial Memory](#spatial-memory-architecture) below)
+- **Verbatim storage**: Store original document text alongside splats for exact recall (alpha — concept defined, implementation pending)
+- **Text compression (AAAK)**: ~30× compressed text any LLM reads natively (concept defined, implementation pending)
 
 ---
 
@@ -1227,7 +1283,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 | 9 | Weaviate | 4.42 | Go, BSD-3 |
 | 11 | Chroma | — | Python+Rust, embedded |
 | 16 | LanceDB | — | Rust, embedded, emergent |
-| — | **SplatDB** | — | Rust, embedded+cluster, AGPL-3.0 |
+| — | **SplatDB** | — | Rust, embedded+cluster, MIT |
 
 ### Cloud Pricing Comparison
 
@@ -1276,4 +1332,4 @@ The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0,
 
 Copyright (c) 2024–2026 Brian Schwabauer
 
-This program is free software: you can redistribute it and/or modify it under the terms of the [GNU Affero General Public License v3.0](LICENSE) as published by the Free Software Foundation.
+Licensed under the [MIT License](LICENSE) — use commercially, modify, distribute freely. No copyleft restrictions.
