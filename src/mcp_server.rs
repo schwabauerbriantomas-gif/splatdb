@@ -1095,11 +1095,7 @@ fn handle_spatial_search(state: &Mutex<McpState>, params: &Value) -> Result<Valu
     }))
 }
 
-fn describe_filter(
-    wing: &Option<String>,
-    room: &Option<String>,
-    hall: &Option<String>,
-) -> String {
+fn describe_filter(wing: &Option<String>, room: &Option<String>, hall: &Option<String>) -> String {
     match (wing, room, hall) {
         (Some(w), Some(r), Some(h)) => format!("wing={w}, room={r}, hall={h}"),
         (Some(w), Some(r), None) => format!("wing={w}, room={r}"),
@@ -1122,7 +1118,8 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
     let all_ids = s.doc_store.list_ids(false).map_err(|e| e.to_string())?;
 
     // Scan metadata to build spatial structure
-    let mut wings: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    let mut wings: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
     let mut halls: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut total_with_spatial = 0usize;
 
@@ -1141,7 +1138,10 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
                     meta.get("wing").and_then(|v| v.as_str()),
                     meta.get("room").and_then(|v| v.as_str()),
                 ) {
-                    wings.entry(w.to_string()).or_default().insert(r.to_string());
+                    wings
+                        .entry(w.to_string())
+                        .or_default()
+                        .insert(r.to_string());
                 }
 
                 if let Some(h) = has_hall {
@@ -1152,24 +1152,34 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
     }
 
     // Detect tunnels: rooms shared across wings
-    let mut room_wings: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut room_wings: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for (wing, rooms) in &wings {
         for room in rooms {
-            room_wings.entry(room.clone()).or_default().push(wing.clone());
+            room_wings
+                .entry(room.clone())
+                .or_default()
+                .push(wing.clone());
         }
     }
-    let tunnels: Vec<Value> = room_wings.iter()
+    let tunnels: Vec<Value> = room_wings
+        .iter()
         .filter(|(_, ws)| ws.len() >= 2)
-        .map(|(room, ws)| json!({
-            "room": room,
-            "wings": ws,
-        }))
+        .map(|(room, ws)| {
+            json!({
+                "room": room,
+                "wings": ws,
+            })
+        })
         .collect();
 
-    let wings_json: Value = wings.iter().map(|(w, rooms)| {
-        let rooms_vec: Vec<&String> = rooms.iter().collect();
-        (w.clone(), json!(rooms_vec))
-    }).collect();
+    let wings_json: Value = wings
+        .iter()
+        .map(|(w, rooms)| {
+            let rooms_vec: Vec<&String> = rooms.iter().collect();
+            (w.clone(), json!(rooms_vec))
+        })
+        .collect();
 
     Ok(json!({
         "total_documents": all_ids.len(),

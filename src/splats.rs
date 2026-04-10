@@ -1441,7 +1441,11 @@ mod tests {
         // All results from cluster B but distances should be ~2.0+
         for r in &results_b {
             assert!(r.index >= 50, "Expected cluster B index, got {}", r.index);
-            assert!(r.distance > 1.5, "Expected large distance, got {}", r.distance);
+            assert!(
+                r.distance > 1.5,
+                "Expected large distance, got {}",
+                r.distance
+            );
         }
 
         // Empty candidates

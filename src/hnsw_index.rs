@@ -255,7 +255,10 @@ impl HNSWIndex {
         }
 
         // Reconstruct precomputed norms from loaded vectors
-        let norms: Vec<f32> = vectors.iter().map(|v| v.iter().map(|x| x * x).sum::<f32>().sqrt()).collect();
+        let norms: Vec<f32> = vectors
+            .iter()
+            .map(|v| v.iter().map(|x| x * x).sum::<f32>().sqrt())
+            .collect();
 
         let level_mult = 1.0 / (m_stored as f64).ln();
 
@@ -322,7 +325,8 @@ impl HNSWIndex {
             }
             1.0 - dot / denom
         } else {
-            query.iter()
+            query
+                .iter()
                 .zip(b.iter())
                 .map(|(x, y)| (x - y) * (x - y))
                 .sum::<f32>()

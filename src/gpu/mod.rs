@@ -114,6 +114,7 @@ pub fn gpu_info() -> Option<String> {
 
 /// GPU-accelerated batch rotation: y[i] = R · x[i] for N vectors.
 /// `rotation` is [D, D] row-major, `vectors` is [N, D], returns [N, D].
+#[allow(unused_variables)]
 pub fn rotation_gemv(vectors: &[f32], rotation: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
     #[cfg(feature = "cuda")]
     {
@@ -125,7 +126,8 @@ pub fn rotation_gemv(vectors: &[f32], rotation: &[f32], n: usize, dim: usize) ->
     None
 }
 
-/// GPU-accelerated batch inverse rotation: y[i] = R^T · x[i].
+/// GPU-accelerated batch inverse rotation:
+#[allow(unused_variables)]
 pub fn rotation_gemv_inverse(
     vectors: &[f32],
     rotation: &[f32],
@@ -143,6 +145,7 @@ pub fn rotation_gemv_inverse(
 }
 
 /// GPU-accelerated batch QJL sketch: sign(G · x) for N vectors.
+#[allow(unused_variables)]
 pub fn qjl_batch_sketch(
     vectors: &[f32],
     projections: &[f32],
@@ -160,7 +163,8 @@ pub fn qjl_batch_sketch(
     None
 }
 
-/// GPU-accelerated batch QJL inner product estimate.
+/// GPU-accelerated batch QJL inner product
+#[allow(unused_variables)]
 pub fn qjl_batch_ip_estimate(
     projections: &[f32],
     signs: &[i8],
@@ -180,7 +184,8 @@ pub fn qjl_batch_ip_estimate(
 }
 
 /// GPU-accelerated KMeans assignment: assign N points to nearest centroid.
-/// Returns (assignments, squared_distances) or None.
+/// GPU-accelerated KMeans assignment:
+#[allow(unused_variables)]
 pub fn kmeans_assign(
     points: &[f32],
     centroids: &[f32],
@@ -199,6 +204,7 @@ pub fn kmeans_assign(
 }
 
 /// GPU-accelerated all-pairs cosine similarity matrix.
+#[allow(unused_variables)]
 pub fn cosine_similarity_matrix(vectors: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
     #[cfg(feature = "cuda")]
     {
@@ -211,6 +217,7 @@ pub fn cosine_similarity_matrix(vectors: &[f32], n: usize, dim: usize) -> Option
 }
 
 /// GPU-accelerated batch geodesic distance between paired vectors.
+#[allow(unused_variables)]
 pub fn batch_geodesic(x: &[f32], y: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
     #[cfg(feature = "cuda")]
     {
@@ -223,6 +230,7 @@ pub fn batch_geodesic(x: &[f32], y: &[f32], n: usize, dim: usize) -> Option<Vec<
 }
 
 /// GPU-accelerated batch LSH hash computation.
+#[allow(unused_variables)]
 pub fn lsh_batch_hash(
     vectors: &[f32],
     projections: &[f32],

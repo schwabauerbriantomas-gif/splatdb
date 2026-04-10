@@ -1,5 +1,6 @@
 //! CLI command handlers — extracted from main.rs
 
+mod bench_longmemeval;
 mod data_cmds;
 mod graph_cmds;
 mod helpers;
@@ -357,6 +358,27 @@ pub enum Commands {
     },
     /// Show spatial memory structure (wings, rooms, tunnels)
     SpatialInfo,
+    /// Benchmark LongMemEval with SplatDB native pipeline (spatial filter + vector search)
+    BenchLongMemEval {
+        /// Binary file with session embeddings [u64 n][u64 dim][f32 data]
+        #[arg(long)]
+        sessions: PathBuf,
+        /// Binary file with query embeddings [u64 n][u64 dim][f32 data]
+        #[arg(long)]
+        queries: PathBuf,
+        /// JSON metadata file (sessions, queries, answer_session_ids)
+        #[arg(long)]
+        meta: PathBuf,
+        /// Number of results to retrieve
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+        /// HNSW ef_search override
+        #[arg(long, default_value = "100")]
+        ef_search: usize,
+        /// Over-fetch multiplier
+        #[arg(long, default_value = "3")]
+        over_fetch: usize,
+    },
 }
 
 pub fn dispatch(cli: Cli) {
@@ -522,7 +544,20 @@ pub fn dispatch(cli: Cli) {
             ef_search,
             ef_construction,
             over_fetch,
-        } => search_cmds::cmd_bench_hnsw(train, queries, gt, dim, k, samples, data_dir, max_splats, metric, ef_search, ef_construction, over_fetch),
+        } => search_cmds::cmd_bench_hnsw(
+            train,
+            queries,
+            gt,
+            dim,
+            k,
+            samples,
+            data_dir,
+            max_splats,
+            metric,
+            ef_search,
+            ef_construction,
+            over_fetch,
+        ),
         // ── Spatial Memory ──
         Commands::SpatialSearch {
             query,
@@ -532,5 +567,20 @@ pub fn dispatch(cli: Cli) {
             k,
         } => crate::cli::spatial_cmds::cmd_spatial_search(cli.data_dir, query, wing, room, hall, k),
         Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(cli.data_dir),
+        Commands::BenchLongMemEval {
+            sessions,
+            queries,
+            meta,
+            k,
+            ef_search,
+            over_fetch,
+        } => bench_longmemeval::cmd_bench_longmemeval(
+            sessions.to_string_lossy().to_string(),
+            queries.to_string_lossy().to_string(),
+            meta.to_string_lossy().to_string(),
+            k,
+            ef_search,
+            over_fetch,
+        ),
     }
 }
