@@ -1,7 +1,7 @@
 //! MapReduce Indexer — parallel indexing pattern for HRM2.
 //! Accelerates clustering by dividing dataset into chunks (Map),
 //! processing each chunk, and combining partial clusters (Reduce).
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

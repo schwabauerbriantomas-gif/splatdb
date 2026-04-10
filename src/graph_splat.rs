@@ -1,6 +1,6 @@
 //! Graph Splat — graph structures over Gaussian splats.
 //! Hybrid store combining vector search with knowledge graph.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 //!
 //! ## Stack Overflow Fix (2026-04-04)
 //! Original code had potential stack overflow from:

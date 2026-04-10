@@ -1,4 +1,4 @@
-//! SplatDB Vector Search CLI — AI-friendly interface.
+//! SplatsDB Vector Search CLI — AI-friendly interface.
 
 mod cli;
 
@@ -8,13 +8,13 @@ use cli::Commands;
 
 #[derive(Parser)]
 #[command(
-    name = "splatdb",
+    name = "splatsdb",
     version,
-    about = "SplatDB Vector Search — Gaussian Splat semantic memory"
+    about = "SplatsDB Vector Search — Gaussian Splat semantic memory"
 )]
 struct Cli {
-    /// Storage directory (default: ./splatdb_data)
-    #[arg(long, global = true, default_value = "./splatdb_data")]
+    /// Storage directory (default: ./splatsdb_data)
+    #[arg(long, global = true, default_value = "./splatsdb_data")]
     data_dir: String,
 
     /// Latent dimension (default: 64)

@@ -1,5 +1,5 @@
 //! Cluster protocol definitions.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 

@@ -34,11 +34,11 @@ impl GpuIndex {
         let ctx = match CudaContext::new(0) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[splatdb] CUDA context creation failed: {:?}", e);
+                eprintln!("[splatsdb] CUDA context creation failed: {:?}", e);
                 return None;
             }
         };
-        eprintln!("[splatdb] CUDA context created successfully");
+        eprintln!("[splatsdb] CUDA context created successfully");
         let stream = ctx.default_stream();
         Some(GpuIndex {
             ctx,
@@ -79,14 +79,14 @@ impl GpuIndex {
                 // Verify PTX file actually exists
                 let exists = std::path::Path::new(path).exists();
                 if exists {
-                    eprintln!("[splatdb] PTX kernels available: {}", path);
+                    eprintln!("[splatsdb] PTX kernels available: {}", path);
                 } else {
-                    eprintln!("[splatdb] PTX path set but file not found: {}", path);
+                    eprintln!("[splatsdb] PTX path set but file not found: {}", path);
                 }
                 exists
             }
             _ => {
-                eprintln!("[splatdb] No PTX kernels (built without nvcc or CUDA toolkit)");
+                eprintln!("[splatsdb] No PTX kernels (built without nvcc or CUDA toolkit)");
                 false
             }
         }
@@ -386,7 +386,7 @@ impl GpuIndex {
         {
             return Some(result);
         }
-        eprintln!("[splatdb] top-k PTX kernel unavailable, using fallback");
+        eprintln!("[splatsdb] top-k PTX kernel unavailable, using fallback");
 
         // Fallback to separate distance + CPU top-k
         let all_dists = if metric == "cosine" {
@@ -434,7 +434,7 @@ impl GpuIndex {
             "l2_topk_kernel"
         };
         eprintln!(
-            "[splatdb] Launching {} PTX kernel (Q={}, N={}, D={}, K={})",
+            "[splatsdb] Launching {} PTX kernel (Q={}, N={}, D={}, K={})",
             kernel_name, n_queries, n, dim, k
         );
         let func: CudaFunction = module.load_function(kernel_name).ok()?;

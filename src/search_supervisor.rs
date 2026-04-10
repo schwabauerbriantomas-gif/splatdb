@@ -3,7 +3,7 @@
 //! Pattern: MASFactory Supervisor.
 //! Decides backend based on query complexity, hardware, latency budget.
 //! Automatic fallback on errors.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::Serialize;
 use std::collections::HashMap;

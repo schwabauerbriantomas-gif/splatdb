@@ -1,7 +1,7 @@
-//! Data Lake for SplatDB — dataset management and batch operations.
+//! Data Lake for SplatsDB — dataset management and batch operations.
 //!
 //! Simple dataset storage for training and evaluation.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

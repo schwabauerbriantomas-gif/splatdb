@@ -1,8 +1,8 @@
-//! Embedding model wrapper for SplatDB.
+//! Embedding model wrapper for SplatsDB.
 //!
 //! Supports external encoders via trait. Includes Matryoshka representations,
 //! projection head, and distillation loss utilities.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use ndarray::{Array1, Array2};
 

@@ -122,8 +122,8 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: splatdb-linux-amd64
-          path: target/release/splatdb
+          name: splatsdb-linux-amd64
+          path: target/release/splatsdb
           retention-days: 7
 
   # ─── Final gate ─────────────────────────────────────────

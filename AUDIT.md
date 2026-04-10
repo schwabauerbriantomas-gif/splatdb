@@ -1,15 +1,15 @@
-# SplatDB v2.1.0 — Complete Codebase Audit
+# SplatsDB v2.1.0 — Complete Codebase Audit
 
 **Date**: 2026-03-28
 **Auditor**: Alfred
-**Project**: splatdb (Rust native implementation)
+**Project**: splatsdb (Rust native implementation)
 
 ---
 
 ## Folder Structure
 
 ```
-splatdb/
+splatsdb/
 ├── Cargo.toml
 ├── README.md
 ├── AUDIT.md
@@ -215,7 +215,7 @@ splatdb/
 - Originally from github.com/RecursiveIntell/turbo-quant (MIT license)
 
 **config.rs** (467 lines) — Fully wired subsystem configuration
-- `SplatDBConfig`: 60+ fields covering all subsystems
+- `SplatsDBConfig`: 60+ fields covering all subsystems
 - Enums: `QuantAlgorithm`, `SearchBackend`, `FusionMethod`, `Dtype`
 - `default()`: Balanced — TurboQuant 8-bit, GraphSplat, Semantic Memory ON
 - `simple(device)`: Edge — all heavy features OFF, 10K splats, RAM-only

@@ -1,5 +1,5 @@
 //! Cluster health monitoring and types.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

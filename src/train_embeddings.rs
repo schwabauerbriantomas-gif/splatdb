@@ -1,6 +1,6 @@
-//! Embedding training infrastructure for SplatDB.
+//! Embedding training infrastructure for SplatsDB.
 //! Knowledge distillation: Teacher -> Student embeddings.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 //!
 //! Note: Actual training requires a deep learning framework (candle, burn, tch).
 //! This module provides the training pipeline, dataset generation, and evaluation.

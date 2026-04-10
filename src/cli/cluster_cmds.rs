@@ -1,9 +1,9 @@
-//! Cluster CLI commands — manage distributed SplatDB nodes.
+//! Cluster CLI commands — manage distributed SplatsDB nodes.
 
-use splatdb::cluster::client::SplatDBClusterClient;
-use splatdb::cluster::energy_router::EnergyRouterConfig;
-use splatdb::cluster::router::ClusterRouter;
-use splatdb::cluster::sharding::shard_by_hash;
+use splatsdb::cluster::client::SplatsDBClusterClient;
+use splatsdb::cluster::energy_router::EnergyRouterConfig;
+use splatsdb::cluster::router::ClusterRouter;
+use splatsdb::cluster::sharding::shard_by_hash;
 
 // ─── Global cluster state (persisted as JSON for CLI session) ──────
 
@@ -101,7 +101,7 @@ pub fn cmd_cluster_status(verbose: bool) {
             return;
         }
         Some(s) => {
-            println!("SplatDB Cluster Status");
+            println!("SplatsDB Cluster Status");
             println!("══════════════════════");
             println!("Nodes: {}", s.nodes.len());
             println!("Sharding: {}", s.sharding_strategy);
@@ -200,7 +200,7 @@ pub fn cmd_cluster_search(query: &str, k: usize, strategy: &str) {
 
     {
         let router = build_router(&state);
-        let mut client = SplatDBClusterClient::new_embedded(router);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
 
         let _edge_ids: Vec<String> = state.nodes.iter().map(|n| n.id.clone()).collect();
 
@@ -273,7 +273,7 @@ pub fn cmd_cluster_bench(n_queries: usize, k: usize, strategy: &str) {
 
     // Build client with mock search fns
     let router = build_router(&state);
-    let mut client = SplatDBClusterClient::new_embedded(router);
+    let mut client = SplatsDBClusterClient::new_embedded(router);
 
     for node in &state.nodes {
         let nv = node.n_vectors;

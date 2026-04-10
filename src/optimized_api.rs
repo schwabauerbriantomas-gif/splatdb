@@ -1,7 +1,7 @@
-//! Optimized SplatDB API with caching, GPU config, and auto-scaling hooks.
+//! Optimized SplatsDB API with caching, GPU config, and auto-scaling hooks.
 //!
 //! Integrates query caching, prefetching, and metrics tracking.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use ndarray::Array1;
 use serde::Serialize;
@@ -38,7 +38,7 @@ impl Default for GpuConfig {
     }
 }
 
-/// Optimized SplatDB database wrapper.
+/// Optimized SplatsDB database wrapper.
 pub struct M2MOptimized {
     pub enable_gpu: bool,
     pub enable_cache: bool,

@@ -1,4 +1,4 @@
-//! EBM Energy API - Energy landscape for SplatDB.
+//! EBM Energy API - Energy landscape for SplatsDB.
 //!
 //! Ported from Python m2m/ebm/energy_api.py.
 //!

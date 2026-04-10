@@ -1,4 +1,4 @@
-//! LongMemEval benchmark — SplatDB native methodology
+//! LongMemEval benchmark — SplatsDB native methodology
 //!
 //! Pipeline (same as production):
 //!   1. Load session embeddings + query embeddings from binary
@@ -44,7 +44,7 @@ struct BenchMeta {
     queries: Vec<QueryMeta>,
 }
 
-/// Read SplatDB binary vectors: u64 n + u64 dim + f32[n][dim]
+/// Read SplatsDB binary vectors: u64 n + u64 dim + f32[n][dim]
 fn read_vectors(path: &str) -> (usize, usize, Vec<f32>) {
     let mut f = fs::File::open(path).unwrap_or_else(|e| {
         eprintln!("Cannot open {}: {}", path, e);
@@ -71,7 +71,7 @@ pub fn cmd_bench_longmemeval(
     over_fetch: usize,
 ) {
     eprintln!("╔══════════════════════════════════════════════════════════════╗");
-    eprintln!("║  LongMemEval — SplatDB Native Pipeline Benchmark           ║");
+    eprintln!("║  LongMemEval — SplatsDB Native Pipeline Benchmark           ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
 
     // ── Load metadata ──
@@ -118,7 +118,7 @@ pub fn cmd_bench_longmemeval(
     eprintln!("[2/5] Building SplatStore + SpatialIndex...");
     let t0 = Instant::now();
 
-    let mut config = splatdb::config::SplatDBConfig::advanced(None);
+    let mut config = splatsdb::config::SplatsDBConfig::advanced(None);
     config.latent_dim = meta.dim;
     config.max_splats = meta.n_sessions + 1000;
     config.enable_hnsw = true;
@@ -128,7 +128,7 @@ pub fn cmd_bench_longmemeval(
     config.hnsw_metric = "l2".to_string();
     config.over_fetch = over_fetch;
 
-    let mut store = splatdb::splats::SplatStore::new(config.clone());
+    let mut store = splatsdb::splats::SplatStore::new(config.clone());
 
     // Insert all sessions
     for i in 0..n_sess {
@@ -152,7 +152,7 @@ pub fn cmd_bench_longmemeval(
     );
 
     // Build spatial index: register each session with wing=question_idx
-    let mut spatial = splatdb::spatial::SpatialIndex::new();
+    let mut spatial = splatsdb::spatial::SpatialIndex::new();
     for s in &meta.sessions {
         spatial.register_doc(
             &format!("sess_{}", s.i),
@@ -190,7 +190,7 @@ pub fn cmd_bench_longmemeval(
         let query_arr = Array1::from_vec(query_vec.to_vec());
 
         // STEP 1: Spatial pre-filter — get candidates for this wing
-        let filter = splatdb::spatial::SpatialFilter {
+        let filter = splatsdb::spatial::SpatialFilter {
             wing: Some(format!("wing_{}", qi)),
             room: None,
             hall: None,
@@ -251,14 +251,14 @@ pub fn cmd_bench_longmemeval(
 
     // ── Results ──
     eprintln!("\n╔══════════════════════════════════════════════════════════════╗");
-    eprintln!("║  RESULTS — SplatDB Native Pipeline                         ║");
+    eprintln!("║  RESULTS — SplatsDB Native Pipeline                         ║");
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
     eprintln!("\n  Methodology:");
     eprintln!("    1. SpatialIndex.filter(wing=question_group) → ~48 candidates");
     eprintln!("    2. find_neighbors_filtered(query, candidates, k) → exact re-rank");
     eprintln!("    3. Check if answer session in top-k results");
     eprintln!(
-        "\n  SplatDB config: HNSW M=32, ef_construction=400, ef_search={}, over_fetch={}x",
+        "\n  SplatsDB config: HNSW M=32, ef_construction=400, ef_search={}, over_fetch={}x",
         ef_search, over_fetch
     );
     eprintln!("  Embeddings: all-MiniLM-L6-v2 ({}d, normalized)", meta.dim);
@@ -299,7 +299,7 @@ pub fn cmd_bench_longmemeval(
     let mut output = serde_json::Map::new();
     output.insert(
         "benchmark".into(),
-        serde_json::Value::String("LongMemEval-S-cleaned — SplatDB Native Pipeline".into()),
+        serde_json::Value::String("LongMemEval-S-cleaned — SplatsDB Native Pipeline".into()),
     );
     output.insert(
         "methodology".into(),
@@ -338,7 +338,7 @@ pub fn cmd_bench_longmemeval(
         serde_json::Value::Number(serde_json::Number::from(over_fetch)),
     );
     cfg.insert("metric".into(), serde_json::Value::String("l2".into()));
-    output.insert("splatdb_config".into(), serde_json::Value::Object(cfg));
+    output.insert("splatsdb_config".into(), serde_json::Value::Object(cfg));
 
     output.insert(
         "build_time_s".into(),

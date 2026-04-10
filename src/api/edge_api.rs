@@ -1,7 +1,7 @@
 //! Edge API — REST endpoints for edge node operations.
 //! Request/response types and handler logic (framework-agnostic).
 //! Ready to plug into actix-web, axum, or warp.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

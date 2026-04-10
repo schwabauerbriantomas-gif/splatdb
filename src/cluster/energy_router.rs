@@ -1,6 +1,6 @@
-//! Energy-based router for SplatDB Cluster.
+//! Energy-based router for SplatsDB Cluster.
 //! Routes queries based on energy landscape of nodes.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

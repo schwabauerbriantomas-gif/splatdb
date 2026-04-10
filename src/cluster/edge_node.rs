@@ -1,10 +1,10 @@
-//! Edge node: local SplatDB instance that can operate offline.
-//! Ported from splatdb Python.
+//! Edge node: local SplatsDB instance that can operate offline.
+//! Ported from splatsdb Python.
 
 use crate::cluster::health::LoadMetrics;
 use crate::cluster::sync::SyncQueue;
 
-/// An SplatDB edge node with local storage and optional coordinator sync.
+/// An SplatsDB edge node with local storage and optional coordinator sync.
 pub struct EdgeNode {
     pub edge_id: String,
     coordinator_url: Option<String>,

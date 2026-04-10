@@ -41,3 +41,25 @@ logos/
 splatdb_data/
 test_dist.ptx
 explainer-video/shots/
+
+# Generation code (not needed in repo)
+assets/gen/
+assets/demo-*/frames/
+assets/demo-*/node_modules/
+assets/demo-*/package.json
+assets/demo-*/package-lock.json
+assets/demo-*/render.js
+assets/demo-*/scenes.html
+explainer-video/
+
+# Temp benchmark artifacts
+bench_*.py
+bench_*.json
+m2m_client.py
+benches/*.disabled
+benchmark_results.json
+
+# Old assets
+demo-search.*
+logo.png
+logo.svg

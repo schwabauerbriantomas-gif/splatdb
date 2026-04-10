@@ -1,4 +1,4 @@
-//! Geometry functions for SplatDB hypersphere operations.
+//! Geometry functions for SplatsDB hypersphere operations.
 //!
 //! Optimized implementations using ndarray with iterators and zero-copy where possible.
 

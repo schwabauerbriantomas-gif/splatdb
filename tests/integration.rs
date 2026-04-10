@@ -4,13 +4,13 @@ use ndarray::{Array1, Array2};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use splatdb::config::SplatDBConfig;
-use splatdb::encoding::FullEmbeddingBuilder;
-use splatdb::splats::SplatStore;
+use splatsdb::config::SplatsDBConfig;
+use splatsdb::encoding::FullEmbeddingBuilder;
+use splatsdb::splats::SplatStore;
 
 #[allow(clippy::field_reassign_with_default)]
-fn test_config() -> SplatDBConfig {
-    let mut c = SplatDBConfig::default();
+fn test_config() -> SplatsDBConfig {
+    let mut c = SplatsDBConfig::default();
     c.max_splats = 2000;
     c.latent_dim = 64;
     c

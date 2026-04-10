@@ -1,4 +1,4 @@
-//! Optimized data loader. Ported from splatdb Python.
+//! Optimized data loader. Ported from splatsdb Python.
 
 use ndarray::Array2;
 use std::io::{Read, Write};

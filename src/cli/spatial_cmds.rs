@@ -1,7 +1,7 @@
 //! CLI handlers for spatial memory commands.
 
-use splatdb::spatial::{SpatialFilter, SpatialIndex};
-use splatdb::SplatDBConfig;
+use splatsdb::spatial::{SpatialFilter, SpatialIndex};
+use splatsdb::SplatsDBConfig;
 
 use super::helpers::*;
 
@@ -44,7 +44,7 @@ pub fn cmd_spatial_search(
     };
 
     // Load store
-    let config = SplatDBConfig::advanced(None);
+    let config = SplatsDBConfig::advanced(None);
     let (store, _) = load_or_create_store(&data_dir, &config);
     let n_active = store.n_active();
     let dim = store.get_statistics().embedding_dim;
@@ -163,7 +163,7 @@ pub fn cmd_spatial_search(
 
     println!();
     println!(
-        "Note: For optimal spatial pre-filter search, use the MCP server tool splatdb_spatial_search."
+        "Note: For optimal spatial pre-filter search, use the MCP server tool splatsdb_spatial_search."
     );
     println!(
         "      The CLI spatial-search provides filter diagnostics; full pipeline requires doc↔vector mapping."
@@ -203,7 +203,7 @@ pub fn cmd_spatial_info(data_dir: String) {
         println!("  Index documents with wing/room/hall metadata to populate.");
         println!();
         println!("  Example (via MCP):");
-        println!("    splatdb_store {{ text: \"auth decision\", wing: \"project-x\", room: \"auth\", hall: \"decision\" }}");
+        println!("    splatsdb_store {{ text: \"auth decision\", wing: \"project-x\", room: \"auth\", hall: \"decision\" }}");
         println!();
         println!("  Spatial index path: {}", spatial_path.display());
     } else {

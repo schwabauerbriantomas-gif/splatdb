@@ -1,5 +1,5 @@
 //! Cluster load balancer.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use std::collections::HashMap;
 

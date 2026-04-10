@@ -49,8 +49,8 @@ pub mod cluster;
 pub mod gpu;
 pub mod loaders;
 
-pub use config::SplatDBConfig;
-pub use error::SplatDBError;
+pub use config::SplatsDBConfig;
+pub use error::SplatsDBError;
 pub use geometry::{geodesic_distance, normalize_sphere};
 pub use splat_types::{GaussianSplat, SplatCluster, SplatEmbedding};
 pub use splats::SplatStore;

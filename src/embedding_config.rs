@@ -1,7 +1,7 @@
-//! Embedding configuration for SplatDB.
+//! Embedding configuration for SplatsDB.
 //!
 //! Defines supported embedding models and their parameters.
-//! Ported from splatdb Python.
+//! Ported from splatsdb Python.
 
 use serde::{Deserialize, Serialize};
 

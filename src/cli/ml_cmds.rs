@@ -5,14 +5,14 @@
 // ── Entity Extraction ──────────────────────────────────────────────────────
 
 pub fn cmd_extract_entities(text: String, min_score: f64) {
-    use splatdb::entity_extractor::{ExtractorConfig, SplatDBEntityExtractor};
+    use splatsdb::entity_extractor::{ExtractorConfig, SplatsDBEntityExtractor};
 
     let config = ExtractorConfig {
         use_structural_patterns: true,
         use_ngram_analysis: true,
         min_ngram_score: min_score,
     };
-    let extractor = SplatDBEntityExtractor::with_config(config);
+    let extractor = SplatsDBEntityExtractor::with_config(config);
     let candidates = extractor.extract(&text);
 
     let entries: Vec<serde_json::Value> = candidates
@@ -40,7 +40,7 @@ pub fn cmd_extract_entities(text: String, min_score: f64) {
 // ── Data Lake ──────────────────────────────────────────────────────────────
 
 pub fn cmd_lake_list(data_dir: String) {
-    use splatdb::data_lake::DataLake;
+    use splatsdb::data_lake::DataLake;
 
     let path = format!("{}/data_lake", data_dir);
     let mut lake = DataLake::new(&path);
@@ -78,7 +78,7 @@ pub fn cmd_lake_register(
     dim: usize,
     description: Option<String>,
 ) {
-    use splatdb::data_lake::DataLake;
+    use splatsdb::data_lake::DataLake;
 
     let path = format!("{}/data_lake", data_dir);
     let mut lake = DataLake::new(&path);
@@ -104,7 +104,7 @@ pub fn cmd_lake_register(
 
 pub fn cmd_eval_embeddings(dim: usize, n_queries: usize) {
     use ndarray::Array2;
-    use splatdb::evaluate_embeddings::EmbeddingEvaluator;
+    use splatsdb::evaluate_embeddings::EmbeddingEvaluator;
 
     // Generate synthetic embeddings for a quick evaluation demo
     let n = 100;

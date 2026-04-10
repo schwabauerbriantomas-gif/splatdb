@@ -22,11 +22,11 @@ pub enum StorageBackend {
     Custom(String),
 }
 
-/// SplatDB Persistence manager.
+/// SplatsDB Persistence manager.
 ///
 /// Binary vector storage is always file-based (shards).
 /// Metadata storage is pluggable via `MetadataStore` trait.
-pub struct SplatDBPersistence {
+pub struct SplatsDBPersistence {
     pub storage_path: PathBuf,
     pub wal: Option<WriteAheadLog>,
     meta: Box<dyn MetadataStore>,
@@ -43,7 +43,7 @@ fn validate_shard_name(name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-impl SplatDBPersistence {
+impl SplatsDBPersistence {
     /// Create with a specific backend.
     pub fn with_backend(
         storage_path: &str,

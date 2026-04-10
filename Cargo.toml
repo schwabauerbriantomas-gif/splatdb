@@ -1,8 +1,8 @@
 [package]
-name = "splatdb"
+name = "splatsdb"
 version = "2.5.0"
 edition = "2021"
-description = "SplatDB - Gaussian Splat vector search engine"
+description = "SplatsDB - Gaussian Splat vector search engine"
 license = "MIT"
 
 [features]

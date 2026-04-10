@@ -7,7 +7,7 @@
 //!   GET  /health  - Health check
 //!
 //! Security:
-//!   - API key authentication via SPLATDB_API_KEY env var (optional)
+//!   - API key authentication via SPLATSDB_API_KEY env var (optional)
 //!   - CORS restricted to localhost by default
 //!   - Input size limits enforced
 
@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 
-use crate::config::SplatDBConfig;
+use crate::config::SplatsDBConfig;
 use crate::splats::SplatStore;
 
 // ─── Security constants ──────────────────────────────────
@@ -262,8 +262,8 @@ async fn api_key_auth(
         return Ok(next.run(request).await);
     }
 
-    // If no SPLATDB_API_KEY env var set, skip auth (localhost dev mode)
-    let Ok(expected_key) = std::env::var("SPLATDB_API_KEY") else {
+    // If no SPLATSDB_API_KEY env var set, skip auth (localhost dev mode)
+    let Ok(expected_key) = std::env::var("SPLATSDB_API_KEY") else {
         return Ok(next.run(request).await);
     };
 
@@ -279,7 +279,7 @@ async fn api_key_auth(
 }
 
 pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
-    let config = SplatDBConfig::default();
+    let config = SplatsDBConfig::default();
     let store = SplatStore::new(config);
 
     let state = AppState {
@@ -309,7 +309,7 @@ pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
         .with_state(state);
 
     let bind_addr = format!("{addr}:{port}");
-    println!("SplatDB server listening on {bind_addr}");
+    println!("SplatsDB server listening on {bind_addr}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     Ok(axum::serve(listener, app).await?)
 }
