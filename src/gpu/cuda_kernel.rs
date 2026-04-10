@@ -31,7 +31,14 @@ pub struct GpuIndex {
 impl GpuIndex {
     /// Create a new GPU index. Returns None if CUDA is unavailable.
     pub fn new() -> Option<Self> {
-        let ctx = CudaContext::new(0).ok()?;
+        let ctx = match CudaContext::new(0) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[splatdb] CUDA context creation failed: {:?}", e);
+                return None;
+            }
+        };
+        eprintln!("[splatdb] CUDA context created successfully");
         let stream = ctx.default_stream();
         Some(GpuIndex {
             ctx,

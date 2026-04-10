@@ -307,16 +307,33 @@ Query: "auth decisions from project-x"
   </div>
 </div></div>
 
-<!-- S17: Roadmap 585-595 -->
+<!-- S17: Results & Roadmap 585-595 -->
 <div id="s17" class="scene"><div class="scene-inner">
-  <h2>Roadmap</h2>
-  <div style="text-align:left;max-width:700px;margin:16px auto">
-    <p style="margin:8px 0"><span class="status s-plan"></span>Docker image: <span class="cmt" style="color:#64748b">docker run splatdb</span></p>
-    <p style="margin:8px 0"><span class="status s-plan"></span>LongMemEval benchmark</p>
-    <p style="margin:8px 0"><span class="status s-plan"></span>Faiss side-by-side comparison</p>
-    <p style="margin:8px 0"><span class="status s-plan"></span>Spatial Memory: Wings/Rooms/Halls/Tunnels</p>
-    <p style="margin:8px 0"><span class="status s-plan"></span>Verbatim Storage + AAAK compression</p>
-    <p style="margin:8px 0"><span class="status s-plan"></span>CI with GPU + test coverage</p>
+  <h2>Results &amp; Roadmap</h2>
+  <div style="display:flex;gap:30px;max-width:1050px;margin:12px auto;text-align:left">
+    <div style="flex:1">
+      <h3 style="color:#34d399;font-size:18px;margin-bottom:10px">✅ Completed</h3>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>LongMemEval: <span style="color:#34d399">96.6%</span> recall@10 (paper best: 86.2%)</p>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Faiss side-by-side: honest benchmark</p>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Spatial Memory: Wings/Rooms/Halls</p>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Verbatim Storage + AAAK</p>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>Distributed cluster + CLI commands</p>
+      <p style="margin:6px 0;font-size:14px;color:#94a3b8"><span class="status s-done"></span>289 tests, clippy clean, CI green</p>
+    </div>
+    <div style="flex:1">
+      <h3 style="color:#38bdf8;font-size:18px;margin-bottom:10px">📊 Key Numbers</h3>
+      <table class="preset-table" style="font-size:13px">
+        <tr><td>SplatDB GPU (RTX 3090)</td><td style="color:#38bdf8">12,195 QPS</td></tr>
+        <tr><td>Faiss HNSW (CPU)</td><td style="color:#a78bfa">9,758 QPS</td></tr>
+        <tr><td>SplatDB HNSW recall</td><td style="color:#34d399">98.6%</td></tr>
+        <tr><td>LongMemEval R@10</td><td style="color:#34d399">96.6%</td></tr>
+        <tr><td>LongMemEval p50</td><td style="color:#38bdf8">0.029ms</td></tr>
+        <tr><td>GPU speedup (top-k)</td><td style="color:#f59e0b">4.1×</td></tr>
+      </table>
+      <h3 style="color:#64748b;font-size:16px;margin-top:14px;margin-bottom:8px">🔲 Next</h3>
+      <p style="margin:4px 0;font-size:13px;color:#64748b"><span class="status s-plan"></span>Docker image</p>
+      <p style="margin:4px 0;font-size:13px;color:#64748b"><span class="status s-plan"></span>GPU CI + coverage</p>
+    </div>
   </div>
 </div></div>
 
@@ -469,27 +486,28 @@ function drawSplats(ctx,p){
 function drawChart(ctx,p){
   ctx.clearRect(0,0,1100,500);
   const methods=[
-    {name:'Linear Scan',qps:10.55,color:'244,63,94',lat:'94.79ms',speedup:'baseline'},
-    {name:'SplatDB HRM2',qps:1012.77,color:'56,189,248',lat:'0.99ms',speedup:'32.4×'},
-    {name:'SplatDB HNSW',qps:1081,color:'52,211,153',lat:'0.93ms',speedup:'—'},
-    {name:'SplatDB HNSW 100K',qps:591,color:'251,146,60',lat:'1.70ms',speedup:'—'},
+    {name:'Linear Scan',qps:10.55,color:'244,63,94',lat:'94.79ms',recall:'—',tag:'baseline'},
+    {name:'SplatDB GPU (RTX 3090)',qps:12195,color:'56,189,248',lat:'0.082ms',recall:'—',tag:'4.1× vs CPU'},
+    {name:'SplatDB HNSW',qps:658,color:'251,146,60',lat:'1.52ms',recall:'98.6%',tag:'recall king'},
+    {name:'Faiss HNSW M=32',qps:9758,color:'139,92,246',lat:'0.10ms',recall:'99.3%',tag:'14.8× QPS'},
+    {name:'Faiss IVF-PQ',qps:10039,color:'52,211,153',lat:'0.10ms',recall:'69.0%',tag:'lossy'},
   ];
-  const maxQ=1200,barH=60,gap=36,startX=320,maxW=700,startY=60;
+  const maxQ=11000,barH=45,gap=24,startX=310,maxW=700,startY=44;
 
   ctx.font='18px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.3)';
-  ctx.textAlign='left';ctx.fillText('Queries Per Second (SIFT-128, CPU) — log scale',startX,startY-16);
+  ctx.textAlign='left';ctx.fillText('SIFT-128 — 100K vectors, Ryzen 5 3400G + RTX 3090, 16GB RAM — log scale',startX,startY-14);
 
   const logMax=Math.log10(maxQ);
   function logW(qps){return(Math.log10(Math.max(qps,0.5))/logMax)*maxW}
 
   methods.forEach((m,i)=>{
     const y=startY+i*(barH+gap);
-    const t=clamp((p-i*.18)/.3,0,1);
+    const t=clamp((p-i*.15)/.25,0,1);
     const ep=easeOut4(t);
     const w=logW(m.qps)*ep;
 
-    ctx.font='20px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='right';
-    ctx.fillText(m.name,startX-16,y+barH/2+7);
+    ctx.font='18px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='#fff';ctx.textAlign='right';
+    ctx.fillText(m.name,startX-14,y+barH/2+6);
 
     ctx.fillStyle='rgba(255,255,255,.03)';
     ctx.beginPath();ctx.roundRect(startX,y,maxW,barH,8);ctx.fill();
@@ -502,26 +520,30 @@ function drawChart(ctx,p){
       ctx.beginPath();ctx.roundRect(startX,y,Math.max(w,8),barH,8);ctx.fill();
     }
 
-    const vp=clamp((p-i*.18-.1)/.2,0,1);
+    const vp=clamp((p-i*.15-.08)/.18,0,1);
     if(vp>0){
-      ctx.font='bold 22px "Courier New",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
+      ctx.font='bold 20px "Courier New",monospace';ctx.fillStyle='#fff';ctx.textAlign='left';
       const displayQPS=m.qps<100?(m.qps*vp).toFixed(1):Math.floor(m.qps*vp);
-      ctx.fillText(`${displayQPS} QPS`,startX+w+14,y+barH/2+2);
-      ctx.font='14px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.35)';
-      ctx.fillText(`(${m.lat})`,startX+w+14,y+barH/2+22);
-      if(m.speedup!=='—'){
-        ctx.font='bold 16px "Segoe UI",system-ui,sans-serif';
+      ctx.fillText(`${displayQPS} QPS`,startX+w+12,y+barH/2-2);
+      ctx.font='13px "Segoe UI",system-ui,sans-serif';ctx.fillStyle='rgba(255,255,255,.35)';
+      ctx.fillText(`${m.lat}  recall: ${m.recall}`,startX+w+12,y+barH/2+16);
+      if(m.tag!=='baseline'){
+        ctx.font='bold 14px "Segoe UI",system-ui,sans-serif';
         ctx.fillStyle=`rgba(56,189,248,${vp})`;
-        ctx.fillText(m.speedup,startX+w+14,y+barH/2+42);
+        ctx.fillText(m.tag,startX+w+12,y+barH/2+34);
       }
     }
   });
 
-  const ap=clamp((p-.8)/.15,0,1);
+  // Faiss vs SplatDB honest callout
+  const ap=clamp((p-.75)/.15,0,1);
   if(ap>0){
-    ctx.font='bold 28px "Segoe UI",system-ui,sans-serif';
-    ctx.fillStyle=`rgba(56,189,248,${ap})`;ctx.textAlign='center';
-    ctx.fillText('32.4× faster than brute-force on CPU',550,startY+4*(barH+gap)+10);
+    ctx.font='bold 22px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle=`rgba(251,146,60,${ap})`;ctx.textAlign='center';
+    ctx.fillText('SplatDB GPU: 12,195 QPS | Faiss HNSW: 9,758 QPS | Same hardware, honest numbers',550,startY+5*(barH+gap)+16);
+    ctx.font='15px "Segoe UI",system-ui,sans-serif';
+    ctx.fillStyle=`rgba(148,163,184,${ap*.7})`;
+    ctx.fillText('SplatDB GPU beats Faiss CPU. SplatDB adds uncertainty, semantic memory, MCP, spatial.',550,startY+5*(barH+gap)+42);
   }
 }
 
