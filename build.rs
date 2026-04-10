@@ -1,34 +1,29 @@
 // build.rs — Compile CUDA kernels with nvcc when --features cuda is enabled
-// Only runs when the `cuda` feature is active AND nvcc is found on PATH.
+// Supports Windows native and WSL2 (auto-detects environment)
 
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    // Only compile CUDA kernels when the cuda feature is enabled
     if env::var("CARGO_FEATURE_CUDA").is_err() {
         return;
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Find nvcc
     let nvcc = which_nvcc();
     if let Some(nvcc) = nvcc {
         println!("cargo:warning=[m2m] Found nvcc: {}", nvcc);
 
-        // Compile distance.cu to PTX
-        let kernel_src = "kernels/distance.cu";
-        let ptx_output = out_dir.join("distance.ptx");
-
-        // Find MSVC cl.exe for nvcc host compiler
         let cl_exe = find_msvc_cl();
+
+        // Compile distance.cu to PTX
+        let ptx_output = out_dir.join("distance.ptx");
         let mut cmd = Command::new(&nvcc);
         cmd.args([
             "--ptx",
             "--gpu-architecture=sm_86",
-            "--generate-code=arch=compute_86,code=[sm_86,compute_86]",
             "-O3",
             "--use_fast_math",
             "--extra-device-vectorization",
@@ -38,27 +33,21 @@ fn main() {
         }
         cmd.args([
             &format!("--output-file={}", ptx_output.display()),
-            kernel_src,
+            "kernels/distance.cu",
         ]);
 
         let status = cmd.status().expect("Failed to run nvcc");
-
         if status.success() {
-            println!(
-                "cargo:warning=[m2m] CUDA distance kernels compiled to PTX: {}",
-                ptx_output.display()
-            );
+            println!("cargo:warning=[m2m] CUDA distance kernels compiled to PTX");
             println!("cargo:rerun-if-changed=kernels/distance.cu");
             println!("cargo:rustc-env=M2M_PTX_PATH={}", ptx_output.display());
 
-            // Compile extended kernels (quantization, clustering, geometry, LSH)
-            let ext_kernel_src = "kernels/extended_kernels.cu";
-            let ext_ptx_output = out_dir.join("extended_kernels.ptx");
+            // Compile extended kernels
+            let ext_ptx = out_dir.join("extended_kernels.ptx");
             let mut ext_cmd = Command::new(&nvcc);
             ext_cmd.args([
                 "--ptx",
                 "--gpu-architecture=sm_86",
-                "--generate-code=arch=compute_86,code=[sm_86,compute_86]",
                 "-O3",
                 "--use_fast_math",
                 "--extra-device-vectorization",
@@ -67,52 +56,47 @@ fn main() {
                 ext_cmd.args(["-ccbin", cl]);
             }
             ext_cmd.args([
-                &format!("--output-file={}", ext_ptx_output.display()),
-                ext_kernel_src,
+                &format!("--output-file={}", ext_ptx.display()),
+                "kernels/extended_kernels.cu",
             ]);
-            let ext_status = ext_cmd
-                .status()
-                .expect("Failed to run nvcc for extended kernels");
-            if ext_status.success() {
-                println!(
-                    "cargo:warning=[m2m] CUDA extended kernels compiled to PTX: {}",
-                    ext_ptx_output.display()
-                );
+            if ext_cmd.status().map(|s| s.success()).unwrap_or(false) {
+                println!("cargo:warning=[m2m] CUDA extended kernels compiled to PTX");
                 println!("cargo:rerun-if-changed=kernels/extended_kernels.cu");
-                println!(
-                    "cargo:rustc-env=M2M_EXTENDED_PTX_PATH={}",
-                    ext_ptx_output.display()
-                );
-            } else {
-                println!(
-                    "cargo:warning=[m2m] Extended kernel compilation failed — quant/clustering GPU unavailable"
-                );
+                println!("cargo:rustc-env=M2M_EXTENDED_PTX_PATH={}", ext_ptx.display());
             }
         } else {
             println!("cargo:warning=[m2m] nvcc compilation failed — GPU kernels unavailable");
         }
     } else {
-        println!(
-            "cargo:warning=[m2m] nvcc not found — GPU kernels unavailable, using cudarc defaults"
-        );
+        println!("cargo:warning=[m2m] nvcc not found — GPU kernels unavailable");
     }
 }
 
 fn which_nvcc() -> Option<String> {
-    // Check CUDA_PATH first
-    if let Ok(cuda_path) = env::var("CUDA_PATH") {
-        let nvcc = PathBuf::from(cuda_path).join("bin").join("nvcc.exe");
-        if nvcc.exists() {
-            return Some(nvcc.to_string_lossy().to_string());
+    // 1. Check Linux PATH
+    if let Ok(output) = Command::new("which").arg("nvcc").output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let line = stdout.lines().next().unwrap_or("").trim();
+            if !line.is_empty() { return Some(line.to_string()); }
         }
     }
-    // Check PATH
-    if let Ok(output) = Command::new("where").arg("nvcc.exe").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout);
-            let line = path.lines().next().unwrap_or("").trim();
-            if !line.is_empty() {
-                return Some(line.to_string());
+    // 2. Check CUDA_PATH env
+    if let Ok(cuda_path) = env::var("CUDA_PATH") {
+        let nvcc = PathBuf::from(&cuda_path).join("bin").join("nvcc.exe");
+        if nvcc.exists() { return Some(nvcc.to_string_lossy().to_string()); }
+        let nvcc = PathBuf::from(&cuda_path).join("bin").join("nvcc");
+        if nvcc.exists() { return Some(nvcc.to_string_lossy().to_string()); }
+    }
+    // 3. Check Windows CUDA toolkit (works from both WSL and Windows)
+    for base in [
+        PathBuf::from("/mnt/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA"),
+        PathBuf::from("C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA"),
+    ] {
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let nvcc = entry.path().join("bin").join("nvcc.exe");
+                if nvcc.exists() { return Some(nvcc.to_string_lossy().to_string()); }
             }
         }
     }
@@ -120,36 +104,16 @@ fn which_nvcc() -> Option<String> {
 }
 
 fn find_msvc_cl() -> Option<String> {
-    // Search BuildTools for cl.exe
-    let base = PathBuf::from(
-        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC",
-    );
-    if let Ok(entries) = std::fs::read_dir(&base) {
-        for entry in entries.flatten() {
-            let cl = entry
-                .path()
-                .join("bin")
-                .join("Hostx64")
-                .join("x64")
-                .join("cl.exe");
-            if cl.exists() {
-                return Some(cl.to_string_lossy().to_string());
-            }
-        }
-    }
-    // Also check Community edition
-    let base2 =
-        PathBuf::from(r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC");
-    if let Ok(entries) = std::fs::read_dir(&base2) {
-        for entry in entries.flatten() {
-            let cl = entry
-                .path()
-                .join("bin")
-                .join("Hostx64")
-                .join("x64")
-                .join("cl.exe");
-            if cl.exists() {
-                return Some(cl.to_string_lossy().to_string());
+    for base in [
+        PathBuf::from("/mnt/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC"),
+        PathBuf::from("C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC"),
+        PathBuf::from("/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC"),
+        PathBuf::from("C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC"),
+    ] {
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let cl = entry.path().join("bin").join("Hostx64").join("x64").join("cl.exe");
+                if cl.exists() { return Some(cl.to_string_lossy().to_string()); }
             }
         }
     }
