@@ -1,6 +1,7 @@
 //! CLI command handlers — extracted from main.rs
 
 mod bench_longmemeval;
+mod cluster_cmds;
 mod data_cmds;
 mod graph_cmds;
 mod helpers;
@@ -358,6 +359,72 @@ pub enum Commands {
     },
     /// Show spatial memory structure (wings, rooms, tunnels)
     SpatialInfo,
+    // ── Cluster Commands ──────────────────────────────────────────────
+    /// Join a node to the cluster
+    ClusterJoin {
+        /// Edge node ID
+        #[arg(short, long)]
+        id: String,
+        /// Node URL (e.g. localhost:8001)
+        #[arg(short, long)]
+        url: String,
+        /// Node role: worker, edge, coordinator
+        #[arg(short = 't', long, default_value = "worker")]
+        role: String,
+        /// Node weight for routing (default: 1.0)
+        #[arg(short, long, default_value = "1.0")]
+        weight: f64,
+    },
+    /// Remove a node from the cluster
+    ClusterLeave {
+        /// Edge node ID to remove
+        #[arg(short, long)]
+        id: String,
+    },
+    /// Show cluster status — nodes, routing, sharding
+    ClusterStatus {
+        /// Show detailed per-node info
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Ingest documents to cluster with sharding
+    ClusterIngest {
+        /// Document ID prefix
+        #[arg(short, long, default_value = "doc")]
+        prefix: String,
+        /// Number of documents to ingest
+        #[arg(short = 'n', long, default_value = "1000")]
+        n_docs: usize,
+        /// Sharding strategy: hash, cluster, geo
+        #[arg(short, long, default_value = "hash")]
+        strategy: String,
+    },
+    /// Search the cluster with routing and RRF aggregation
+    ClusterSearch {
+        /// Query vector (comma-separated floats)
+        #[arg(short, long)]
+        query: String,
+        /// Number of results
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+        /// Routing strategy: broadcast, round_robin, least_loaded
+        #[arg(short = 't', long, default_value = "broadcast")]
+        strategy: String,
+    },
+    /// Benchmark cluster search performance
+    ClusterBench {
+        /// Number of queries to run
+        #[arg(short = 'n', long, default_value = "1000")]
+        n_queries: usize,
+        /// Number of results per query
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+        /// Routing strategy: broadcast, round_robin, least_loaded
+        #[arg(short = 't', long, default_value = "broadcast")]
+        strategy: String,
+    },
+    /// Reset cluster state (remove all nodes)
+    ClusterReset,
     /// Benchmark LongMemEval with SplatDB native pipeline (spatial filter + vector search)
     BenchLongMemEval {
         /// Binary file with session embeddings [u64 n][u64 dim][f32 data]
@@ -567,6 +634,31 @@ pub fn dispatch(cli: Cli) {
             k,
         } => crate::cli::spatial_cmds::cmd_spatial_search(cli.data_dir, query, wing, room, hall, k),
         Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(cli.data_dir),
+        // ── Cluster ──
+        Commands::ClusterJoin {
+            id,
+            url,
+            role,
+            weight,
+        } => crate::cli::cluster_cmds::cmd_cluster_join(&id, &url, &role, weight),
+        Commands::ClusterLeave { id } => crate::cli::cluster_cmds::cmd_cluster_leave(&id),
+        Commands::ClusterStatus { verbose } => {
+            crate::cli::cluster_cmds::cmd_cluster_status(verbose)
+        }
+        Commands::ClusterIngest {
+            prefix,
+            n_docs,
+            strategy,
+        } => crate::cli::cluster_cmds::cmd_cluster_ingest(&prefix, n_docs, &strategy),
+        Commands::ClusterSearch { query, k, strategy } => {
+            crate::cli::cluster_cmds::cmd_cluster_search(&query, k, &strategy)
+        }
+        Commands::ClusterBench {
+            n_queries,
+            k,
+            strategy,
+        } => crate::cli::cluster_cmds::cmd_cluster_bench(n_queries, k, &strategy),
+        Commands::ClusterReset => crate::cli::cluster_cmds::cmd_cluster_reset(),
         Commands::BenchLongMemEval {
             sessions,
             queries,
