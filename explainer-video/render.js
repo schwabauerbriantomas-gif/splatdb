@@ -11,7 +11,7 @@ const FRAMES_DIR = path.join(__dirname, 'frames');
 
 if (!fs.existsSync(FRAMES_DIR)) fs.mkdirSync(FRAMES_DIR, { recursive: true });
 
-// Clean old frames
+// Clean old frames from previous version
 const existing = fs.readdirSync(FRAMES_DIR).filter(f => f.endsWith('.png'));
 if (existing.length === 14400) {
   console.log('All 14400 frames exist, nothing to render.');
@@ -34,7 +34,7 @@ async function renderChunk(startSec, endSec) {
       allExist = false; break;
     }
   }
-  if (allExist) { console.log(`  Skip ${startFrame}-${endFrame - 1}`); return; }
+  if (allExist) { process.stdout.write(`  Skip ${startFrame}-${endFrame - 1}\n`); return; }
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -51,10 +51,9 @@ async function renderChunk(startSec, endSec) {
     const page = await browser.newPage();
     await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
     await page.goto(`file://${HTML_PATH}`, { waitUntil: 'networkidle0', timeout: 30000 });
-    // Wait for page to settle, then set initial state
+    // Hide all scenes initially
     await page.evaluate(() => {
       document.querySelectorAll('.scene').forEach(el => el.style.opacity = 0);
-      document.getElementById('logoLayer').style.opacity = 0;
     });
     await new Promise(r => setTimeout(r, 200));
 
@@ -82,7 +81,7 @@ async function main() {
     await renderChunk(sec, chunkEnd);
     const elapsed = (Date.now() - startTime) / 1000;
     const pct = ((sec / TOTAL_DURATION) * 100).toFixed(0);
-    const eta = ((elapsed / sec) * (TOTAL_DURATION - sec) / 60).toFixed(1);
+    const eta = sec > 0 ? ((elapsed / sec) * (TOTAL_DURATION - sec) / 60).toFixed(1) : '?';
     console.log(`${((Date.now() - cs) / 1000).toFixed(1)}s (${pct}%, ETA ~${eta}min)`);
   }
 
