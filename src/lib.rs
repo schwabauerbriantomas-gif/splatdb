@@ -40,7 +40,9 @@ pub mod spatial;
 pub mod splat_types;
 pub mod splats;
 pub mod storage;
+pub mod text_compression;
 pub mod train_embeddings;
+pub mod verbatim;
 
 pub mod api;
 pub mod cluster;

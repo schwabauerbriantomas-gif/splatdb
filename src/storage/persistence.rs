@@ -283,6 +283,40 @@ impl SplatDBPersistence {
         self.meta.count(include_deleted)
     }
 
+    // ---- Direct Document Access (for Verbatim Storage) ----
+
+    /// Upsert a document record directly.
+    pub fn upsert_doc(
+        &self,
+        record: &DocumentRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.meta.upsert(record)
+    }
+
+    /// Get a document record by ID.
+    pub fn get_doc(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        self.meta.get(doc_id)
+    }
+
+    /// Find a document by vector index. Scans all documents.
+    pub fn find_doc_by_vector_idx(
+        &self,
+        vector_idx: i64,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let ids = self.meta.list_ids(true)?;
+        for id in ids {
+            if let Some(record) = self.meta.get(&id)? {
+                if record.vector_idx == vector_idx && !record.deleted {
+                    return Ok(Some(record));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     // ---- Energy State (file-based) ----
 
     pub fn save_energy_state(

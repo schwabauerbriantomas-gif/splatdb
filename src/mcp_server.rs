@@ -354,6 +354,41 @@ fn tool_definitions() -> Vec<Value> {
                 "properties": {}
             }
         }),
+        // ── Verbatim Storage tools ──────────────────────────────────────
+        json!({
+            "name": "splatdb_verbatim_search",
+            "description": "Search with confidence scoring to prevent hallucination. Returns results with HIGH/MEDIUM/LOW confidence based on vector distance, plus original verbatim text for verification.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search query text" },
+                    "top_k": { "type": "number", "description": "Number of results (default: 10)" }
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "splatdb_compress",
+            "description": "Compress text using AAAK (semantic + binary compression). Returns semantically compressed text that LLMs can read natively, plus binary compressed data for storage.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to compress" }
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "splatdb_decompress",
+            "description": "Decompress AAAK binary data back to LLM-readable semantic text.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "data": { "type": "string", "description": "Hex-encoded compressed data" }
+                },
+                "required": ["data"]
+            }
+        }),
     ]
 }
 
@@ -1192,6 +1227,119 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
 }
 
 // ============================================================================
+// Verbatim Storage + AAAK Compression handlers
+// ============================================================================
+
+fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
+    let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    let top_k = params["top_k"].as_u64().unwrap_or(10) as usize;
+
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
+    let n_active = s.store.n_active();
+    if n_active == 0 {
+        return Ok(json!({ "results": [], "message": "No documents in store" }));
+    }
+
+    let dim = s.store.get_statistics().embedding_dim;
+    let k = top_k.min(n_active);
+    let embedding = get_embedding(query, dim);
+    let query_vec = Array1::from_vec(embedding);
+    let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
+
+    let results: Vec<Value> = neighbors
+        .into_iter()
+        .map(|n| {
+            let doc_id = s.vector_to_doc.get(&n.index).cloned().unwrap_or_default();
+            let text = s.doc_texts.get(&doc_id).cloned().unwrap_or_default();
+
+            // Confidence classification
+            let (confidence, emoji, explanation) = if n.distance < 0.3 {
+                ("HIGH", "🟢", "Very reliable match")
+            } else if n.distance < 0.6 {
+                ("MEDIUM", "🟡", "Good match — verify context")
+            } else {
+                ("LOW", "🔴", "Weak match — verify against source")
+            };
+
+            let similarity = (1.0 / (1.0 + n.distance as f64)).min(1.0);
+
+            json!({
+                "id": doc_id,
+                "index": n.index,
+                "distance": (n.distance * 10000.0).round() / 10000.0,
+                "similarity": (similarity * 10000.0).round() / 10000.0,
+                "confidence": confidence,
+                "confidence_emoji": emoji,
+                "explanation": explanation,
+                "text": text,
+                "warning": if confidence == "LOW" {
+                    Some("LOW CONFIDENCE — may be hallucinated, verify against original source")
+                } else {
+                    None
+                },
+            })
+        })
+        .collect();
+
+    let high_count = results.iter().filter(|r| r["confidence"].as_str() == Some("HIGH")).count();
+    let medium_count = results.iter().filter(|r| r["confidence"].as_str() == Some("MEDIUM")).count();
+    let low_count = results.iter().filter(|r| r["confidence"].as_str() == Some("LOW")).count();
+
+    Ok(json!({
+        "query": query,
+        "results": results,
+        "summary": {
+            "total": results.len(),
+            "high": high_count,
+            "medium": medium_count,
+            "low": low_count,
+            "reliable": high_count + medium_count,
+        },
+        "disclaimer": "Always verify LOW confidence results against original source text to prevent hallucination",
+    }))
+}
+
+fn handle_compress(params: &Value) -> Result<Value, String> {
+    let text = params["text"].as_str().ok_or("missing 'text' field")?;
+    let result = crate::text_compression::compress(text);
+
+    let hex_data: String = result.binary_data.iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+
+    Ok(json!({
+        "semantic_text": result.semantic_text,
+        "original_size": result.original_size,
+        "semantic_size": result.semantic_size,
+        "binary_size": result.binary_size,
+        "semantic_ratio": format!("{:.2}×", result.semantic_ratio),
+        "total_ratio": format!("{:.2}×", result.compression_ratio),
+        "data": hex_data,
+    }))
+}
+
+fn handle_decompress(params: &Value) -> Result<Value, String> {
+    let hex_data = params["data"].as_str().ok_or("missing 'data' field")?;
+    let binary_data: Vec<u8> = (0..hex_data.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&hex_data[i..i + 2], 16).ok())
+        .collect();
+
+    let text = crate::text_compression::decompress(&binary_data)
+        .map_err(|e| format!("Decompression error: {}", e))?;
+
+    Ok(json!({
+        "text": text,
+        "binary_size": binary_data.len(),
+        "text_size": text.len(),
+    }))
+}
+
+// ============================================================================
 // JSON-RPC dispatcher
 // ============================================================================
 
@@ -1252,6 +1400,9 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 "splatdb_graph_stats" => handle_graph_stats(state),
                 "splatdb_spatial_search" => handle_spatial_search(state, &arguments),
                 "splatdb_spatial_info" => handle_spatial_info(state),
+                "splatdb_verbatim_search" => handle_verbatim_search(state, &arguments),
+                "splatdb_compress" => handle_compress(&arguments),
+                "splatdb_decompress" => handle_decompress(&arguments),
                 _ => Err(format!("unknown tool: {}", tool_name)),
             };
 

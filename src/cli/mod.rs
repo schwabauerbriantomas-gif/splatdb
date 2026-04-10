@@ -9,6 +9,7 @@ mod index_cmds;
 mod ml_cmds;
 mod search_cmds;
 mod spatial_cmds;
+mod verbatim_cmds;
 
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -425,6 +426,56 @@ pub enum Commands {
     },
     /// Reset cluster state (remove all nodes)
     ClusterReset,
+    // ── Verbatim Storage ─────────────────────────────────────────────
+    /// Store document with verbatim text for exact recall
+    VerbatimStore {
+        /// Document ID
+        #[arg(short, long)]
+        id: String,
+        /// Document text content (verbatim)
+        #[arg(short, long)]
+        text: String,
+        /// Optional category tag
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+    /// Retrieve original document text by ID
+    VerbatimGet {
+        /// Document ID to retrieve
+        #[arg(short, long)]
+        id: String,
+    },
+    /// Search with verbatim text and confidence scores
+    VerbatimSearch {
+        /// Search query text
+        #[arg(short, long)]
+        query: String,
+        /// Number of results
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+    },
+    // ── AAAK Text Compression ────────────────────────────────────────
+    /// Compress text using AAAK (semantic + binary)
+    Compress {
+        /// Input text to compress
+        #[arg(short, long)]
+        text: String,
+        /// Show detailed compression stats
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Decompress AAAK binary data (hex-encoded input)
+    Decompress {
+        /// Hex-encoded compressed data
+        #[arg(short, long)]
+        data: String,
+    },
+    /// Benchmark AAAK compression ratio on sample text
+    CompressBench {
+        /// Text size category: small, medium, large
+        #[arg(short, long, default_value = "medium")]
+        size: String,
+    },
     /// Benchmark LongMemEval with SplatDB native pipeline (spatial filter + vector search)
     BenchLongMemEval {
         /// Binary file with session embeddings [u64 n][u64 dim][f32 data]
@@ -659,6 +710,26 @@ pub fn dispatch(cli: Cli) {
             strategy,
         } => crate::cli::cluster_cmds::cmd_cluster_bench(n_queries, k, &strategy),
         Commands::ClusterReset => crate::cli::cluster_cmds::cmd_cluster_reset(),
+        // ── Verbatim Storage ──
+        Commands::VerbatimStore { id, text, category } => {
+            crate::cli::verbatim_cmds::cmd_verbatim_store(cli.data_dir, cli.backend, id, text, category)
+        }
+        Commands::VerbatimGet { id } => {
+            crate::cli::verbatim_cmds::cmd_verbatim_get(cli.data_dir, cli.backend, id)
+        }
+        Commands::VerbatimSearch { query, k } => {
+            crate::cli::verbatim_cmds::cmd_verbatim_search(cli.data_dir, config, query, k)
+        }
+        // ── AAAK Compression ──
+        Commands::Compress { text, verbose } => {
+            crate::cli::verbatim_cmds::cmd_compress(text, verbose)
+        }
+        Commands::Decompress { data } => {
+            crate::cli::verbatim_cmds::cmd_decompress(data)
+        }
+        Commands::CompressBench { size } => {
+            crate::cli::verbatim_cmds::cmd_compress_bench(size)
+        }
         Commands::BenchLongMemEval {
             sessions,
             queries,
