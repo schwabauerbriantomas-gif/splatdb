@@ -11,7 +11,7 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-285%20passing-brightgreen.svg)]()
 [![LOC](https://img.shields.io/badge/LOC-26K-informational.svg)]()
 
 ---
@@ -37,19 +37,26 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 
 ### Comparison
 
-| Feature | SplatDB | Faiss | Pinecone | Qdrant | LanceDB |
-|---------|---------|-------|----------|--------|---------|
-| Language | Rust | C++ | Go/Rust | Rust | Rust |
-| Gaussian Splats | ✅ | — | — | — | — |
-| Uncertainty scores | ✅ | — | — | — | — |
-| Knowledge Graph | ✅ | — | — | — | — |
-| MCP server | ✅ | — | — | — | — |
-| Self-hosted | ✅ | ✅ | ❌ | ✅ | ✅ |
-| GPU custom kernels (14 total) | PTX | CUDA | Cloud | ❌ | ❌ |
-| HNSW | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Feature | SplatDB | Faiss | Pinecone | Qdrant | Milvus/Zilliz | LanceDB |
+|---------|---------|-------|----------|--------|---------------|---------|
+| Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
+| License | AGPL-3.0 | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
+| Gaussian Splats | ✅ | — | — | — | — | — |
+| Uncertainty scores | ✅ | — | — | — | — | — |
+| Knowledge Graph | ✅ | — | — | — | — | — |
+| Spatial Memory (Wing/Room/Hall/Tunnel) | ✅ | — | — | — | — | — |
+| MCP server (15 tools) | ✅ | — | — | — | — | — |
+| Distributed sharding (hash/cluster/geo) | ✅ | — | ✅ Cloud | ✅ | ✅ | — |
+| Energy-aware routing | ✅ | — | — | — | — | — |
+| RRF result fusion | ✅ | — | — | — | ✅ | — |
+| Self-hosted | ✅ | ✅ | ❌ SaaS-only | ✅ | ✅ | ✅ |
+| Embedded (no server) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| GPU custom kernels (14 total) | PTX | CUDA | Cloud | ❌ | ✅ Knowhere | ❌ |
+| HNSW | ✅ | ✅ | ✅ | ✅ | ✅ | IVF-PQ |
+| Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Pricing (cloud managed) | **Free** | N/A | $50–$500/mo | Usage-based | $99–$155/mo | Free |
 
-> **Honest note**: Faiss remains the gold standard for raw throughput on pure ANN benchmarks. Qdrant and LanceDB are more mature production databases with richer filtering, sharding, and ecosystem integrations. SplatDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory in a single lightweight binary.
+> **Honest note**: Faiss remains the gold standard for raw throughput on pure ANN benchmarks (4–6x faster QPS). Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
 
 ---
 
@@ -77,6 +84,7 @@ SplatDB is **not** a Faiss competitor on raw QPS. If you need the fastest possib
 - [Dependencies](#dependencies)
 - [Roadmap](#roadmap)
 - [Spatial Memory Architecture](#spatial-memory-architecture)
+- [Competitive Landscape](#competitive-landscape)
 - [License](#license)
 
 ---
@@ -1204,6 +1212,64 @@ Spatial memory has an initial implementation. The building blocks exist:
 - ✅ Full search pipeline integration (spatial pre-filter → vector search via `find_neighbors_filtered`)
 - ✅ MCP tools: `splatdb_spatial_search`, `splatdb_spatial_info`
 - ✅ Spatial query API (`search --wing project-x --room auth --hall decisions`)
+
+---
+
+## Competitive Landscape
+
+### Market Position (DB-Engines Vector DBMS Ranking, April 2026)
+
+| Rank | Product | Score | Type |
+|------|---------|-------|------|
+| 1 | Elasticsearch | 99.51 | Multi-model (not pure vector) |
+| 4 | Pinecone | 8.18 | SaaS-only, proprietary |
+| 6 | Milvus | 6.39 | Cloud-native, Apache 2.0 |
+| 7 | Qdrant | 4.98 | Rust, Apache 2.0 |
+| 9 | Weaviate | 4.42 | Go, BSD-3 |
+| 11 | Chroma | — | Python+Rust, embedded |
+| 16 | LanceDB | — | Rust, embedded, emergent |
+| — | **SplatDB** | — | Rust, embedded+cluster, AGPL-3.0 |
+
+### Cloud Pricing Comparison
+
+| Product | Free Tier | Paid Tier | Enterprise |
+|---------|-----------|-----------|------------|
+| Pinecone | Limited | $50/mo min | $500/mo min |
+| Zilliz/Milvus Cloud | 5GB, 2.5M vCUs | $99/GB/mo | $155/mo |
+| Qdrant Cloud | 1GB RAM | Usage-based | Custom |
+| Weaviate Cloud | 14-day trial | $45/mo Flex | $400/mo |
+| Chroma Cloud | $0 + usage | $250/mo Team | Custom |
+| LanceDB | **Free** (self-hosted) | — | — |
+| **SplatDB** | **Free forever** | — | — |
+
+### Where SplatDB Wins
+
+1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval: **96.6% recall@10** with spatial pre-filter vs 86.2% best in original paper.
+
+2. **MCP Server** — 15 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
+
+3. **Distributed Sharding** — 3 strategies (hash/cluster/geo), load balancing (round-robin/least-loaded/broadcast), RRF result fusion, energy-aware routing, offline sync with retry. All built-in, no external dependencies.
+
+4. **Embedded + Cluster** — Works as CLI tool, Rust library, MCP server, or distributed cluster. Milvus and Qdrant require a separate server process. Chroma is embedded but limited to single-node.
+
+5. **Cost** — Free, self-hosted, no usage limits. Pinecone charges $50/mo minimum. Zilliz starts at $99/GB. SplatDB runs on a $5 VPS.
+
+### Where Competitors Win (Honest Assessment)
+
+| Area | Leader | Gap |
+|------|--------|-----|
+| Raw QPS (single-node) | Faiss | 4–6x faster (optimized C++ + SIMD) |
+| Ecosystem integrations | Milvus, Qdrant | LangChain, LlamaIndex, Haystack, 50+ connectors |
+| Managed cloud | Pinecone, Qdrant | Zero-ops deployments, auto-scaling |
+| Dataset scale (proven) | Milvus | Billions of vectors (SplatDB tested to 100K) |
+| Multi-tenancy | Qdrant | Native sharding per tenant |
+| Maturity | All competitors | Years of production use, large communities |
+
+### SplatDB's Niche
+
+**AI agents with long-term conversational memory, RAG pipelines, and knowledge management** — where spatial pre-filtering, MCP integration, and zero-cost self-hosting matter more than raw QPS at billion-scale.
+
+The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph, no distributed sharding. SplatDB trades ecosystem maturity for deeper agent memory features.
 
 ---
 
