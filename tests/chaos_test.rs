@@ -69,14 +69,11 @@ fn chaos_concurrent_stress() {
                     // Search
                     let query = random_vec(dim, &mut rng);
                     let s = store.lock().unwrap();
-                    match s.search(&query, 5) {
-                        results => {
-                            if results.len() <= 5 {
-                                search_count += 1;
-                            } else {
-                                errors += 1;
-                            }
-                        }
+                    let results = s.search(&query, 5);
+                    if results.len() <= 5 {
+                        search_count += 1;
+                    } else {
+                        errors += 1;
                     }
                 }
             }
