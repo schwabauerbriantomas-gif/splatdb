@@ -348,6 +348,8 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 ### Faiss Comparison (Same Hardware, Same Dataset)
 
+<p align="center"><img src="assets/splatsdb-faiss-comparison.png" alt="Faiss vs SplatsDB" width="900"/></p>
+
 > Honest, reproducible side-by-side. Same Ryzen 5 3400G + RTX 3090, same SIFT-128 100K dataset, same k=64. Faiss from `faiss-cpu` 1.13.2. SplatsDB from `bench-hnsw` + `bench-gpu` CLI.
 
 || Index | Build Time | p50 Latency | p99 Latency | QPS | Recall@64 |
@@ -367,6 +369,8 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 - Full results: `bench-data/benchmark_results_hardware.json`
 
 ### LongMemEval Agent Memory Benchmark
+
+<p align="center"><img src="assets/splatsdb-longmemeval.png" alt="LongMemEval Results" width="900"/></p>
 
 > [LongMemEval](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) is the standard benchmark for evaluating long-term conversational memory in AI agents. Tests retrieval across 500 questions, each with ~48 sessions and ~490 turns.
 
