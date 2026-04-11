@@ -9,7 +9,7 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 </p>
 
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-295%20passing-brightgreen.svg)]()
 [![LOC](https://img.shields.io/badge/LOC-29K-informational.svg)]()
@@ -47,7 +47,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Feature | SplatsDB | Faiss | Pinecone | Qdrant | Milvus/Zilliz | LanceDB |
 |---------|---------|-------|----------|--------|---------------|---------|
 | Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
-| License | MIT | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
+| License | GPL-3.0 | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 | Gaussian Splats | ✅ | — | — | — | — | — |
 | Uncertainty scores | ✅ | — | — | — | — | — |
 | Knowledge Graph | ✅ | — | — | — | — | — |
@@ -1294,7 +1294,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 | 9 | Weaviate | 4.42 | Go, BSD-3 |
 | 11 | Chroma | — | Python+Rust, embedded |
 | 16 | LanceDB | — | Rust, embedded, emergent |
-| — | **SplatsDB** | — | Rust, embedded+cluster, MIT |
+| — | **SplatsDB** | — | Rust, embedded+cluster, GPL-3.0 |
 
 ### Cloud Pricing Comparison
 
@@ -1343,4 +1343,4 @@ The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0,
 
 Copyright (c) 2024–2026 Brian Schwabauer
 
-Licensed under the [MIT License](LICENSE) — use commercially, modify, distribute freely. No copyleft restrictions.
+Licensed under the [GPL-3.0 License](LICENSE) — use commercially, modify, distribute freely. Copyleft — derivatives must also be GPL-3.0.
