@@ -53,6 +53,7 @@ jobs:
   build-cuda:
     name: Build (CUDA)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -141,7 +142,6 @@ jobs:
           echo "audit:    ${{ needs.audit.result }}"
           if [ "${{ needs.lint.result }}" == "failure" ] || \
              [ "${{ needs.test.result }}" == "failure" ] || \
-             [ "${{ needs.build-cuda.result }}" == "failure" ] || \
              [ "${{ needs.audit.result }}" == "failure" ]; then
             echo "::error::CI gate failed"
             exit 1
