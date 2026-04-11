@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-splatsdb.png" alt="SplatsDB Logo" width="200" height="200"/>
+  <img src="assets/logo-splatsdb.svg" alt="SplatsDB Logo" width="200" height="200"/>
 </p>
 
 <h1 align="center">SplatsDB</h1>
