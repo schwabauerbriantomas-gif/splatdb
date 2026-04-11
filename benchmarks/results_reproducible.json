@@ -1,0 +1,15 @@
+{
+  "tool": "SplatsDB Benchmark Suite",
+  "version": "1.0",
+  "philosophy": "No gaming. No hardcoding. No cherry-picking. Full methodology published.",
+  "hardware": {
+    "cpu": "AMD Ryzen 5 3400G (4C/8T)",
+    "gpu": "NVIDIA RTX 3090 (24GB)",
+    "ram": "16GB DDR4",
+    "os": "Windows 11 (GPU) / WSL2 Ubuntu 22.04 (CPU)"
+  },
+  "timestamp": "2026-04-11T04:24:45",
+  "ann_sift-128-euclidean_error": "HTTP Error 401: Unauthorized",
+  "ann_glove-100-angular_error": "HTTP Error 401: Unauthorized",
+  "ann_nytimes-256-angular_error": "HTTP Error 401: Unauthorized"
+}

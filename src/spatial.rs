@@ -1,6 +1,6 @@
 //! Spatial Memory Architecture — Wings / Rooms / Halls / Tunnels.
 //!
-//! Inspired by MemPalace: organize vector memory like physical space.
+//! Inspired by MemorySpaces: organize vector memory like physical space.
 //!
 //! - **Wing**: Top-level scope (project, persona, domain). Maps to document metadata tag.
 //! - **Room**: Semantic grouping within a wing. Maps to KMeans++ coarse cluster + label.
