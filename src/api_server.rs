@@ -170,7 +170,12 @@ async fn store_memory(
         added
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("task error: {e}"),
+        )
+    })?;
 
     if !added {
         return Err((StatusCode::INSUFFICIENT_STORAGE, "Store full".into()));
@@ -244,7 +249,12 @@ async fn search_memories(
             .collect::<Vec<_>>()
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("task error: {e}"),
+        )
+    })?;
 
     Ok(Json(SearchResponse { results }))
 }

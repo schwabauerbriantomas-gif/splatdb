@@ -351,7 +351,7 @@ impl SplatsDBConfig {
         }
     }
 
-    /// Device efectivo para operaciones de busqueda.
+    /// Effective device for search operations (cuda > vulkan > cpu).
     pub fn effective_device(&self) -> &str {
         if self.enable_cuda {
             "cuda"

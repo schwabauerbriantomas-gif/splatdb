@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use splatsdb::quantization::{QuantAlgorithm, QuantConfig, QuantizedStore};
-use splatsdb::{SplatsDBConfig, SplatStore};
+use splatsdb::{SplatStore, SplatsDBConfig};
 
 use super::helpers::*;
 

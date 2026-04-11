@@ -163,6 +163,7 @@ impl SplatStore {
     ///
     /// Convenience wrapper around `find_neighbors` that accepts a slice.
     /// Returns results sorted by distance (closest first).
+    #[inline]
     pub fn search(&self, vec: &[f32], k: usize) -> Vec<NeighborResult> {
         let query = Array1::from_vec(vec.to_vec());
         self.find_neighbors(&query.view(), k)
@@ -360,7 +361,10 @@ impl SplatStore {
             self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
-                    eprintln!("[splatsdb] Warning: failed to save HNSW after insert: {}", e);
+                    eprintln!(
+                        "[splatsdb] Warning: failed to save HNSW after insert: {}",
+                        e
+                    );
                 }
             }
         }
@@ -393,6 +397,10 @@ impl SplatStore {
     }
 
     /// Find k nearest neighbors for a single query.
+    ///
+    /// Performs a brute-force linear scan over all active vectors using
+    /// squared L2 distance with partial-sort top-k selection.
+    #[inline]
     pub fn find_neighbors(&self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
         let n = self.n_active;
         if n == 0 || k == 0 {
@@ -774,6 +782,7 @@ impl SplatStore {
     }
 
     /// Number of active (non-empty) splats.
+    #[inline]
     pub fn n_active(&self) -> usize {
         self.n_active
     }
@@ -835,6 +844,7 @@ impl SplatStore {
             .collect()
     }
     /// Maximum splat capacity.
+    #[inline]
     pub fn max_splats(&self) -> usize {
         self.max_splats
     }

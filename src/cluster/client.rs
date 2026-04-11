@@ -216,7 +216,6 @@ mod tests {
     /// End-to-end integration test: register edges → ingest → route → search → aggregate
     #[test]
     fn test_cluster_e2e_workflow() {
-        use crate::cluster::aggregator::ResultAggregator;
         use crate::cluster::sharding::shard_by_hash;
 
         // 1. Setup: 3 edge nodes with 100 docs each

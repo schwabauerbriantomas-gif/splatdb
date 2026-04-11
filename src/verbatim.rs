@@ -226,13 +226,7 @@ mod tests {
     #[test]
     fn test_similarity_score_range() {
         for dist in [0.0, 0.1, 0.3, 0.5, 1.0, 5.0, 100.0] {
-            let result = VerbatimResult::new(
-                "test".to_string(),
-                0,
-                dist,
-                "text".to_string(),
-                None,
-            );
+            let result = VerbatimResult::new("test".to_string(), 0, dist, "text".to_string(), None);
             assert!(
                 result.similarity >= 0.0 && result.similarity <= 1.0,
                 "similarity out of range for distance={}: {}",

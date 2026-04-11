@@ -394,7 +394,7 @@ fn validate_path(storage_path: &str) -> Result<PathBuf, Box<dyn std::error::Erro
 
 fn copy_dir_recursive(src: &Path, dst: &Path, depth: u32) -> std::io::Result<()> {
     if depth > 128 {
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "directory depth limit exceeded"));
+        return Err(std::io::Error::other("directory depth limit exceeded"));
     }
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {

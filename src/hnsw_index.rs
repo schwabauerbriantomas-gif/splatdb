@@ -220,66 +220,93 @@ impl HNSWIndex {
         // Bounds validation for n_vectors, dim, m, m_max0, entry_point, max_level
         const MAX_HNSW_VECTORS: usize = 10_000_000;
         const MAX_HNSW_DIM: usize = 100_000;
-        let n_vectors = usize::try_from(n_vectors_raw).map_err(|_| "n_vectors too large for platform")?;
+        let n_vectors =
+            usize::try_from(n_vectors_raw).map_err(|_| "n_vectors too large for platform")?;
         let dim = usize::try_from(dim_raw).map_err(|_| "dim too large for platform")?;
         let m_stored = usize::try_from(m_stored_raw).map_err(|_| "m too large for platform")?;
         let m_max0 = usize::try_from(m_max0_raw).map_err(|_| "m_max0 too large for platform")?;
-        let entry_point = usize::try_from(entry_point_raw).map_err(|_| "entry_point too large for platform")?;
-        let max_level = usize::try_from(max_level_raw).map_err(|_| "max_level too large for platform")?;
+        let entry_point =
+            usize::try_from(entry_point_raw).map_err(|_| "entry_point too large for platform")?;
+        let max_level =
+            usize::try_from(max_level_raw).map_err(|_| "max_level too large for platform")?;
 
         if n_vectors > MAX_HNSW_VECTORS {
-            return Err(format!("too many vectors: {} (max {})", n_vectors, MAX_HNSW_VECTORS));
+            return Err(format!(
+                "too many vectors: {} (max {})",
+                n_vectors, MAX_HNSW_VECTORS
+            ));
         }
         if dim > MAX_HNSW_DIM {
-            return Err(format!("dimension too large: {} (max {})", dim, MAX_HNSW_DIM));
+            return Err(format!(
+                "dimension too large: {} (max {})",
+                dim, MAX_HNSW_DIM
+            ));
         }
-        let _total_elements = n_vectors.checked_mul(dim).ok_or("overflow in n_vectors*dim")?;
+        let _total_elements = n_vectors
+            .checked_mul(dim)
+            .ok_or("overflow in n_vectors*dim")?;
 
         // Validate entry_point is within bounds
         if n_vectors > 0 && entry_point >= n_vectors {
-            return Err(format!("entry_point {} out of range (n_vectors={})", entry_point, n_vectors));
+            return Err(format!(
+                "entry_point {} out of range (n_vectors={})",
+                entry_point, n_vectors
+            ));
         }
 
         let n_removed_raw = read_u64(&mut f)?;
-        let n_removed = usize::try_from(n_removed_raw).map_err(|_| "n_removed too large for platform")?;
+        let n_removed =
+            usize::try_from(n_removed_raw).map_err(|_| "n_removed too large for platform")?;
         if n_removed > n_vectors {
             return Err(format!("n_removed {} > n_vectors {}", n_removed, n_vectors));
         }
         let mut removed = HashSet::new();
         for _ in 0..n_removed {
             let idx_raw = read_u64(&mut f)?;
-            let idx = usize::try_from(idx_raw).map_err(|_| "removed index too large for platform")?;
+            let idx =
+                usize::try_from(idx_raw).map_err(|_| "removed index too large for platform")?;
             if idx >= n_vectors {
-                return Err(format!("removed index {} out of range (n_vectors={})", idx, n_vectors));
+                return Err(format!(
+                    "removed index {} out of range (n_vectors={})",
+                    idx, n_vectors
+                ));
             }
             removed.insert(idx);
         }
 
         // Nodes with per-node bounds checks
-        let max_neighbors_per_level = m_max0.checked_mul(2).unwrap_or(usize::MAX);
+        let max_neighbors_per_level = m_max0.saturating_mul(2);
         let mut total_neighbors: usize = 0;
         let mut nodes = Vec::with_capacity(n_vectors);
         for node_idx in 0..n_vectors {
             let n_levels_raw = read_u64(&mut f)?;
-            let n_levels = usize::try_from(n_levels_raw).map_err(|_| "n_levels too large for platform")?;
+            let n_levels =
+                usize::try_from(n_levels_raw).map_err(|_| "n_levels too large for platform")?;
             if n_levels > 64 {
-                return Err(format!("too many levels ({}) for node {}", n_levels, node_idx));
+                return Err(format!(
+                    "too many levels ({}) for node {}",
+                    n_levels, node_idx
+                ));
             }
             let mut neighbors = Vec::with_capacity(n_levels);
             for lev in 0..n_levels {
                 let n_neighbors_raw = read_u64(&mut f)?;
-                let n_neighbors = usize::try_from(n_neighbors_raw).map_err(|_| "n_neighbors too large for platform")?;
+                let n_neighbors = usize::try_from(n_neighbors_raw)
+                    .map_err(|_| "n_neighbors too large for platform")?;
                 if n_neighbors > max_neighbors_per_level {
                     return Err(format!(
                         "too many neighbors ({}) for node {} level {} (max {})",
                         n_neighbors, node_idx, lev, max_neighbors_per_level
                     ));
                 }
-                total_neighbors = total_neighbors.checked_add(n_neighbors).ok_or("overflow in total neighbor count")?;
+                total_neighbors = total_neighbors
+                    .checked_add(n_neighbors)
+                    .ok_or("overflow in total neighbor count")?;
                 let mut level_neighbors = Vec::with_capacity(n_neighbors);
                 for _ in 0..n_neighbors {
                     let nb_raw = read_u64(&mut f)?;
-                    let nb = usize::try_from(nb_raw).map_err(|_| "neighbor index too large for platform")?;
+                    let nb = usize::try_from(nb_raw)
+                        .map_err(|_| "neighbor index too large for platform")?;
                     if nb >= n_vectors {
                         return Err(format!(
                             "neighbor index {} out of range for node {} (n_vectors={})",

@@ -422,7 +422,11 @@ impl GpuExtended {
         k: usize,
     ) -> Option<Vec<i8>> {
         // Bounds checks before i32 casts
-        if n > i32::MAX as usize || dim > i32::MAX as usize || t > i32::MAX as usize || k > i32::MAX as usize {
+        if n > i32::MAX as usize
+            || dim > i32::MAX as usize
+            || t > i32::MAX as usize
+            || k > i32::MAX as usize
+        {
             return None;
         }
         // Input slice validation
