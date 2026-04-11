@@ -492,11 +492,16 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
             .collect::<Vec<_>>()
     });
 
-    let mut s = state.lock().map_err(|e| {
-        eprintln!("[mcp] mutex poisoned: {}", e);
-        "internal server error".to_string()
-    })?;
-    let dim = s.store.get_statistics().embedding_dim;
+    // Read dimension under a brief lock, then compute embedding WITHOUT holding
+    // the mutex — get_embedding() may make an HTTP call (5s timeout) and would
+    // block all concurrent operations if held inside the lock.
+    let dim = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        s.store.get_statistics().embedding_dim
+    }; // lock dropped here
 
     // Use provided embedding, or get real embedding (MiniLM or SimCos fallback)
     let embedding = embedding_opt.unwrap_or_else(|| get_embedding(text, dim));
@@ -510,6 +515,12 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
 
     let arr = Array2::from_shape_vec((1, dim), embedding)
         .map_err(|e| format!("bad embedding shape: {}", e))?;
+
+    // Re-acquire lock only for state mutation
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     let vector_idx = s.store.n_active();
     let added = s.store.add_splat(&arr);
@@ -582,12 +593,17 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
         return Err("top_k exceeds maximum value of 1000".into());
     }
 
-    let mut s = state.lock().map_err(|e| {
-        eprintln!("[mcp] mutex poisoned: {}", e);
-        "internal server error".to_string()
-    })?;
-    let dim = s.store.get_statistics().embedding_dim;
-    let n_active = s.store.n_active();
+    // Read dimension and active count under a brief lock, then compute embedding
+    // WITHOUT holding the mutex — get_embedding() may make an HTTP call.
+    let (dim, n_active) = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        let dim = s.store.get_statistics().embedding_dim;
+        let n = s.store.n_active();
+        (dim, n)
+    }; // lock dropped here
 
     if n_active == 0 {
         return Ok(json!({ "results": [] }));
@@ -609,6 +625,14 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
     }
 
     let query_vec = Array1::from_vec(embedding);
+
+    // Re-acquire lock for the actual search
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
+    let k = k.min(s.store.n_active());
     let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
 
     let results: Vec<Value> = neighbors
@@ -669,6 +693,7 @@ fn handle_status(state: &Mutex<McpState>) -> Result<Value, String> {
 
 fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let id = params["id"].as_str().ok_or("missing 'id'")?;
+    if id.len() > 256 || id.is_empty() { return Err("invalid document ID".into()); }
     let text = params["text"].as_str().ok_or("missing 'text'")?;
     let metadata = params["metadata"].as_str();
     const MAX_TEXT_LEN: usize = 100_000;
@@ -676,19 +701,31 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
         return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
     }
 
-    let mut s = state.lock().map_err(|e| {
-        eprintln!("[mcp] mutex poisoned: {}", e);
-        "internal server error".to_string()
-    })?;
-    let dim = s.store.get_statistics().embedding_dim;
+    // Read dimension under a brief lock, then compute embedding WITHOUT holding
+    // the mutex — get_embedding() may make an HTTP call (5s timeout).
+    let dim = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        s.store.get_statistics().embedding_dim
+    }; // lock dropped here
 
     // Compute embedding (real model or SimCos fallback)
     let embedding = get_embedding(text, dim);
     let arr = Array2::from_shape_vec((1, dim), embedding)
         .map_err(|e| format!("embedding error: {}", e))?;
 
+    // Re-acquire lock for state mutation
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
     let vector_idx = s.store.n_active();
-    s.store.add_splat(&arr);
+    if !s.store.add_splat(&arr) {
+        return Err("add_splat failed".into());
+    }
     s.store.hnsw_sync_incremental();
 
     // Update mappings
@@ -702,7 +739,10 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
         .as_secs_f64();
 
     let meta_val: Option<serde_json::Value> = metadata
-        .and_then(|m| serde_json::from_str(m).ok())
+        .and_then(|m| {
+            if m.len() > 1_000_000 { return None; } // 1MB max metadata
+            serde_json::from_str(m).ok()
+        })
         .or_else(|| Some(json!({})));
 
     let mut full_meta = meta_val.unwrap_or(json!({}));
@@ -800,12 +840,20 @@ fn handle_graph_add_doc(state: &Mutex<McpState>, params: &Value) -> Result<Value
         return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
     }
 
+    let dim = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        s.store.get_statistics().embedding_dim
+    }; // lock dropped here
+
+    let embedding = get_embedding(text, dim);
+
     let mut s = state.lock().map_err(|e| {
         eprintln!("[mcp] mutex poisoned: {}", e);
         "internal server error".to_string()
     })?;
-    let dim = s.store.get_statistics().embedding_dim;
-    let embedding = get_embedding(text, dim);
 
     let node_id = s
         .graph
@@ -830,12 +878,20 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
         return Err(format!("Name exceeds max length ({MAX_NAME_LEN})"));
     }
 
+    let dim = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        s.store.get_statistics().embedding_dim
+    }; // lock dropped here
+
+    let embedding = get_embedding(name, dim);
+
     let mut s = state.lock().map_err(|e| {
         eprintln!("[mcp] mutex poisoned: {}", e);
         "internal server error".to_string()
     })?;
-    let dim = s.store.get_statistics().embedding_dim;
-    let embedding = get_embedding(name, dim);
 
     let node_id = s
         .graph
@@ -919,6 +975,7 @@ fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Valu
 
 fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    if query.len() > 10_000 { return Err("query too long".into()); }
     let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
     let s = state.lock().map_err(|e| {
@@ -926,7 +983,14 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
         "internal server error".to_string()
     })?;
     let dim = s.store.get_statistics().embedding_dim;
+    drop(s); // release lock before potentially blocking HTTP call
+
     let embedding = get_embedding(query, dim);
+
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     let results = s.graph.hybrid_search(&embedding, k);
 
@@ -952,6 +1016,7 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
 
 fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    if query.len() > 10_000 { return Err("query too long".into()); }
     let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
     let s = state.lock().map_err(|e| {
@@ -959,7 +1024,14 @@ fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Resu
         "internal server error".to_string()
     })?;
     let dim = s.store.get_statistics().embedding_dim;
+    drop(s); // release lock before potentially blocking HTTP call
+
     let embedding = get_embedding(query, dim);
+
+    let s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
 
     let results = s.graph.search_entities(&embedding, k);
 
@@ -1026,7 +1098,7 @@ fn handle_spatial_search(state: &Mutex<McpState>, params: &Value) -> Result<Valu
 
     let has_filter = wing_filter.is_some() || room_filter.is_some() || hall_filter.is_some();
 
-    let mut s = state.lock().map_err(|e| {
+    let s = state.lock().map_err(|e| {
         eprintln!("[mcp] mutex poisoned: {}", e);
         "internal server error".to_string()
     })?;
@@ -1070,7 +1142,9 @@ fn handle_spatial_search(state: &Mutex<McpState>, params: &Value) -> Result<Valu
         }));
     }
 
-    // Get embedding for query
+    drop(s); // release lock before potentially blocking HTTP call
+
+    // Get embedding for query (may make HTTP call)
     let embedding = get_embedding(query, dim);
     if embedding.len() != dim {
         return Err(format!(
@@ -1080,12 +1154,18 @@ fn handle_spatial_search(state: &Mutex<McpState>, params: &Value) -> Result<Valu
     }
     let query_vec = Array1::from_vec(embedding);
 
+    // Re-acquire lock for the actual search
+    let mut s = state.lock().map_err(|e| {
+        eprintln!("[mcp] mutex poisoned: {}", e);
+        "internal server error".to_string()
+    })?;
+
     // Pre-filter search: only compute distances against candidates
     let neighbors = if has_filter {
         s.store
             .find_neighbors_filtered(&query_vec.view(), &candidate_vec_indices, top_k)
     } else {
-        let k = top_k.min(n_active);
+        let k = top_k.min(s.store.n_active());
         s.store.find_neighbors_fast(&query_vec.view(), k)
     };
 
@@ -1232,22 +1312,37 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
 
 fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
+    if query.len() > 10_000 { return Err("query too long".into()); }
     let top_k = params["top_k"].as_u64().unwrap_or(10) as usize;
+    let top_k = top_k.min(1000);
 
+    // Read dimension and active count under a brief lock, then compute embedding
+    // WITHOUT holding the mutex — get_embedding() may make an HTTP call (5s timeout).
+    let (dim, n_active) = {
+        let s = state.lock().map_err(|e| {
+            eprintln!("[mcp] mutex poisoned: {}", e);
+            "internal server error".to_string()
+        })?;
+        let dim = s.store.get_statistics().embedding_dim;
+        let n = s.store.n_active();
+        (dim, n)
+    }; // lock dropped here
+
+    if n_active == 0 {
+        return Ok(json!({ "results": [], "message": "No documents in store" }));
+    }
+
+    let k = top_k.min(n_active);
+    let embedding = get_embedding(query, dim);
+    let query_vec = Array1::from_vec(embedding);
+
+    // Re-acquire lock for the actual search and result assembly
     let mut s = state.lock().map_err(|e| {
         eprintln!("[mcp] mutex poisoned: {}", e);
         "internal server error".to_string()
     })?;
 
-    let n_active = s.store.n_active();
-    if n_active == 0 {
-        return Ok(json!({ "results": [], "message": "No documents in store" }));
-    }
-
-    let dim = s.store.get_statistics().embedding_dim;
-    let k = top_k.min(n_active);
-    let embedding = get_embedding(query, dim);
-    let query_vec = Array1::from_vec(embedding);
+    let k = k.min(s.store.n_active());
     let neighbors = s.store.find_neighbors_fast(&query_vec.view(), k);
 
     let results: Vec<Value> = neighbors
@@ -1305,6 +1400,7 @@ fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Val
 
 fn handle_compress(params: &Value) -> Result<Value, String> {
     let text = params["text"].as_str().ok_or("missing 'text' field")?;
+    if text.len() > 100_000 { return Err("text too long".into()); }
     let result = crate::text_compression::compress(text);
 
     let hex_data: String = result.binary_data.iter()
@@ -1324,6 +1420,8 @@ fn handle_compress(params: &Value) -> Result<Value, String> {
 
 fn handle_decompress(params: &Value) -> Result<Value, String> {
     let hex_data = params["data"].as_str().ok_or("missing 'data' field")?;
+    const MAX_DECOMPRESS_HEX_LEN: usize = 20_000_000; // 10MB binary = 20M hex chars
+    if hex_data.len() > MAX_DECOMPRESS_HEX_LEN { return Err("data too large".into()); }
     let binary_data: Vec<u8> = (0..hex_data.len())
         .step_by(2)
         .filter_map(|i| u8::from_str_radix(&hex_data[i..i + 2], 16).ok())
@@ -1568,6 +1666,8 @@ pub fn run_mcp_server() {
         std::env::var("SPLATSDB_DOC_PATH").unwrap_or_else(|_| "(default)".into())
     );
 
+    const MAX_JSONRPC_LINE_LEN: usize = 10_000_000; // 10MB max line length
+
     for line in reader.lines() {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
             eprintln!("[splatsdb] Shutdown requested, exiting main loop.");
@@ -1577,6 +1677,10 @@ pub fn run_mcp_server() {
             Ok(line) => {
                 let line = line.trim().to_string();
                 if line.is_empty() {
+                    continue;
+                }
+                if line.len() > MAX_JSONRPC_LINE_LEN {
+                    eprintln!("[splatsdb] rejecting oversized JSON-RPC message ({} bytes)", line.len());
                     continue;
                 }
 

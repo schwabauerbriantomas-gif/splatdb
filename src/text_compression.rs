@@ -202,6 +202,9 @@ pub fn binary_compress(data: &[u8]) -> Vec<u8> {
     let mut i = 0;
 
     // Header: original size as u32 LE
+    if data.len() > u32::MAX as usize {
+        return Vec::new(); // data too large for u32 header
+    }
     compressed.extend_from_slice(&(data.len() as u32).to_le_bytes());
 
     while i < data.len() {
@@ -245,6 +248,13 @@ pub fn binary_decompress(compressed: &[u8]) -> Result<Vec<u8>, String> {
         compressed[2],
         compressed[3],
     ]) as usize;
+    const MAX_DECOMPRESS_SIZE: usize = 100_000_000;
+    if orig_size > MAX_DECOMPRESS_SIZE {
+        return Err(format!(
+            "decompressed size {} exceeds limit {}",
+            orig_size, MAX_DECOMPRESS_SIZE
+        ));
+    }
 
     let mut result = Vec::with_capacity(orig_size);
     let mut i = 4;

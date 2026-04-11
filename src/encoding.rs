@@ -156,10 +156,15 @@ impl ColorHistogramEncoder {
 
     /// Create encoder with custom bin count.
     pub fn with_bins(n_bins: usize) -> Self {
-        Self {
-            n_bins,
-            dim: n_bins * n_bins * n_bins,
+        const MAX_BINS: usize = 32;
+        if n_bins > MAX_BINS {
+            panic!("n_bins {} exceeds max {}", n_bins, MAX_BINS);
         }
+        let dim = n_bins
+            .checked_mul(n_bins)
+            .and_then(|v| v.checked_mul(n_bins))
+            .expect("overflow in n_bins^3");
+        Self { n_bins, dim }
     }
 
     /// Get output dimension

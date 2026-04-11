@@ -1,0 +1,72 @@
+{
+  "hnsw_M16_ef50": {
+    "qps": 13172,
+    "recall": 0.6377,
+    "build_s": 86.1
+  },
+  "hnsw_M16_ef100": {
+    "qps": 7769,
+    "recall": 0.7197,
+    "build_s": 86.1
+  },
+  "hnsw_M16_ef200": {
+    "qps": 4161,
+    "recall": 0.7876,
+    "build_s": 86.1
+  },
+  "hnsw_M32_ef50": {
+    "qps": 6566,
+    "recall": 0.7723,
+    "build_s": 223.5
+  },
+  "hnsw_M32_ef100": {
+    "qps": 3891,
+    "recall": 0.8325,
+    "build_s": 223.5
+  },
+  "hnsw_M32_ef200": {
+    "qps": 1958,
+    "recall": 0.882,
+    "build_s": 223.5
+  },
+  "hnsw_M48_ef50": {
+    "qps": 6072,
+    "recall": 0.7911,
+    "build_s": 242.8
+  },
+  "hnsw_M48_ef100": {
+    "qps": 3558,
+    "recall": 0.8563,
+    "build_s": 242.8
+  },
+  "hnsw_M48_ef200": {
+    "qps": 1980,
+    "recall": 0.9009,
+    "build_s": 242.8
+  },
+  "ivf_nprobe8": {
+    "qps": 18256,
+    "recall": 0.669,
+    "build_s": 289.8
+  },
+  "ivf_nprobe16": {
+    "qps": 10273,
+    "recall": 0.7552,
+    "build_s": 289.8
+  },
+  "ivf_nprobe32": {
+    "qps": 5483,
+    "recall": 0.8208,
+    "build_s": 289.8
+  },
+  "ivf_nprobe64": {
+    "qps": 2968,
+    "recall": 0.8776,
+    "build_s": 289.8
+  },
+  "dataset": "glove-100-angular",
+  "n_train": 1183514,
+  "n_test": 1000,
+  "dim": 100,
+  "note": "Vectors normalized for cosine similarity"
+}
