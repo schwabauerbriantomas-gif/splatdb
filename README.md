@@ -357,11 +357,12 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 | Faiss HNSW (M=32, efSearch=100) | 24.5s | 0.10ms | 0.18ms | **9,758** | 0.9926 |
 | Faiss IVFFlat (nprobe=32) | 3.0s | 0.10ms | 0.15ms | **10,039** | 0.69 |
 | SplatsDB HNSW (CPU, ef=100) | 88s | 1.52ms | 2.52ms | 658 | **0.986** |
-| **SplatsDB GPU (RTX 3090, k=10)** | — | **0.082ms** | **0.095ms** | **12,195** | — |
+| **SplatsDB GPU (RTX 3090, brute-force)** | 17ms* | **0.082ms** | **0.095ms** | **12,195** | **1.000** |
 
 **Takeaways:**
 - SplatsDB GPU (12,195 QPS) **beats Faiss HNSW CPU** (9,758 QPS) — 1.25× faster
-- GPU speedup over CPU: **4.1×** for brute-force top-k
+- GPU brute-force = **100% recall** (exact search, no approximation)
+- GPU upload to VRAM: 17ms — effectively zero build time
 - Faiss HNSW CPU is still 14.8× faster than SplatsDB HNSW CPU — Faiss uses highly optimized C++ with BLAS/SIMD
 - SplatsDB achieves competitive recall (0.986 vs 0.993)
 - SplatsDB build is ~3.6× slower — computes splat parameters (α, κ) during indexing
