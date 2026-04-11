@@ -18,13 +18,12 @@ use serde::{Deserialize, Serialize};
 
 /// Stop words to remove during semantic compression.
 const STOP_WORDS: &[&str] = &[
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "dare", "ought",
-    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "as", "into", "through", "during", "before", "after", "above", "below",
-    "between", "out", "off", "over", "under", "again", "further", "then",
-    "once", "that", "this", "these", "those", "am", "it", "its",
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "do", "does", "did", "will", "would", "could", "should", "may", "might", "shall", "can",
+    "need", "dare", "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above", "below", "between", "out",
+    "off", "over", "under", "again", "further", "then", "once", "that", "this", "these", "those",
+    "am", "it", "its",
 ];
 
 /// Common abbreviation mappings for dense text.
@@ -111,11 +110,11 @@ pub fn semantic_compress(text: &str) -> String {
         while let Some(idx) = result_lower[pos..].find(&pattern_lower) {
             let actual_idx = pos + idx;
             // Check word boundary
-            let before_ok = actual_idx == 0
-                || !result.as_bytes()[actual_idx - 1].is_ascii_alphabetic();
+            let before_ok =
+                actual_idx == 0 || !result.as_bytes()[actual_idx - 1].is_ascii_alphabetic();
             let after_idx = actual_idx + long.len();
-            let after_ok = after_idx >= result.len()
-                || !result.as_bytes()[after_idx].is_ascii_alphabetic();
+            let after_ok =
+                after_idx >= result.len() || !result.as_bytes()[after_idx].is_ascii_alphabetic();
             if before_ok && after_ok {
                 // Preserve original case for first letter
                 new_result.push_str(&result[pos..actual_idx]);
@@ -123,7 +122,8 @@ pub fn semantic_compress(text: &str) -> String {
                 let mut short_owned = short.to_string();
                 if original_first.is_ascii_uppercase() {
                     if let Some(c) = short_owned.chars().next() {
-                        short_owned = format!("{}{}", c.to_uppercase(), &short_owned[c.len_utf8()..]);
+                        short_owned =
+                            format!("{}{}", c.to_uppercase(), &short_owned[c.len_utf8()..]);
                     }
                 }
                 new_result.push_str(&short_owned);
@@ -172,10 +172,7 @@ pub fn semantic_compress(text: &str) -> String {
     let mut unique_sentences: Vec<&str> = Vec::new();
     for s in &sentences {
         let s_lower = s.to_lowercase();
-        if !unique_sentences
-            .iter()
-            .any(|u| u.to_lowercase() == s_lower)
-        {
+        if !unique_sentences.iter().any(|u| u.to_lowercase() == s_lower) {
             unique_sentences.push(s);
         }
     }
@@ -242,12 +239,8 @@ pub fn binary_decompress(compressed: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     // Read original size
-    let orig_size = u32::from_le_bytes([
-        compressed[0],
-        compressed[1],
-        compressed[2],
-        compressed[3],
-    ]) as usize;
+    let orig_size =
+        u32::from_le_bytes([compressed[0], compressed[1], compressed[2], compressed[3]]) as usize;
     const MAX_DECOMPRESS_SIZE: usize = 100_000_000;
     if orig_size > MAX_DECOMPRESS_SIZE {
         return Err(format!(

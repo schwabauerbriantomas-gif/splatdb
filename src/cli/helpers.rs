@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use splatsdb::{
     storage::persistence::{SplatsDBPersistence, StorageBackend},
-    SplatsDBConfig, SplatStore,
+    SplatStore, SplatsDBConfig,
 };
 
 pub fn make_config(dim: usize, max_splats: usize) -> SplatsDBConfig {

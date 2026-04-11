@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use splatsdb::{SplatsDBConfig, SplatStore};
+use splatsdb::{SplatStore, SplatsDBConfig};
 
 use super::helpers::*;
 

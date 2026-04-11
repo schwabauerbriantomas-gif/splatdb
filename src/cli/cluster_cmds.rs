@@ -94,11 +94,9 @@ pub fn cmd_cluster_status(verbose: bool) {
     match state {
         None => {
             println!("No cluster state found. Use 'cluster-join' to add nodes.");
-            return;
         }
         Some(s) if s.nodes.is_empty() => {
             println!("Cluster is empty. Use 'cluster-join' to add nodes.");
-            return;
         }
         Some(s) => {
             println!("SplatsDB Cluster Status");

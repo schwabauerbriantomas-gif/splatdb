@@ -78,11 +78,15 @@ pub fn cmd_verbatim_search(data_dir: String, config: SplatsDBConfig, query: Stri
     let (mut store, persist) = load_or_create_store(&data_dir, &config);
 
     if store.n_active() == 0 {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "results": [],
-            "query": query,
-            "message": "No documents in store"
-        })).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "results": [],
+                "query": query,
+                "message": "No documents in store"
+            }))
+            .unwrap()
+        );
         return;
     }
 
@@ -148,7 +152,9 @@ pub fn cmd_verbatim_search(data_dir: String, config: SplatsDBConfig, query: Stri
 pub fn cmd_compress(text: String, verbose: bool) {
     let result = text_compression::compress(&text);
 
-    let hex_data: String = result.binary_data.iter()
+    let hex_data: String = result
+        .binary_data
+        .iter()
         .map(|b| format!("{:02x}", b))
         .collect();
 
@@ -263,7 +269,11 @@ fn simcos_embed(text: &str, dim: usize) -> Vec<f32> {
         trigrams.push(format!("w:{}", w.to_lowercase()));
     }
     for i in 0..words.len().saturating_sub(1) {
-        trigrams.push(format!("wb:{}:{}", words[i].to_lowercase(), words[i + 1].to_lowercase()));
+        trigrams.push(format!(
+            "wb:{}:{}",
+            words[i].to_lowercase(),
+            words[i + 1].to_lowercase()
+        ));
     }
 
     let mut result = vec![0.0f32; dim];
@@ -277,7 +287,11 @@ fn simcos_embed(text: &str, dim: usize) -> Vec<f32> {
             tg.hash(&mut hasher2);
             band.hash(&mut hasher2);
             (idx as u64).hash(&mut hasher2);
-            let sign: f32 = if hasher2.finish() % 2 == 0 { 1.0 } else { -1.0 };
+            let sign: f32 = if hasher2.finish().is_multiple_of(2) {
+                1.0
+            } else {
+                -1.0
+            };
             result[idx] += sign;
         }
     }

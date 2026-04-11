@@ -30,7 +30,8 @@ const MAX_DOC_TEXT_CACHE: usize = 10_000;
 const MAX_WARM_START_DOCS: usize = 50_000;
 
 fn embedding_service_url() -> String {
-    std::env::var("SPLATSDB_EMBED_URL").unwrap_or_else(|_| EMBEDDING_SERVICE_URL_DEFAULT.to_string())
+    std::env::var("SPLATSDB_EMBED_URL")
+        .unwrap_or_else(|_| EMBEDDING_SERVICE_URL_DEFAULT.to_string())
 }
 
 #[cfg(unix)]
@@ -693,7 +694,9 @@ fn handle_status(state: &Mutex<McpState>) -> Result<Value, String> {
 
 fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let id = params["id"].as_str().ok_or("missing 'id'")?;
-    if id.len() > 256 || id.is_empty() { return Err("invalid document ID".into()); }
+    if id.len() > 256 || id.is_empty() {
+        return Err("invalid document ID".into());
+    }
     let text = params["text"].as_str().ok_or("missing 'text'")?;
     let metadata = params["metadata"].as_str();
     const MAX_TEXT_LEN: usize = 100_000;
@@ -740,7 +743,9 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
 
     let meta_val: Option<serde_json::Value> = metadata
         .and_then(|m| {
-            if m.len() > 1_000_000 { return None; } // 1MB max metadata
+            if m.len() > 1_000_000 {
+                return None;
+            } // 1MB max metadata
             serde_json::from_str(m).ok()
         })
         .or_else(|| Some(json!({})));
@@ -975,7 +980,9 @@ fn handle_graph_traverse(state: &Mutex<McpState>, params: &Value) -> Result<Valu
 
 fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
-    if query.len() > 10_000 { return Err("query too long".into()); }
+    if query.len() > 10_000 {
+        return Err("query too long".into());
+    }
     let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
     let s = state.lock().map_err(|e| {
@@ -1016,7 +1023,9 @@ fn handle_graph_search(state: &Mutex<McpState>, params: &Value) -> Result<Value,
 
 fn handle_graph_search_entities(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
-    if query.len() > 10_000 { return Err("query too long".into()); }
+    if query.len() > 10_000 {
+        return Err("query too long".into());
+    }
     let k = params["k"].as_u64().unwrap_or(10).min(1000) as usize;
 
     let s = state.lock().map_err(|e| {
@@ -1312,7 +1321,9 @@ fn handle_spatial_info(state: &Mutex<McpState>) -> Result<Value, String> {
 
 fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, String> {
     let query = params["query"].as_str().ok_or("missing 'query' field")?;
-    if query.len() > 10_000 { return Err("query too long".into()); }
+    if query.len() > 10_000 {
+        return Err("query too long".into());
+    }
     let top_k = params["top_k"].as_u64().unwrap_or(10) as usize;
     let top_k = top_k.min(1000);
 
@@ -1380,9 +1391,18 @@ fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Val
         })
         .collect();
 
-    let high_count = results.iter().filter(|r| r["confidence"].as_str() == Some("HIGH")).count();
-    let medium_count = results.iter().filter(|r| r["confidence"].as_str() == Some("MEDIUM")).count();
-    let low_count = results.iter().filter(|r| r["confidence"].as_str() == Some("LOW")).count();
+    let high_count = results
+        .iter()
+        .filter(|r| r["confidence"].as_str() == Some("HIGH"))
+        .count();
+    let medium_count = results
+        .iter()
+        .filter(|r| r["confidence"].as_str() == Some("MEDIUM"))
+        .count();
+    let low_count = results
+        .iter()
+        .filter(|r| r["confidence"].as_str() == Some("LOW"))
+        .count();
 
     Ok(json!({
         "query": query,
@@ -1400,10 +1420,14 @@ fn handle_verbatim_search(state: &Mutex<McpState>, params: &Value) -> Result<Val
 
 fn handle_compress(params: &Value) -> Result<Value, String> {
     let text = params["text"].as_str().ok_or("missing 'text' field")?;
-    if text.len() > 100_000 { return Err("text too long".into()); }
+    if text.len() > 100_000 {
+        return Err("text too long".into());
+    }
     let result = crate::text_compression::compress(text);
 
-    let hex_data: String = result.binary_data.iter()
+    let hex_data: String = result
+        .binary_data
+        .iter()
         .map(|b| format!("{:02x}", b))
         .collect();
 
@@ -1421,7 +1445,9 @@ fn handle_compress(params: &Value) -> Result<Value, String> {
 fn handle_decompress(params: &Value) -> Result<Value, String> {
     let hex_data = params["data"].as_str().ok_or("missing 'data' field")?;
     const MAX_DECOMPRESS_HEX_LEN: usize = 20_000_000; // 10MB binary = 20M hex chars
-    if hex_data.len() > MAX_DECOMPRESS_HEX_LEN { return Err("data too large".into()); }
+    if hex_data.len() > MAX_DECOMPRESS_HEX_LEN {
+        return Err("data too large".into());
+    }
     let binary_data: Vec<u8> = (0..hex_data.len())
         .step_by(2)
         .filter_map(|i| u8::from_str_radix(&hex_data[i..i + 2], 16).ok())
@@ -1680,7 +1706,10 @@ pub fn run_mcp_server() {
                     continue;
                 }
                 if line.len() > MAX_JSONRPC_LINE_LEN {
-                    eprintln!("[splatsdb] rejecting oversized JSON-RPC message ({} bytes)", line.len());
+                    eprintln!(
+                        "[splatsdb] rejecting oversized JSON-RPC message ({} bytes)",
+                        line.len()
+                    );
                     continue;
                 }
 

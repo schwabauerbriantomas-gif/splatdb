@@ -712,7 +712,13 @@ pub fn dispatch(cli: Cli) {
         Commands::ClusterReset => crate::cli::cluster_cmds::cmd_cluster_reset(),
         // ── Verbatim Storage ──
         Commands::VerbatimStore { id, text, category } => {
-            crate::cli::verbatim_cmds::cmd_verbatim_store(cli.data_dir, cli.backend, id, text, category)
+            crate::cli::verbatim_cmds::cmd_verbatim_store(
+                cli.data_dir,
+                cli.backend,
+                id,
+                text,
+                category,
+            )
         }
         Commands::VerbatimGet { id } => {
             crate::cli::verbatim_cmds::cmd_verbatim_get(cli.data_dir, cli.backend, id)
@@ -724,12 +730,8 @@ pub fn dispatch(cli: Cli) {
         Commands::Compress { text, verbose } => {
             crate::cli::verbatim_cmds::cmd_compress(text, verbose)
         }
-        Commands::Decompress { data } => {
-            crate::cli::verbatim_cmds::cmd_decompress(data)
-        }
-        Commands::CompressBench { size } => {
-            crate::cli::verbatim_cmds::cmd_compress_bench(size)
-        }
+        Commands::Decompress { data } => crate::cli::verbatim_cmds::cmd_decompress(data),
+        Commands::CompressBench { size } => crate::cli::verbatim_cmds::cmd_compress_bench(size),
         Commands::BenchLongMemEval {
             sessions,
             queries,
