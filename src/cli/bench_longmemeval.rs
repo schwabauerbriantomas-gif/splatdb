@@ -46,18 +46,45 @@ struct BenchMeta {
 
 /// Read SplatsDB binary vectors: u64 n + u64 dim + f32[n][dim]
 fn read_vectors(path: &str) -> (usize, usize, Vec<f32>) {
+    const MAX_LOAD_ELEMENTS: usize = 1_000_000_000;
     let mut f = fs::File::open(path).unwrap_or_else(|e| {
         eprintln!("Cannot open {}: {}", path, e);
         std::process::exit(1);
     });
     let mut buf8 = [0u8; 8];
     f.read_exact(&mut buf8).unwrap();
-    let n = u64::from_le_bytes(buf8) as usize;
+    let n_raw = u64::from_le_bytes(buf8);
+    let n = usize::try_from(n_raw).unwrap_or_else(|_| {
+        eprintln!("Invalid vector count {} in {}", n_raw, path);
+        std::process::exit(1);
+    });
     f.read_exact(&mut buf8).unwrap();
-    let dim = u64::from_le_bytes(buf8) as usize;
-    let _nbytes = n * dim * 4;
-    let mut data = vec![0.0f32; n * dim];
+    let dim_raw = u64::from_le_bytes(buf8);
+    let dim = usize::try_from(dim_raw).unwrap_or_else(|_| {
+        eprintln!("Invalid dimension {} in {}", dim_raw, path);
+        std::process::exit(1);
+    });
+    let total = n.checked_mul(dim).unwrap_or_else(|| {
+        eprintln!("Overflow in n*dim ({}*{}) in {}", n, dim, path);
+        std::process::exit(1);
+    });
+    if total > MAX_LOAD_ELEMENTS {
+        eprintln!(
+            "Too many elements {} (limit {}) in {}",
+            total, MAX_LOAD_ELEMENTS, path
+        );
+        std::process::exit(1);
+    }
+    let nbytes = total.checked_mul(4).unwrap_or_else(|| {
+        eprintln!("Overflow in n*dim*4 in {}", path);
+        std::process::exit(1);
+    });
+    let mut data = vec![0.0f32; total];
     let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
+    if bytes.len() != nbytes {
+        eprintln!("Byte count mismatch in {}", path);
+        std::process::exit(1);
+    }
     f.read_exact(bytes).unwrap();
     (n, dim, data)
 }

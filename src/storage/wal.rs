@@ -125,10 +125,21 @@ impl WriteAheadLog {
     }
 
     /// Truncate entries before the given LSN.
+    ///
+    /// # TOCTOU safety
+    ///
+    /// This method acquires `self.inner` lock BEFORE calling `read_entries()`,
+    /// which prevents any new entries from being logged between reading and
+    /// rewriting the file. Callers MUST ensure that `read_entries()` is only
+    /// called while the inner lock is held (it is in this method).
     pub fn truncate(&self, before_lsn: u64) -> std::io::Result<()> {
         // Acquire lock FIRST to prevent TOCTOU: no entries can be logged
         // between reading and rewriting while we hold the lock.
         let mut inner = self.inner.lock();
+        debug_assert!(
+            self.inner.try_lock().is_none(),
+            "truncate: inner lock must be exclusively held during read_entries"
+        );
 
         let entries = self.read_entries()?;
         let remaining: Vec<&WALEntry> = entries.iter().filter(|e| e.lsn >= before_lsn).collect();
@@ -167,6 +178,14 @@ impl WriteAheadLog {
         inner.file.flush()
     }
 
+    /// Read all entries from the WAL file on disk.
+    ///
+    /// # Locking invariant
+    ///
+    /// When called from `truncate()`, the caller MUST hold `self.inner` lock
+    /// to prevent TOCTOU races (entries being logged between read and rewrite).
+    /// When called from `recover()` or `load_current_lsn()`, the lock is not
+    /// required because those are initialization-time calls with no concurrency.
     fn read_entries(&self) -> std::io::Result<Vec<WALEntry>> {
         if !self.path.exists() {
             return Ok(vec![]);

@@ -124,8 +124,10 @@ async fn store_memory(
         ));
     }
 
-    let mut store = state.store.lock().await;
-    let dim = store.get_statistics().embedding_dim;
+    let dim = {
+        let store = state.store.lock().await;
+        store.get_statistics().embedding_dim
+    }; // lock dropped here — embedding computation doesn't need the mutex
 
     // Validate user-supplied embedding dimension
     if let Some(ref emb) = req.embedding {
@@ -153,16 +155,26 @@ async fn store_memory(
     let arr = Array2::from_shape_vec((1, dim), embedding)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Bad embedding shape: {e}")))?;
 
-    let added = store.add_splat(&arr);
+    let id_num = state.next_id.fetch_add(1, Ordering::SeqCst);
+    let id = req.id.unwrap_or_else(|| format!("mem_{id_num}"));
+
+    // Wrap CPU-intensive work in spawn_blocking to avoid blocking the tokio runtime
+    let store = state.store.clone();
+    let added = tokio::task::spawn_blocking(move || {
+        let mut store = store.blocking_lock();
+        let added = store.add_splat(&arr);
+        if added {
+            // Incrementally insert the new vector into HNSW (no full rebuild)
+            store.hnsw_sync_incremental();
+        }
+        added
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?;
+
     if !added {
         return Err((StatusCode::INSUFFICIENT_STORAGE, "Store full".into()));
     }
-
-    // Incrementally insert the new vector into HNSW (no full rebuild)
-    store.hnsw_sync_incremental();
-
-    let id_num = state.next_id.fetch_add(1, Ordering::SeqCst);
-    let id = req.id.unwrap_or_else(|| format!("mem_{id_num}"));
 
     Ok((
         StatusCode::OK,
@@ -185,14 +197,18 @@ async fn search_memories(
         ));
     }
 
-    let store = state.store.lock().await;
-    let dim = store.get_statistics().embedding_dim;
+    let (dim, n_active) = {
+        let store = state.store.lock().await;
+        let dim = store.get_statistics().embedding_dim;
+        let n = store.n_active();
+        (dim, n)
+    }; // lock dropped here
 
-    if store.n_active() == 0 {
+    if n_active == 0 {
         return Ok(Json(SearchResponse { results: vec![] }));
     }
 
-    let k = req.top_k.unwrap_or(10).min(store.n_active()).min(MAX_TOP_K);
+    let k = req.top_k.unwrap_or(10).min(n_active).min(MAX_TOP_K);
 
     // Validate user-supplied embedding dimension
     if let Some(ref emb) = req.embedding {
@@ -211,16 +227,24 @@ async fn search_memories(
         .embedding
         .unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
     let query = Array1::from_vec(embedding);
-    let neighbors = store.find_neighbors(&query.view(), k);
 
-    let results: Vec<SearchResult> = neighbors
-        .into_iter()
-        .map(|n| SearchResult {
-            index: n.index,
-            score: n.distance,
-            metadata: None,
-        })
-        .collect();
+    // Wrap CPU-intensive neighbor search in spawn_blocking
+    let store = state.store.clone();
+    let results = tokio::task::spawn_blocking(move || {
+        let store = store.blocking_lock();
+        let k = k.min(store.n_active());
+        let neighbors = store.find_neighbors(&query.view(), k);
+        neighbors
+            .into_iter()
+            .map(|n| SearchResult {
+                index: n.index,
+                score: n.distance,
+                metadata: None,
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?;
 
     Ok(Json(SearchResponse { results }))
 }
@@ -273,9 +297,21 @@ async fn api_key_auth(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match provided {
-        Some(key) if key == expected_key => Ok(next.run(request).await),
+        Some(key) if constant_time_eq(key, &expected_key) => Ok(next.run(request).await),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
+}
+
+/// Constant-time string comparison to prevent timing attacks on API keys.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result: u8 = 0;
+    for (x, y) in a.as_bytes().iter().zip(b.as_bytes().iter()) {
+        result |= x ^ y;
+    }
+    result == 0
 }
 
 pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {

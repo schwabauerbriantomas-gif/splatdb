@@ -362,7 +362,7 @@ impl SplatsDBPersistence {
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
         let backup_dest = dest.join(format!("m2m_backup_{}", ts));
-        copy_dir_recursive(&self.storage_path, &backup_dest)?;
+        copy_dir_recursive(&self.storage_path, &backup_dest, 0)?;
         Ok(backup_dest.to_string_lossy().into_owned())
     }
 
@@ -392,14 +392,17 @@ fn validate_path(storage_path: &str) -> Result<PathBuf, Box<dyn std::error::Erro
     Ok(path.canonicalize().unwrap_or(path))
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+fn copy_dir_recursive(src: &Path, dst: &Path, depth: u32) -> std::io::Result<()> {
+    if depth > 128 {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "directory depth limit exceeded"));
+    }
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         if src_path.is_dir() && !src_path.is_symlink() {
-            copy_dir_recursive(&src_path, &dst_path)?;
+            copy_dir_recursive(&src_path, &dst_path, depth + 1)?;
         } else if src_path.is_file() {
             std::fs::copy(&src_path, &dst_path)?;
         }

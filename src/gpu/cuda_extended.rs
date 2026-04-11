@@ -56,6 +56,15 @@ impl GpuExtended {
         n: usize,
         dim: usize,
     ) -> Option<Vec<f32>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if vectors.len() != n * dim || rotation.len() != dim * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("rotation_gemv_kernel")?;
 
         let vecs_gpu = self.stream.clone_htod(vectors).ok()?;
@@ -93,6 +102,15 @@ impl GpuExtended {
         n: usize,
         dim: usize,
     ) -> Option<Vec<f32>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if vectors.len() != n * dim || rotation.len() != dim * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("rotation_gemv_inverse_kernel")?;
 
         let vecs_gpu = self.stream.clone_htod(vectors).ok()?;
@@ -136,6 +154,15 @@ impl GpuExtended {
         dim: usize,
         g: usize,
     ) -> Option<Vec<i8>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize || g > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if vectors.len() != n * dim || projections.len() != g * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("qjl_batch_sketch_kernel")?;
 
         let vecs_gpu = self.stream.clone_htod(vectors).ok()?;
@@ -178,6 +205,15 @@ impl GpuExtended {
         dim: usize,
         g: usize,
     ) -> Option<Vec<f32>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize || g > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if projections.len() != g * dim || signs.len() != n * g || query.len() != dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("qjl_batch_ip_estimate_kernel")?;
 
         let proj_gpu = self.stream.clone_htod(projections).ok()?;
@@ -229,6 +265,15 @@ impl GpuExtended {
         k: usize,
         dim: usize,
     ) -> Option<(Vec<i32>, Vec<f32>)> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || k > i32::MAX as usize || dim > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if points.len() != n * dim || centroids.len() != k * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("kmeans_assign_kernel")?;
 
         let pts_gpu = self.stream.clone_htod(points).ok()?;
@@ -276,6 +321,15 @@ impl GpuExtended {
         n: usize,
         dim: usize,
     ) -> Option<Vec<f32>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if vectors.len() != n * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("cosine_similarity_kernel")?;
 
         let vecs_gpu = self.stream.clone_htod(vectors).ok()?;
@@ -313,6 +367,15 @@ impl GpuExtended {
     /// Pairwise geodesic distance between corresponding vector pairs.
     /// `x` and `y` are [N, D], returns [N] distances.
     pub fn batch_geodesic(&self, x: &[f32], y: &[f32], n: usize, dim: usize) -> Option<Vec<f32>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if x.len() != n * dim || y.len() != n * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("batch_geodesic_kernel")?;
 
         let x_gpu = self.stream.clone_htod(x).ok()?;
@@ -358,6 +421,15 @@ impl GpuExtended {
         t: usize,
         k: usize,
     ) -> Option<Vec<i8>> {
+        // Bounds checks before i32 casts
+        if n > i32::MAX as usize || dim > i32::MAX as usize || t > i32::MAX as usize || k > i32::MAX as usize {
+            return None;
+        }
+        // Input slice validation
+        if vectors.len() != n * dim || projections.len() != t * k * dim {
+            return None;
+        }
+
         let func = self.load_ext_kernel("lsh_batch_hash_kernel")?;
 
         let vecs_gpu = self.stream.clone_htod(vectors).ok()?;
