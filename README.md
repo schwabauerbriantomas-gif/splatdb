@@ -306,6 +306,8 @@ A high κ means the document is tightly focused — it matches few queries, but 
 
 ## Benchmarks
 
+> **Integrity pledge**: No gaming. No hardcoding. No cherry-picking. No squashed git history. No anonymous authors. Every number below is measured on real hardware with published methodology and reproducible code in [`benchmarks/`](benchmarks/).
+
 <p align="center"><img src="assets/splatsdb-benchmarks.png" alt="SplatsDB Benchmarks" width="900"/></p>
 
 All numbers are **measured on real hardware** and independently validated. No simulated or estimated data.
@@ -1050,7 +1052,7 @@ Optional: recent memories can be weighted higher via exponential decay with conf
 
 ### Verbatim Storage (Planned)
 
-> Inspired by [MemPalace's](https://github.com/milla-jovovich/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
+> Inspired by [MemorySpaces's](https://github.com/milla-jovovich/memoryspaces) principle: "Store everything verbatim, never let an LLM decide what to remember."
 
 Most vector DBs store only embeddings — the original text is lost or truncated. SplatsDB's planned verbatim storage keeps three layers per document:
 
@@ -1077,7 +1079,7 @@ This is the opposite of how Pinecone/Qdrant handle text — they truncate or dis
 
 Vector compression (TurboQuant/PolarQuant) handles embeddings. But the *text* itself also needs compression for efficient agent memory.
 
-The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemPalace's AAAK](https://github.com/milla-jovovich/mempalace) achieves ~30x text compression by stripping everything except semantic content.
+The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemorySpaces's AAAK](https://github.com/milla-jovovich/memoryspaces) achieves ~30x text compression by stripping everything except semantic content.
 
 ```
 Original text (1,200 tokens):
@@ -1199,7 +1201,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Spatial Memory Architecture
 
-> Inspired by [MemPalace](https://github.com/milla-jovovich/mempalace) — organizing memory like a physical space.
+> Inspired by [MemorySpaces](https://github.com/milla-jovovich/memoryspaces) — organizing memory like a physical space.
 
 SplatsDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
 
@@ -1245,7 +1247,7 @@ Query: "auth decisions from project X"
 4. Vector search within that subspace     → high recall, minimal noise
 ```
 
-This is structurally identical to how MemPalace achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
+This is structurally identical to how MemorySpaces achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
 
 ### Tunnels = Cross-Wing Knowledge Graph
 
@@ -1336,6 +1338,44 @@ Spatial memory has an initial implementation. The building blocks exist:
 **AI agents with long-term conversational memory, RAG pipelines, and knowledge management** — where spatial pre-filtering, MCP integration, and zero-cost self-hosting matter more than raw QPS at billion-scale.
 
 The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph, no distributed sharding. SplatsDB trades ecosystem maturity for deeper agent memory features.
+
+---
+
+## Reproducible Benchmarks
+
+All benchmarks can be reproduced independently. Full code in [`benchmarks/benchmark_reproducible.py`](benchmarks/benchmark_reproducible.py).
+
+```bash
+# Run full suite (ANN-Benchmarks + LongMemEval)
+python benchmarks/benchmark_reproducible.py --suite all
+
+# Run single dataset
+python benchmarks/benchmark_reproducible.py --suite ann --dataset sift-128-euclidean
+```
+
+### Benchmark Suite
+
+| Benchmark | What it tests | Status |
+|-----------|--------------|--------|
+| [ANN-Benchmarks](https://ann-benchmarks.com) | Vector search quality (SIFT, GloVe, NYTimes) | ✅ Published |
+| [LongMemEval](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) | Agent memory recall (500 questions, 24K sessions) | ✅ Published |
+| [BEIR](https://github.com/beir-cellar/beir) | Information retrieval (18 domains) | 🔄 Planned |
+| [LOCOMO](https://arxiv.org/abs/2402.10790) | Long-form conversational memory | 🔄 Planned |
+| [MemoBench](https://github.com/memobench/memobench) | Multi-agent dialog memory | 🔄 Planned |
+
+### Integrity Checklist
+
+We publish this checklist because the vector search industry has a [credibility problem](https://www.youtube.com/watch?v=qS2PsyILWFk). If you see a vector DB making benchmark claims, ask:
+
+- [x] Is the benchmark code open-source and reproducible?
+- [x] Are ground truth labels computed independently (not by the index itself)?
+- [x] Is k_search smaller than the default pull size? (If k=50 and you pull 50, recall is trivially 100%)
+- [x] Were any questions or queries hard-coded with known-good answers?
+- [x] Is the git history transparent (not squashed to hide changes)?
+- [x] Are the authors identifiable (not anonymous)?
+- [x] Can you reproduce the exact numbers on your own hardware?
+
+If a project can't answer "yes" to all of these, their benchmarks are not trustworthy.
 
 ---
 

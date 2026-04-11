@@ -1,0 +1,71 @@
+{
+  "dataset": "sift-128-euclidean",
+  "n_train": 1000000,
+  "n_test": 1000,
+  "dim": 128,
+  "hnsw_M16_ef50": {
+    "qps": 6056,
+    "recall": 0.8889,
+    "build_s": 114.5
+  },
+  "hnsw_M16_ef100": {
+    "qps": 4440,
+    "recall": 0.9485,
+    "build_s": 114.5
+  },
+  "hnsw_M16_ef200": {
+    "qps": 2240,
+    "recall": 0.9773,
+    "build_s": 114.5
+  },
+  "hnsw_M32_ef50": {
+    "qps": 4106,
+    "recall": 0.9635,
+    "build_s": 184.1
+  },
+  "hnsw_M32_ef100": {
+    "qps": 2281,
+    "recall": 0.989,
+    "build_s": 184.1
+  },
+  "hnsw_M32_ef200": {
+    "qps": 1339,
+    "recall": 0.9967,
+    "build_s": 184.1
+  },
+  "hnsw_M48_ef50": {
+    "qps": 2690,
+    "recall": 0.971,
+    "build_s": 232.5
+  },
+  "hnsw_M48_ef100": {
+    "qps": 1819,
+    "recall": 0.9918,
+    "build_s": 232.5
+  },
+  "hnsw_M48_ef200": {
+    "qps": 883,
+    "recall": 0.9979,
+    "build_s": 232.5
+  },
+  "ivf_nprobe8": {
+    "qps": 13098,
+    "recall": 0.7069,
+    "build_s": 766.0
+  },
+  "ivf_nprobe16": {
+    "qps": 7644,
+    "recall": 0.8363,
+    "build_s": 766.0
+  },
+  "ivf_nprobe32": {
+    "qps": 4170,
+    "recall": 0.9196,
+    "build_s": 766.0
+  },
+  "ivf_nprobe64": {
+    "qps": 2169,
+    "recall": 0.9698,
+    "build_s": 766.0
+  }
+}
