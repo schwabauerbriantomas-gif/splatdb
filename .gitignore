@@ -63,3 +63,4 @@ benchmark_results.json
 demo-search.*
 logo.png
 logo.svg
+__pycache__/
