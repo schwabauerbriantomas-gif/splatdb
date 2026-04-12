@@ -1511,6 +1511,24 @@ Key insight: the biggest improvement (+3% NDCG) comes from using a better embedd
 
 v2 uses BGE-small + session-level retrieval + BM25 hybrid via RRF. The +19% improvement on temporal queries shows BM25 helps when queries contain specific keywords (dates, names).
 
+### HotpotQA Multi-hop Reasoning
+
+We tested whether the knowledge graph helps with **multi-hop question answering** — questions that require finding MULTIPLE documents and connecting information across them.
+
+Example: "Were Scott Derrickson and Ed Wood of the same nationality?" → Need docs about BOTH people.
+
+| Method | k | SP Recall | All Found | vs Dense |
+|--------|---|-----------|-----------|----------|
+| Dense BGE-small | 4 | 86.7% | 224/300 | Reference |
+| Dense BGE-small | 2 | 71.3% | 144/300 | - |
+| Graph 1-hop + dense seed | 2 | 67.0% | 120/300 | **-4.3%** |
+| Graph 2-hop + dense seed | 4 | 83.8% | 209/300 | **-2.9%** |
+| Entity lookup + dense hybrid | 4 | — | 176/300 | **-16.0%** |
+
+**Conclusion**: The knowledge graph does NOT improve retrieval, even for multi-hop questions where you'd expect it to help. Dense embeddings with BGE-small are already strong enough to find relevant documents. Graph expansion adds topologically-connected but semantically irrelevant docs.
+
+**When the graph IS useful**: Exploration and discovery — finding connected topics you didn't search for, tracing entity relationships, content recommendation. These are different tasks from retrieval ranking.
+
 ### Negative Results — What Doesn't Work
 
 We publish negative results because they're more valuable than positive ones. They tell you what NOT to waste time on.
@@ -1522,6 +1540,9 @@ We publish negative results because they're more valuable than positive ones. Th
 | Full-text cross-encoder | scifact | -0.1511 | BEIR docs > 512 tokens → model truncates → loses key evidence |
 | Title-only cross-encoder | scifact, arguana, nfcorpus | -0.4085 | BEIR titles are paper names, not content descriptions; queries match body text |
 | Passage-level chunking | scifact, arguana, nfcorpus | -0.0075 | Most BEIR docs are short (avg 200 words); chunking adds noise |
+| Graph 1-hop expansion | HotpotQA (300 questions) | -4.3% | Topologically-connected ≠ semantically relevant |
+| Graph 2-hop expansion | HotpotQA (300 questions) | -2.9% | More hops = more noise |
+| Entity lookup hybrid | HotpotQA (300 questions) | -16.0% | Entities match docs that MENTION the entity, not ABOUT it |
 
 **Takeaway**: For standard information retrieval, the ranking of improvement levers is:
 
