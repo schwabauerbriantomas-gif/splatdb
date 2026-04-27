@@ -9,9 +9,7 @@
 //!
 //! All methods have CPU fallbacks (return None on failure, caller falls back).
 
-use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
-};
+use cudarc::driver::{CudaContext, CudaFunction, CudaStream, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 use std::sync::Arc;
 
