@@ -1462,12 +1462,12 @@ Standard BEIR protocol — NDCG@10, Recall@10 via pytrec-eval. Same evaluator, s
 
 | Domain | Docs | Queries | NDCG@10 | Recall@10 |
 |--------|------|---------|---------|-----------|
-| scifact | 5,183 | 300 | 0.6450 | 0.7815 |
-| trec-covid | 171,332 | 50 | 0.4734 | 0.0133 |
-| fiqa | 57,638 | 648 | 0.3697 | 0.6426 |
-| arguana | 8,674 | 1,406 | 0.5020 | 0.8114 |
-| nfcorpus | 3,633 | 325 | 0.3419 | 0.1338 |
-| **Average** | | | **0.4664** | **0.4765** |
+| scifact | 5,183 | 300 | 0.6451 | 0.7833 |
+| trec-covid | 171,332 | 50 | 0.4725 | 0.0128 |
+| fiqa | 57,638 | 648 | 0.3687 | 0.4413 |
+| arguana | 8,674 | 1,406 | 0.5017 | 0.7902 |
+| nfcorpus | 3,633 | 323 | 0.3159 | 0.1550 |
+| **Average** | | | **0.4608** | **0.4365** |
 
 **v2 — Improved (BGE-small + BM25 + RRF fusion + entity boost)**
 
@@ -1481,6 +1481,8 @@ Uses SplatsDB's full pipeline: BM25 from `bm25_index.rs`, RRF from `cluster/aggr
 | **Average (3/5)** | **0.5507** | **+0.054** | **0.6192** | **+0.044** |
 
 > **Note**: trec-covid and fiqa v2 results not completed due to BM25 scoring performance on >50K corpora in Python. The Rust implementation would handle this efficiently.
+>
+> **Source**: v1 results from `bench-data/beir_results.json` (BEIR v1.0, all-MiniLM-L6-v2, standard protocol). v2 results from internal benchmark runs — result file not yet published.
 
 **Alternative Approaches — A/B tested on scifact/arguana/nfcorpus**
 
