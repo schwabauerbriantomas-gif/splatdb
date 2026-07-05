@@ -1,6 +1,6 @@
-# M2M-Rust Benchmark Suite
+# SplatsDB Benchmark Suite
 
-Automated benchmarks for M2M vector search engine.
+Automated benchmarks for the SplatsDB vector search engine.
 
 ## Quick Start
 
@@ -8,22 +8,44 @@ Automated benchmarks for M2M vector search engine.
 # Build the binary first
 cargo build --release --features cuda
 
-# Run full benchmark suite
-python benchmarks/run_benchmarks.py --binary target/release/m2m-rust.exe
+# Built-in HNSW benchmark (CPU, no CUDA needed)
+./target/release/splatsdb bench-hnsw \
+  --train <train.bin> --queries <query.bin> --gt <gt.bin> \
+  -d 128 -k 10 --metric l2 \
+  --ef-search 100 --ef-construction 400 --over-fetch 2
 
-# Quick run (1K + 10K vectors only)
-python benchmarks/run_benchmarks.py --binary target/release/m2m-rust.exe --quick
-
-# CPU only
-python benchmarks/run_benchmarks.py --no-cuda
-
-# Compare vs previous run
-python benchmarks/run_benchmarks.py --binary target/release/m2m-rust.exe --compare
+# GPU benchmark (requires --features cuda)
+./target/release/splatsdb bench-gpu --n-vectors 100000 --dim 640 --n-queries 100 --top-k 10
 ```
+
+### Binary data format
+
+`bench-hnsw` expects raw binary files (not HDF5):
+
+| File | Format |
+|------|--------|
+| `--train` | `[u64 rows][u64 cols][f32 data row-major]` |
+| `--queries` | `[u64 rows][u64 cols][f32 data row-major]` |
+| `--gt` | `[u64 n_queries][u64 k][i64 indices]` |
+
+To convert from ANN-Benchmarks HDF5 to this format, use `h5py` + `struct`.
 
 ## What It Runs
 
-### bench-gpu
+### bench-hnsw
+
+HNSW graph search with persistence. Measures build time, p50/p95/p99 latency, QPS, and recall@k against ground truth.
+
+| Config | Default |
+|--------|---------|
+| `--metric` | `l2` (or `cosine`) |
+| `--ef-construction` | 400 |
+| `--ef-search` | 100 |
+| `--over-fetch` | 2 |
+| `-k` | 10 |
+
+### bench-gpu (requires `--features cuda`)
+
 GPU vs CPU search performance with varied dataset sizes:
 
 | Config | Vectors | Dim | Queries | Top-K | Metric |
@@ -31,50 +53,13 @@ GPU vs CPU search performance with varied dataset sizes:
 | Small  | 1K      | 640 | 100     | 10    | L2     |
 | Medium | 10K     | 640 | 100     | 10    | L2     |
 | Large  | 100K    | 640 | 100     | 10    | L2     |
-| Large cosine | 100K | 640 | 100 | 10 | Cosine |
 
 Measures: CPU QPS, GPU upload QPS, GPU persistent QPS.
 
-### bench-gpu-ingest
-Full pipeline: raw vectors → KMeans → splat centroids → indexed search.
+## Results
 
-| Config | Vectors | Clusters | Queries |
-|--------|---------|----------|---------|
-| Small  | 10K     | 50       | 100     |
-| Large  | 100K    | 100      | 100     |
+Results from the latest runs are stored in [`bench-data/`](../bench-data/). Each JSON is self-documenting with hardware metadata, timestamps, and an integrity checklist.
 
-## Results Format
+## Reproducibility
 
-Results are saved to `benchmarks/results/YYYY-MM-DD.json`:
-
-```json
-{
-  "date": "2026-03-30",
-  "hardware": { "cpu": "...", "gpu": "..." },
-  "benchmarks": [
-    {
-      "command": "bench-gpu",
-      "config": { "n_vectors": 10000, "dim": 640, ... },
-      "wall_time_s": 12.5,
-      "cpu": { "total_ms": 372.0, "qps": 269.0 },
-      "gpu_persistent": { "total_ms": 60.0, "qps": 1667.0 }
-    }
-  ]
-}
-```
-
-## Flags
-
-| Flag | Description |
-|------|-------------|
-| `--binary PATH` | Path to pre-built m2m-rust binary |
-| `--quick` | Only run 1K and 10K configs |
-| `--no-cuda` | CPU-only, skip CUDA features |
-| `--compare` | Compare results vs previous run |
-| `--output PATH` | Custom output file path |
-
-## Notes
-
-- First run compiles Rust code (slow). Use `--binary` with a pre-built release binary.
-- `bench-gpu-ingest` requires CUDA features.
-- Results are append-only: each run creates a new dated file.
+All benchmark numbers published in the [main README](../README.md) trace to a JSON in `bench-data/`. If a number cannot be traced to a results file, it should not be published. See the README's **Integrity pledge** section.

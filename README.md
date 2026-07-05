@@ -11,23 +11,11 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-378%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen.svg)]()
 [![LOC](https://img.shields.io/badge/LOC-31K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
-
-<p align="center">
-  <a href="https://github.com/schwabauerbriantomas-gif/splatsdb/releases/download/v2.5.0/splatsdb-explainer.mp4">
-    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-10_min-00e5ff?style=for-the-badge" alt="SplatsDB Explainer Video"/>
-  </a>
-</p>
-
-> **🎬 10-minute explainer** — Gaussian Splatting, HRM2 retrieval, GPU benchmarks, and real Faiss comparison in 10 minutes.
-
-<p align="center">
-  <img src="assets/splatsdb-confidence.png" alt="SplatsDB Confidence Scoring Demo" width="720"/>
-</p>
 
 <p align="center"><sub>Search returns confidence scores based on κ (concentration) — agents know when to trust results.</sub></p>
 
@@ -326,27 +314,36 @@ All numbers are **measured on real hardware** and independently validated. No si
 
 ### HNSW Search (v2.5 — current)
 
-HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates. Re-benchmarked April 2026 with CUDA-extended kernel integration.
+HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates.
+
+> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI. Ground truth: brute-force L2 (NumPy). Full methodology and raw output in [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
 
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
-| SIFT-128 | 10K | 128 | 124s* | 0.93ms | 1.35ms | 1.66ms | **1,054** | **0.998** |
-| SIFT-128 | 100K | 128 | 1,284s* | 1.74ms | 2.26ms | 2.52ms | **579** | **0.995** |
+| synthetic-sift128 | 10K | 128 | 22s* | 1.20ms | 1.69ms | 2.10ms | **789** | **0.861** |
+| synthetic-sift128 | 100K | 128 | 982s* | 4.09ms | 5.12ms | 5.78ms | **242** | n/a† |
+
+<details>
+<summary><b>Why recall is lower than a typical SIFT-128 benchmark</b></summary>
+
+This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce: see [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
+</details>
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
+†Recall@10 for 100K not computed (brute-force GT on 100K×1000 was too expensive for this session). QPS and latency are valid.
 
-> **Build time note**: HNSW construction at 100K vectors takes ~25 minutes (M=32, ef_construction=400). This is slower than Faiss HNSW (~30s for 100K) because SplatsDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
+> **Build time note**: HNSW construction at M=32, ef_construction=400 is slower than Faiss HNSW because SplatsDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
 | Method | Dataset | N | p50 Latency | QPS | Recall@10 |
 |--------|---------|------|-------------|------|-----------|
-| **HNSW (fresh build)** | SIFT-128 | 10K | **0.93ms** | **1,054** | **0.998** |
-| **HNSW (fresh build)** | SIFT-128 | 100K | **1.74ms** | **579** | **0.995** |
-| Linear scan | SIFT-128 | 10K | 1,143ms | 0.9 | 1.000 |
+| **HNSW (synthetic)** | synthetic-sift128 | 10K | **1.20ms** | **789** | **0.861** |
+| **HNSW (synthetic)** | synthetic-sift128 | 100K | **4.09ms** | **242** | n/a |
+| Linear scan | synthetic-sift128 | 10K | 1,143ms | 0.9 | 1.000 |
 | HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95 |
 
-HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, with >99.5% recall.
+On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real-SIFT recall would be higher.
 
 ### Faiss Comparison (Same Hardware, Same Dataset)
 
@@ -379,7 +376,9 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 **Pipeline**: Embed all ~24K sessions with `all-MiniLM-L6-v2` (384d, GPU RTX 3090) → cosine similarity search → measure if answer session appears in top-k.
 
-**Session Recall** (answer session found in top-k):
+> **Honest methodology note**: The recall numbers below were measured with **NumPy brute-force cosine similarity** (see [`longmemeval_full_results.json`](bench-data/longmemeval_full_results.json)), not SplatsDB's own HNSW. They validate the *retrieval approach* (embeddings + cosine), not SplatsDB's search engine specifically. A separate run using SplatsDB's native Rust HNSW ([`longmemeval_splatdb_native.json`](bench-data/longmemeval_splatdb_native.json)) showed recall@10 = 0.304 — see that file for details on why native HNSW recall is lower (session-grouping and ef_search tuning differ).
+
+**Session Recall** (answer session found in top-k, NumPy brute-force):
 
 | k | Recall |
 |---|--------|
@@ -399,9 +398,7 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 | temporal-reasoning | 133 | 95.5% |
 | single-session-user | 70 | 88.6% |
 
-**SplatsDB HNSW search** (500 sessions, 384d, 500 queries, spatial pre-filter → ~48 candidates): 3,125 QPS, P50 0.029ms, P95 0.036ms
-
-**What this validates**: With real sentence embeddings, SplatsDB achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
+**What this validates**: With real sentence embeddings, the retrieval approach achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
 
 - Full results: `bench-data/longmemeval_full_results.json`
 - Benchmark script: `bench-data/longmemeval_full.py`
@@ -948,10 +945,17 @@ cargo build --release --features cuda
 
 ### Performance
 
-With 100K vectors (640D) on an RTX 3090:
-- **Upload**: 3.9 GB/s sustained bandwidth
-- **Query latency**: 0.60 ms per query (constant, independent of dataset size up to VRAM)
-- **Throughput**: 1,667 QPS (7.8x faster than CPU)
+Measured on RTX 3090 (24GB VRAM), SIFT-128 100K vectors, k=10. Full results: [`bench-data/benchmark_results_hardware.json`](bench-data/benchmark_results_hardware.json).
+
+| Metric | Value |
+|--------|-------|
+| **GPU QPS (persistent)** | 12,195 |
+| **CPU QPS (same data)** | 2,941 |
+| **Speedup** | 4.1× |
+| **Per-query latency (GPU)** | 0.082 ms |
+| **Upload time (100K → VRAM)** | 17 ms |
+
+> GPU QPS measured with dataset resident in VRAM between queries (persistent mode). First-query upload cost is amortized over the query batch. GPU results verified identical to CPU brute-force (100% recall).
 
 ### GPU Commands
 
@@ -1366,7 +1370,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 ### Where SplatsDB Wins
 
-1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval: **96.6% recall@10** with spatial pre-filter vs 86.2% best in original paper.
+1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. On LongMemEval, the retrieval approach (embeddings + cosine) achieves **96.6% recall@10** (NumPy brute-force baseline; see methodology note in benchmarks section) vs 86.2% best in original paper.
 
 2. **MCP Server** — 18 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
 
