@@ -11,8 +11,8 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-295%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-29K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-378%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-31K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
@@ -52,7 +52,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Uncertainty scores | ✅ | — | — | — | — | — |
 | Knowledge Graph | ✅ | — | — | — | — | — |
 | Spatial Memory (Wing/Room/Hall/Tunnel) | ✅ | — | — | — | — | — |
-| MCP server (15 tools) | ✅ | — | — | — | — | — |
+| MCP server (18 tools) | ✅ | — | — | — | — | — |
 | Distributed sharding (hash/cluster/geo) | ✅ | — | ✅ Cloud | ✅ | ✅ | — |
 | Energy-aware routing | ✅ | — | — | — | — | — |
 | RRF result fusion | ✅ | — | — | — | ✅ | — |
@@ -801,7 +801,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.1.0"}
+{"status": "ok", "version": "2.5.0"}
 ```
 
 #### `POST /status` — Store Statistics
@@ -1208,7 +1208,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
-| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (15 tools, production-hardened) |
+| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (18 tools, production-hardened) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
@@ -1368,7 +1368,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval: **96.6% recall@10** with spatial pre-filter vs 86.2% best in original paper.
 
-2. **MCP Server** — 15 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
+2. **MCP Server** — 18 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
 
 3. **Distributed Sharding** — 3 strategies (hash/cluster/geo), load balancing (round-robin/least-loaded/broadcast), RRF result fusion, energy-aware routing, offline sync with retry. All built-in, no external dependencies.
 

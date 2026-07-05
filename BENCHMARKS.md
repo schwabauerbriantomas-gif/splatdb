@@ -1,7 +1,7 @@
 # BENCHMARKS.md — SplatsDB Rust
 
 > All benchmarks measured on **2026-03-29**.  
-> Hardware: AMD Ryzen 5 3400G (4c/8t), 32GB DDR4, NVIDIA RTX 3090 (24GB VRAM, sm_86, CUDA 12.4).  
+> Hardware: AMD Ryzen 5 3400G (4c/8t), 16GB DDR4, NVIDIA RTX 3090 (24GB VRAM, sm_86, CUDA 12.4).  
 > Software: Rust 1.94.1, cudarc 0.19.4, ndarray 0.16, rayon 1.11.  
 > Build: `cargo run --release --features cuda`
 
