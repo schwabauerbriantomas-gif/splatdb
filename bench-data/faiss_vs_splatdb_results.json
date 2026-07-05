@@ -1,0 +1,29 @@
+{
+  "hardware": "Ryzen 5 3400G + RTX 3090, 16GB RAM, Windows 11",
+  "dataset": "SIFT-128, 100K vectors",
+  "n_queries": 1000,
+  "k": 64,
+  "faiss_hnsw": {
+    "M": 32,
+    "ef_construction": 400,
+    "ef_search": 100,
+    "build_ms": 24489,
+    "search_ms": 102.5,
+    "qps": 9757.8,
+    "recall_at_64": 0.9926,
+    "per_query_us": 102
+  },
+  "faiss_ivf_pq": {
+    "nlist": 256,
+    "m": 16,
+    "nprobe": 32,
+    "build_ms": 3037,
+    "search_ms": 99.6,
+    "qps": 10039.2,
+    "recall_at_64": 0.69,
+    "per_query_us": 100
+  },
+  "faiss_gpu_flat": {
+    "error": "module 'faiss' has no attribute 'StandardGpuResources'"
+  }
+}

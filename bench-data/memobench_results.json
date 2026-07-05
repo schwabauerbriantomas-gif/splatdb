@@ -1,0 +1,38 @@
+{
+  "tool": "SplatsDB Benchmark Suite",
+  "version": "1.0",
+  "philosophy": "No gaming. No hardcoding. No cherry-picking. Full methodology published.",
+  "hardware": {
+    "cpu": "AMD Ryzen 5 3400G (4C/8T)",
+    "gpu": "NVIDIA RTX 3090 (24GB)",
+    "ram": "16GB DDR4",
+    "os": "Windows 11 (GPU) / WSL2 Ubuntu 22.04 (CPU)"
+  },
+  "timestamp": "2026-04-11T19:43:05",
+  "memobench": {
+    "benchmark": "MemoBench-style (synthetic)",
+    "methodology": "Multi-agent dialog memory evaluation (synthetic dialogs, real evaluation)",
+    "model": "all-MiniLM-L6-v2",
+    "embedding_dims": 384,
+    "note": "Synthetic dialogs inspired by MemoBench methodology. NOT the official MemoBench dataset.",
+    "timestamp": "2026-04-11T19:43:17",
+    "metrics": {
+      "recall_at_1": 0.9333,
+      "recall_at_3": 0.9333,
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "utterances": 142,
+      "questions": 15,
+      "sessions": 20,
+      "agents": 5
+    },
+    "integrity_checklist": {
+      "synthetic_data": true,
+      "official_memobench": false,
+      "methodology_published": true,
+      "code_reproducible": true,
+      "deterministic_rng": true,
+      "seed": 42
+    }
+  }
+}

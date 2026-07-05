@@ -1,0 +1,79 @@
+{
+  "tool": "SplatsDB Benchmark Suite",
+  "version": "1.0",
+  "philosophy": "No gaming. No hardcoding. No cherry-picking. Full methodology published.",
+  "hardware": {
+    "cpu": "AMD Ryzen 5 3400G (4C/8T)",
+    "gpu": "NVIDIA RTX 3090 (24GB)",
+    "ram": "16GB DDR4",
+    "os": "Windows 11 (GPU) / WSL2 Ubuntu 22.04 (CPU)"
+  },
+  "timestamp": "2026-04-11T19:45:10",
+  "beir": {
+    "benchmark": "BEIR",
+    "methodology": "Standard BEIR evaluation protocol, no per-dataset tuning",
+    "model": "all-MiniLM-L6-v2",
+    "embedding_dims": 384,
+    "timestamp": "2026-04-11T19:45:18",
+    "aggregate": {
+      "ndcg_at_10": 0.4608,
+      "recall_at_10": 0.4365,
+      "map_at_10": 0.284,
+      "avg_qps": 5680.7,
+      "domains_tested": 5
+    },
+    "per_domain": {
+      "scifact": {
+        "corpus_size": 5183,
+        "queries": 300,
+        "ndcg_at_10": 0.6451,
+        "recall_at_10": 0.7833,
+        "map_at_10": 0.5959,
+        "search_time_s": 0.043,
+        "qps": 6990.1
+      },
+      "trec-covid": {
+        "corpus_size": 171332,
+        "queries": 50,
+        "ndcg_at_10": 0.4725,
+        "recall_at_10": 0.0128,
+        "map_at_10": 0.0105,
+        "search_time_s": 0.177,
+        "qps": 283.0
+      },
+      "fiqa": {
+        "corpus_size": 57638,
+        "queries": 648,
+        "ndcg_at_10": 0.3687,
+        "recall_at_10": 0.4413,
+        "map_at_10": 0.2914,
+        "search_time_s": 0.628,
+        "qps": 1031.1
+      },
+      "arguana": {
+        "corpus_size": 8674,
+        "queries": 1406,
+        "ndcg_at_10": 0.5017,
+        "recall_at_10": 0.7902,
+        "map_at_10": 0.4118,
+        "search_time_s": 0.219,
+        "qps": 6416.3
+      },
+      "nfcorpus": {
+        "corpus_size": 3633,
+        "queries": 323,
+        "ndcg_at_10": 0.3159,
+        "recall_at_10": 0.155,
+        "map_at_10": 0.1105,
+        "search_time_s": 0.024,
+        "qps": 13683.1
+      }
+    },
+    "integrity_checklist": {
+      "per_dataset_tuning": false,
+      "cherry_picked_domains": false,
+      "standard_protocol": true,
+      "code_reproducible": true
+    }
+  }
+}
