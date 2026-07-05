@@ -1,7 +1,7 @@
 # SplatsDB - Benchmarks v2
 
 **Date**: 2026-03-28
-**Platform**: Windows 10 | AMD Ryzen 5 3400G (4c/8t) | 32GB RAM
+**Platform**: Windows 10 | AMD Ryzen 5 3400G (4c/8t) | 16GB RAM
 **Rust**: 1.94.0 | Profile: release (optimized)
 
 ## Optimizations Applied
