@@ -1,0 +1,58 @@
+{
+  "benchmark": "LongMemEval-S-cleaned",
+  "date": "2026-04-09",
+  "model": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "n_questions": 500,
+  "embedding_time_s": 78.1,
+  "search_method": "numpy_cosine_normalized",
+  "recall": {
+    "recall@1": 0.758,
+    "recall@3": 0.882,
+    "recall@5": 0.922,
+    "recall@10": 0.966
+  },
+  "latency_ms": {
+    "p50": 0.056,
+    "p95": 0.08,
+    "p99": 0.105
+  },
+  "per_type": {
+    "single-session-user": {
+      "recall@1": 0.5286,
+      "recall@3": 0.7286,
+      "recall@5": 0.8,
+      "recall@10": 0.8857
+    },
+    "multi-session": {
+      "recall@1": 0.8346,
+      "recall@3": 0.9323,
+      "recall@5": 0.9474,
+      "recall@10": 0.9925
+    },
+    "single-session-preference": {
+      "recall@1": 0.6,
+      "recall@3": 0.8,
+      "recall@5": 0.8333,
+      "recall@10": 0.9667
+    },
+    "temporal-reasoning": {
+      "recall@1": 0.7218,
+      "recall@3": 0.8647,
+      "recall@5": 0.9248,
+      "recall@10": 0.9549
+    },
+    "knowledge-update": {
+      "recall@1": 0.7949,
+      "recall@3": 0.9231,
+      "recall@5": 0.9744,
+      "recall@10": 1.0
+    },
+    "single-session-assistant": {
+      "recall@1": 0.9821,
+      "recall@3": 0.9821,
+      "recall@5": 0.9821,
+      "recall@10": 0.9821
+    }
+  }
+}

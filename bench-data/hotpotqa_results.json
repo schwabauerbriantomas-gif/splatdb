@@ -1,0 +1,50 @@
+{
+  "benchmark": "HotpotQA Multi-hop",
+  "description": "Tests whether knowledge graph improves multi-hop document retrieval. 300 questions, distractor mode, k=4 from ~20 docs per question.",
+  "finding": "Knowledge graph does NOT improve retrieval. Dense search (BGE-small) is already strong enough.",
+  "results": {
+    "dense_top4": {
+      "sp_recall_pct": 86.7,
+      "all_found_pct": 74.7,
+      "all_found": "224/300",
+      "description": "Pure dense BGE-small, top-4"
+    },
+    "dense_top2": {
+      "sp_recall_pct": 71.3,
+      "all_found_pct": 48.0,
+      "all_found": "144/300",
+      "description": "Pure dense BGE-small, top-2"
+    },
+    "graph_1hop_top2": {
+      "sp_recall_pct": 67.0,
+      "all_found_pct": 40.0,
+      "all_found": "120/300",
+      "description": "Dense seed top-1 + graph 1-hop expansion, pick best 2"
+    },
+    "graph_2hop_top4": {
+      "sp_recall_pct": 83.8,
+      "all_found_pct": 69.7,
+      "all_found": "209/300",
+      "description": "Dense seed top-1 + graph 2-hop expansion, pick best 4"
+    },
+    "entity_dense_hybrid": {
+      "sp_recall_pct": null,
+      "all_found_pct": 58.7,
+      "all_found": "176/300",
+      "description": "Entity lookup from query + dense fill. WORSE than pure dense."
+    }
+  },
+  "why_graph_fails": [
+    "Dense BGE-small embeddings already capture semantic similarity well enough for top-4",
+    "Graph expansion adds topologically-connected but semantically irrelevant docs",
+    "Entity lookup from query matches docs that MENTION the entity, not docs ABOUT the entity",
+    "Shared entities between docs are common (film, American, etc.) \u2014 not discriminative"
+  ],
+  "when_graph_IS_useful": [
+    "Exploration: discover connected topics you didnt search for",
+    "Recommendation: find related content after initial retrieval",
+    "Knowledge discovery: trace entity relationships across documents",
+    "Not for ranking: the task of deciding WHICH doc is more relevant"
+  ],
+  "honest_conclusion": "For the specific task of multi-hop question answering (find 2 relevant docs from 20), pure dense search with good embeddings is hard to beat. The knowledge graph is a different tool for a different job."
+}
