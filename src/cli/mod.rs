@@ -554,7 +554,7 @@ pub fn dispatch(cli: Cli) {
             input,
             n_clusters,
             seed,
-        } => index_cmds::cmd_ingest(config, input, n_clusters, seed),
+        } => index_cmds::cmd_ingest(cli.data_dir, cli.backend, config, input, n_clusters, seed),
         Commands::IngestHierarchical {
             input,
             n_clusters,
