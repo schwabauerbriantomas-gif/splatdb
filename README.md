@@ -1110,7 +1110,7 @@ Optional: recent memories can be weighted higher via exponential decay with conf
 
 ### Verbatim Storage (Planned)
 
-> Inspired by [MemorySpaces's](https://github.com/milla-jovovich/memoryspaces) principle: "Store everything verbatim, never let an LLM decide what to remember."
+> Inspired by [MemPalace's](https://github.com/MemPalace/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
 
 Most vector DBs store only embeddings — the original text is lost or truncated. SplatsDB's planned verbatim storage keeps three layers per document:
 
@@ -1137,7 +1137,7 @@ This is the opposite of how Pinecone/Qdrant handle text — they truncate or dis
 
 Vector compression (TurboQuant/PolarQuant) handles embeddings. But the *text* itself also needs compression for efficient agent memory.
 
-The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemorySpaces's AAAK](https://github.com/milla-jovovich/memoryspaces) achieves ~30x text compression by stripping everything except semantic content.
+The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemPalace's AAAK](https://github.com/MemPalace/mempalace) achieves ~30x text compression by stripping everything except semantic content.
 
 ```
 Original text (1,200 tokens):
@@ -1259,7 +1259,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Spatial Memory Architecture
 
-> Inspired by [MemorySpaces](https://github.com/milla-jovovich/memoryspaces) — organizing memory like a physical space.
+> Inspired by [MemPalace](https://github.com/MemPalace/mempalace) — organizing memory like a physical space.
 
 SplatsDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
 
@@ -1305,7 +1305,7 @@ Query: "auth decisions from project X"
 4. Vector search within that subspace     → high recall, minimal noise
 ```
 
-This is structurally identical to how MemorySpaces achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
+This is structurally identical to how MemPalace achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
 
 ### Tunnels = Cross-Wing Knowledge Graph
 
