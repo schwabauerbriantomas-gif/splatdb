@@ -34,7 +34,8 @@ pub enum Commands {
     },
     /// Search for k nearest neighbors
     Search {
-        #[arg(short, long)]
+        /// Query vector as comma-separated floats (negative components allowed)
+        #[arg(short, long, allow_hyphen_values = true)]
         query: String,
         #[arg(short, long, default_value = "10")]
         k: usize,
