@@ -123,7 +123,14 @@ pub fn cmd_append(
     );
 }
 
-pub fn cmd_ingest(config: SplatsDBConfig, input: PathBuf, n_clusters: Option<usize>, seed: u64) {
+pub fn cmd_ingest(
+    data_dir: String,
+    backend: String,
+    config: SplatsDBConfig,
+    input: PathBuf,
+    n_clusters: Option<usize>,
+    seed: u64,
+) {
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => {
@@ -144,14 +151,44 @@ pub fn cmd_ingest(config: SplatsDBConfig, input: PathBuf, n_clusters: Option<usi
     match store.ingest_with_transformer(&vectors, k, seed) {
         Ok((n_splats, compression, stats)) => {
             let elapsed = t0.elapsed();
-            store.build_index();
+            // Persist like `index` does: build the search index (auto-saving
+            // HNSW to data_dir) and write the splat centroids to the store,
+            // otherwise the ingest result is lost when the process exits and
+            // status/search see an empty store (issue #1).
+            store.build_index_with_save(Some(&data_dir));
+
+            let persist = make_persistence(&data_dir, &backend, true).unwrap_or_else(|e| {
+                eprintln!("Storage error: {}", e);
+                std::process::exit(1);
+            });
+            match (store.get_mu(), store.get_alpha(), store.get_kappa()) {
+                (Some(mu), Some(alpha), Some(kappa)) => {
+                    if let Err(e) = persist.save_vectors(&mu, "default") {
+                        eprintln!("Save error: {}", e);
+                        std::process::exit(1);
+                    }
+                    if let Err(e) =
+                        persist.save_energy_state(&mu, &alpha.to_vec(), &kappa.to_vec())
+                    {
+                        eprintln!("Warning: energy save failed: {}", e);
+                    }
+                }
+                _ => {
+                    eprintln!("Ingest error: no splats to persist (store is empty)");
+                    std::process::exit(1);
+                }
+            }
+
             println!(
                 "{}",
                 serde_json::json!({
                     "status": "ingested",
                     "method": "kmeans",
+                    "shard": "default",
                     "original_count": stats.original_count,
                     "n_splats": n_splats,
+                    "n_active": store.n_active(),
+                    "saved": true,
                     "compression_ratio": (compression * 10000.0).round() / 10000.0,
                     "transform_time_s": (stats.transform_time_s * 10000.0).round() / 10000.0,
                     "total_ingest_ms": elapsed.as_millis() as u64,
