@@ -36,18 +36,49 @@ pub fn load_or_create_store(
     data_dir: &str,
     config: &SplatsDBConfig,
 ) -> (SplatStore, Option<SplatsDBPersistence>) {
+    load_shard_store(data_dir, config, "default")
+}
+
+/// Load a store populated from a specific shard (issue #4).
+///
+/// `search`/`search-file` previously always read the "default" shard, so
+/// vectors ingested with `index -s <name>` were silently invisible. This
+/// variant loads the named shard; when the shard does not exist we fail
+/// loudly instead of returning an empty (silent) result set.
+pub fn load_shard_store(
+    data_dir: &str,
+    config: &SplatsDBConfig,
+    shard: &str,
+) -> (SplatStore, Option<SplatsDBPersistence>) {
     let persist = make_persistence(data_dir, "sqlite", true).ok();
     let mut store = SplatStore::new(config.clone());
 
     if let Some(ref p) = persist {
-        if let Ok(Some(vectors)) = p.load_vectors("default") {
-            store.add_splat(&vectors);
-            eprintln!(
-                "[splatsdb] Loaded {} vectors from default shard",
-                vectors.nrows()
-            );
-            // Try loading persisted HNSW first; only build from scratch if needed
-            store.build_index_if_needed(data_dir);
+        match p.load_vectors(shard) {
+            Ok(Some(vectors)) => {
+                eprintln!(
+                    "[splatsdb] Loaded {} vectors from shard '{}'",
+                    vectors.nrows(),
+                    shard
+                );
+                store.add_splat(&vectors);
+                // Try loading persisted HNSW first; only build from scratch if needed
+                store.build_index_if_needed(data_dir);
+            }
+            Ok(None) => {
+                if shard != "default" {
+                    let known = p.list_shards();
+                    eprintln!(
+                        "Error: shard '{}' not found. Available shards: {:?}",
+                        shard, known
+                    );
+                    std::process::exit(2);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: failed to load shard '{}': {}", shard, e);
+                std::process::exit(2);
+            }
         }
     }
 

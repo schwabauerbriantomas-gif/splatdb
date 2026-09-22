@@ -41,6 +41,9 @@ pub enum Commands {
         k: usize,
         #[arg(short, long, default_value = "json")]
         format: String,
+        /// Shard to search (see 'splatsdb list'); defaults to the 'default' shard
+        #[arg(short = 's', long, default_value = "default")]
+        shard: String,
     },
     /// Search using a query vector from a binary file
     SearchFile {
@@ -50,6 +53,9 @@ pub enum Commands {
         k: usize,
         #[arg(short = 'f', long, default_value = "json")]
         format: String,
+        /// Shard to search (see 'splatsdb list'); defaults to the 'default' shard
+        #[arg(short = 's', long, default_value = "default")]
+        shard: String,
     },
     /// Show store statistics
     Status {
@@ -510,12 +516,18 @@ pub fn dispatch(cli: Cli) {
         Commands::Append { input, shard } => {
             index_cmds::cmd_append(cli.data_dir, cli.backend, config, input, shard)
         }
-        Commands::Search { query, k, format } => {
-            search_cmds::cmd_search(cli.data_dir, config, query, k, format)
-        }
-        Commands::SearchFile { input, k, format } => {
-            search_cmds::cmd_search_file(cli.data_dir, config, input, k, format)
-        }
+        Commands::Search {
+            query,
+            k,
+            format,
+            shard,
+        } => search_cmds::cmd_search(cli.data_dir, config, query, k, format, shard),
+        Commands::SearchFile {
+            input,
+            k,
+            format,
+            shard,
+        } => search_cmds::cmd_search_file(cli.data_dir, config, input, k, format, shard),
         Commands::Status { verbose } => {
             data_cmds::cmd_status(cli.data_dir, cli.max_splats, config, verbose)
         }
