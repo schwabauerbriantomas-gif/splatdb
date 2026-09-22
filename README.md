@@ -37,12 +37,12 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
 | License | GPL-3.0 | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 | Gaussian Splats | ✅ | — | — | — | — | — |
-| Uncertainty scores | ✅ | — | — | — | — | — |
+| Uncertainty scores | ✅ (flagging only — see [A5 findings](docs/A5_FINDINGS.md)) | — | — | — | — | — |
 | Knowledge Graph | ✅ | — | — | — | — | — |
 | Spatial Memory (Wing/Room/Hall/Tunnel) | ✅ | — | — | — | — | — |
 | MCP server (18 tools) | ✅ | — | — | — | — | — |
 | Distributed sharding (hash/cluster/geo) | ✅ | — | ✅ Cloud | ✅ | ✅ | — |
-| Energy-aware routing | ✅ | — | — | — | — | — |
+| Energy-aware routing | ✅ (SOC internals — **not** a retrieval-quality feature; energy must stay out of the ranking score, see [A5 findings](docs/A5_FINDINGS.md)) | — | — | — | — | — |
 | RRF result fusion | ✅ | — | — | — | ✅ | — |
 | Self-hosted | ✅ | ✅ | ❌ SaaS-only | ✅ | ✅ | ✅ |
 | Embedded (no server) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
@@ -83,7 +83,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 
 SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
 
-- **Richer similarity semantics** via splat overlap instead of point-to-point distance
+- **Richer similarity semantics** via splat overlap instead of point-to-point distance *(as a storage/compression representation — for ranking quality, score with the embedding metric: an empirical audit found splat-energy/density fusion degrades recall by 25 pts with p<0.05; splats shine as a routing codebook: 0.87 recall@10 reading 31% of the corpus. Details: [docs/A5_FINDINGS.md](docs/A5_FINDINGS.md))*
 - **Natural compression** through distribution parameters (3–8 bit quantization)
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
