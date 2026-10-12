@@ -153,7 +153,7 @@ impl SplatsDBConfig {
         config.training_eval_interval = 50;
         config.training_save_interval = 500;
         config.training_noise_augmentation = true;
-        config.training_matryoshka_dims = vec![32, 64, 128, 256, 640];
+        config.training_matryoshka_dims = vec![32, 64, 128, 256, 512, 1024];
         config.training_distillation = true;
 
         // Data Lake for training data management

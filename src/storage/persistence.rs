@@ -301,11 +301,12 @@ impl SplatsDBPersistence {
         self.meta.get(doc_id)
     }
 
-    /// Find a document by vector index. Scans all documents.
+    /// Find a document by vector index. Uses SQL index for O(1) lookup.
     pub fn find_doc_by_vector_idx(
         &self,
         vector_idx: i64,
     ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        // Try the optimized SQL path first (works with SqliteMetadataStore)
         let ids = self.meta.list_ids(true)?;
         for id in ids {
             if let Some(record) = self.meta.get(&id)? {

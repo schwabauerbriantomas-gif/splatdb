@@ -8,11 +8,11 @@
 Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a single Rust binary.
 </p>
 
-[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
+[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-295%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-29K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-378%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-31K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---

@@ -1,6 +1,6 @@
 [package]
 name = "splatsdb"
-version = "2.5.0"
+version = "2.6.0"
 edition = "2021"
 description = "SplatsDB - Gaussian Splat vector search engine"
 license = "GPL-3.0"

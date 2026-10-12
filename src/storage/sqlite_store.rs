@@ -3,10 +3,11 @@
 use super::metadata_store::{DocumentRecord, MetadataStore};
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
+use std::sync::Mutex;
 
-/// SQLite-backed metadata store.
+/// SQLite-backed metadata store with persistent connection.
 pub struct SqliteMetadataStore {
-    db_path: PathBuf,
+    conn: Mutex<Connection>,
 }
 
 impl SqliteMetadataStore {
@@ -15,6 +16,8 @@ impl SqliteMetadataStore {
         let conn = Connection::open(&db_path)?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=-64000;
              CREATE TABLE IF NOT EXISTS documents (
                  id TEXT PRIMARY KEY,
                  shard_idx INTEGER,
@@ -25,17 +28,13 @@ impl SqliteMetadataStore {
                  created_at REAL,
                  updated_at REAL
              );
-             CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted);",
+             CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted);
+             CREATE INDEX IF NOT EXISTS idx_vector ON documents(vector_idx);",
         )?;
-        drop(conn);
-        Ok(Self { db_path })
+        Ok(Self { conn: Mutex::new(conn) })
     }
 
-    fn conn(&self) -> Result<Connection, rusqlite::Error> {
-        Connection::open(&self.db_path)
-    }
-
-    fn row_to_record(&self, row: &rusqlite::Row) -> rusqlite::Result<DocumentRecord> {
+    fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<DocumentRecord> {
         let meta_str: Option<String> = row.get(3)?;
         Ok(DocumentRecord {
             id: row.get(0)?,
@@ -55,7 +54,7 @@ impl MetadataStore for SqliteMetadataStore {
         &self,
         record: &DocumentRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         conn.execute(
             "INSERT OR REPLACE INTO documents (id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
@@ -77,12 +76,12 @@ impl MetadataStore for SqliteMetadataStore {
         &self,
         doc_id: &str,
     ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at
              FROM documents WHERE id=?1 AND deleted=0",
         )?;
-        let result = stmt.query_row(params![doc_id], |row| self.row_to_record(row));
+        let result = stmt.query_row(params![doc_id], |row| Self::row_to_record(row));
         match result {
             Ok(r) => Ok(Some(r)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -94,7 +93,7 @@ impl MetadataStore for SqliteMetadataStore {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs_f64();
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         let affected = conn.execute(
             "UPDATE documents SET deleted=1, updated_at=?1 WHERE id=?2",
             params![now, doc_id],
@@ -103,7 +102,7 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     fn hard_delete(&self, doc_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         let affected = conn.execute("DELETE FROM documents WHERE id=?1", params![doc_id])?;
         Ok(affected > 0)
     }
@@ -112,7 +111,7 @@ impl MetadataStore for SqliteMetadataStore {
         &self,
         include_deleted: bool,
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         let sql = if include_deleted {
             "SELECT id FROM documents"
         } else {
@@ -130,7 +129,7 @@ impl MetadataStore for SqliteMetadataStore {
         &self,
         include_deleted: bool,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         let sql = if include_deleted {
             "SELECT COUNT(*) FROM documents"
         } else {
@@ -141,7 +140,7 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     fn flush(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let conn = self.conn()?;
+        let conn = self.conn.lock().map_err(|e| format!("mutex: {e}"))?;
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
