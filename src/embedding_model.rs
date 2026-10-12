@@ -40,7 +40,7 @@ pub trait Encoder: Send + Sync {
 }
 
 /// Matryoshka embedding dimensions (default: 64, 128, 256, 640).
-pub const DEFAULT_MATRYOSHKA_DIMS: &[usize] = &[64, 128, 256, 640];
+pub const DEFAULT_MATRYOSHKA_DIMS: &[usize] = &[64, 128, 256, 512, 1024];
 
 /// Truncate embedding to a Matryoshka dimension and normalize.
 pub fn matryoshka_truncate(embedding: &[f32], dim: usize) -> Vec<f32> {
@@ -363,11 +363,11 @@ mod tests {
 
     #[test]
     fn test_matryoshka_all() {
-        let emb: Vec<f32> = (0..640).map(|i| (i as f32) / 640.0).collect();
+        let emb: Vec<f32> = (0..1024).map(|i| (i as f32) / 1024.0).collect();
         let all = matryoshka_all(&emb, DEFAULT_MATRYOSHKA_DIMS);
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 5);
         assert_eq!(all[0].len(), 64);
-        assert_eq!(all[3].len(), 640);
+        assert_eq!(all[4].len(), 1024);
     }
 
     #[test]

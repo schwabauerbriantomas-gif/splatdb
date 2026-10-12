@@ -272,7 +272,7 @@ fn simple_hash_embedding(text: &str, dim: usize) -> Vec<f32> {
         text.hash(&mut hasher);
         i.hash(&mut hasher);
         let raw = hasher.finish() as f32;
-        let val = (raw / u32::MAX as f32) * 2.0 - 1.0;
+        let val = (raw / u64::MAX as f32) * 2.0 - 1.0;
         result.push(val);
     }
     // Normalize

@@ -191,7 +191,7 @@ impl Default for SplatsDBConfig {
             dtype: Dtype::Float32,
 
             // Latent Space
-            latent_dim: 640,
+            latent_dim: 1024,
             n_splats_init: 10000,
             max_splats: 100000,
             knn_k: 64,
@@ -320,7 +320,7 @@ impl Default for SplatsDBConfig {
             training_eval_interval: 100,
             training_save_interval: 1000,
             training_noise_augmentation: true,
-            training_matryoshka_dims: vec![64, 128, 256, 640],
+            training_matryoshka_dims: vec![64, 128, 256, 512, 1024],
             training_distillation: false,
 
             // Data Lake
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = SplatsDBConfig::default();
-        assert_eq!(config.latent_dim, 640);
+        assert_eq!(config.latent_dim, 1024);
         assert_eq!(config.knn_k, 64);
         assert_eq!(config.device, "cpu");
         assert!(config.enable_quantization);
@@ -432,7 +432,7 @@ mod tests {
         assert!(!config.enable_quantization); // No compression during training
         assert_eq!(config.batch_size, 128);
         assert_eq!(config.training_epochs, 50);
-        assert!(config.training_matryoshka_dims.contains(&640));
+        assert!(config.training_matryoshka_dims.contains(&1024));
     }
 
     #[test]
@@ -493,15 +493,15 @@ mod tests {
 
             let mut store = SplatStore::new(config);
 
-            let vec1 = Array2::from_shape_vec((1, 640), vec![0.1f32; 640]).unwrap();
-            let vec2 = Array2::from_shape_vec((1, 640), vec![0.2f32; 640]).unwrap();
+            let vec1 = Array2::from_shape_vec((1, 1024), vec![0.1f32; 1024]).unwrap();
+            let vec2 = Array2::from_shape_vec((1, 1024), vec![0.2f32; 1024]).unwrap();
 
             assert!(store.add_splat(&vec1), "{name}: first add_splat failed");
             assert!(store.add_splat(&vec2), "{name}: second add_splat failed");
 
             store.build_index();
 
-            let query = Array1::from_vec(vec![0.1f32; 640]);
+            let query = Array1::from_vec(vec![0.1f32; 1024]);
             let results = store.find_neighbors(&query.view(), 2);
             assert!(!results.is_empty(), "{name}: find_neighbors empty");
             assert_eq!(results[0].index, 0, "{name}: nearest should be vec1");
@@ -597,7 +597,7 @@ mod tests {
             "training: semantic memory should be off"
         );
         // Matryoshka dims
-        assert_eq!(c.training_matryoshka_dims, vec![32, 64, 128, 256, 640]);
+        assert_eq!(c.training_matryoshka_dims, vec![32, 64, 128, 256, 512, 1024]);
         // Noise levels for augmentation
         assert!(
             !c.noise_levels.is_empty(),

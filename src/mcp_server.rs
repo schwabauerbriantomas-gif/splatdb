@@ -91,7 +91,7 @@ struct McpState {
     /// Maps doc_id → text content (in-memory cache with eviction)
     doc_texts: HashMap<String, String>,
     /// Ordered insertion keys for LRU eviction
-    doc_text_order: Vec<String>,
+    doc_text_order: std::collections::VecDeque<String>,
     next_id: usize,
     /// Knowledge graph store (Gaussian splat graph)
     graph: crate::graph_splat::GaussianGraphStore,
@@ -113,12 +113,12 @@ impl McpState {
         }
         // Evict oldest entries if at capacity
         while self.doc_texts.len() >= MAX_DOC_TEXT_CACHE && !self.doc_text_order.is_empty() {
-            if let Some(old_id) = self.doc_text_order.first().cloned() {
+            if let Some(old_id) = self.doc_text_order.front().cloned() {
                 self.doc_texts.remove(&old_id);
-                self.doc_text_order.remove(0);
+                self.doc_text_order.pop_front();
             }
         }
-        self.doc_text_order.push(id.clone());
+        self.doc_text_order.push_back(id.clone());
         self.doc_texts.insert(id, text);
     }
 
@@ -879,8 +879,12 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
         .as_str()
         .ok_or("missing 'entity_type' field")?;
     const MAX_NAME_LEN: usize = 10_000;
+    const MAX_TYPE_LEN: usize = 256;
     if name.len() > MAX_NAME_LEN {
         return Err(format!("Name exceeds max length ({MAX_NAME_LEN})"));
+    }
+    if entity_type.len() > MAX_TYPE_LEN {
+        return Err(format!("entity_type exceeds max length ({MAX_TYPE_LEN})"));
     }
 
     let dim = {
@@ -918,6 +922,10 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
     let relation_type = params["relation_type"]
         .as_str()
         .ok_or("missing 'relation_type'")?;
+    const MAX_RELATION_TYPE_LEN: usize = 256;
+    if relation_type.len() > MAX_RELATION_TYPE_LEN {
+        return Err(format!("relation_type exceeds max length ({MAX_RELATION_TYPE_LEN})"));
+    }
     let weight = params["weight"].as_f64().unwrap_or(1.0);
 
     let mut s = state.lock().map_err(|e| {
@@ -1479,7 +1487,7 @@ fn dispatch_request(state: &Mutex<McpState>, req: &JsonRpcRequest) -> JsonRpcRes
                 },
                 "serverInfo": {
                     "name": "splatsdb",
-                    "version": "2.5.0"
+                    "version": "2.6.0"
                 }
             })),
             error: None,
@@ -1601,8 +1609,9 @@ pub fn run_mcp_server() {
     // Warm start: reload documents from SQLite into vector store
     let mut vector_to_doc: HashMap<usize, String> = HashMap::new();
     let mut doc_texts: HashMap<String, String> = HashMap::new();
-    let mut doc_text_order: Vec<String> = Vec::new();
+    let mut doc_text_order: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let mut next_id: usize = 0;
+    let mut warm_start_spatial: Vec<(String, Option<String>, Option<String>, Option<String>)> = Vec::new();
     let dim = store.get_statistics().embedding_dim;
 
     match doc_store.list_ids(false) {
@@ -1625,6 +1634,17 @@ pub fn run_mcp_server() {
                         continue;
                     }
 
+                    // Extract spatial metadata from the JSON metadata field
+                    let meta_wing = record.metadata.as_ref().and_then(|m| {
+                        m.get("wing").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    });
+                    let meta_room = record.metadata.as_ref().and_then(|m| {
+                        m.get("room").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    });
+                    let meta_hall = record.metadata.as_ref().and_then(|m| {
+                        m.get("hall").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    });
+
                     // Re-compute embedding and add to vector store
                     let embedding = get_embedding(&text, dim);
                     if let Ok(arr) = Array2::from_shape_vec((1, dim), embedding) {
@@ -1632,13 +1652,22 @@ pub fn run_mcp_server() {
                         if store.add_splat(&arr) {
                             vector_to_doc.insert(vector_idx, doc_id.clone());
                             doc_texts.insert(doc_id.clone(), text);
-                            doc_text_order.push(doc_id.clone());
+                            doc_text_order.push_back(doc_id.clone());
                             next_id = next_id.max(
                                 doc_id
                                     .strip_prefix("mem_")
                                     .and_then(|s| s.parse::<usize>().ok())
                                     .unwrap_or(0),
                             );
+                            // Save spatial metadata for later registration
+                            if meta_wing.is_some() || meta_room.is_some() || meta_hall.is_some() {
+                                warm_start_spatial.push((
+                                    doc_id.clone(),
+                                    meta_wing.clone(),
+                                    meta_room.clone(),
+                                    meta_hall.clone(),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1672,6 +1701,21 @@ pub fn run_mcp_server() {
         graph: crate::graph_splat::GaussianGraphStore::new(),
         spatial_index: crate::spatial::SpatialIndex::new(),
     });
+
+    // Register spatial metadata from warm start
+    {
+        let mut s = state.lock().unwrap();
+        for (doc_id, wing, room, hall) in &warm_start_spatial {
+            s.spatial_index
+                .register_doc(doc_id, wing.as_deref(), room.as_deref(), hall.as_deref());
+        }
+        if !warm_start_spatial.is_empty() {
+            eprintln!(
+                "[splatsdb] Warm start: registered {} spatial metadata entries",
+                warm_start_spatial.len()
+            );
+        }
+    }
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
