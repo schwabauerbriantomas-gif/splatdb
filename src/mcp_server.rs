@@ -924,7 +924,9 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
         .ok_or("missing 'relation_type'")?;
     const MAX_RELATION_TYPE_LEN: usize = 256;
     if relation_type.len() > MAX_RELATION_TYPE_LEN {
-        return Err(format!("relation_type exceeds max length ({MAX_RELATION_TYPE_LEN})"));
+        return Err(format!(
+            "relation_type exceeds max length ({MAX_RELATION_TYPE_LEN})"
+        ));
     }
     let weight = params["weight"].as_f64().unwrap_or(1.0);
 
@@ -1611,7 +1613,8 @@ pub fn run_mcp_server() {
     let mut doc_texts: HashMap<String, String> = HashMap::new();
     let mut doc_text_order: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let mut next_id: usize = 0;
-    let mut warm_start_spatial: Vec<(String, Option<String>, Option<String>, Option<String>)> = Vec::new();
+    let mut warm_start_spatial: Vec<(String, Option<String>, Option<String>, Option<String>)> =
+        Vec::new();
     let dim = store.get_statistics().embedding_dim;
 
     match doc_store.list_ids(false) {
@@ -1636,13 +1639,19 @@ pub fn run_mcp_server() {
 
                     // Extract spatial metadata from the JSON metadata field
                     let meta_wing = record.metadata.as_ref().and_then(|m| {
-                        m.get("wing").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        m.get("wing")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
                     });
                     let meta_room = record.metadata.as_ref().and_then(|m| {
-                        m.get("room").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        m.get("room")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
                     });
                     let meta_hall = record.metadata.as_ref().and_then(|m| {
-                        m.get("hall").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        m.get("hall")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
                     });
 
                     // Re-compute embedding and add to vector store
