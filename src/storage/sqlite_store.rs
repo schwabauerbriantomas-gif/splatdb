@@ -31,7 +31,9 @@ impl SqliteMetadataStore {
              CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted);
              CREATE INDEX IF NOT EXISTS idx_vector ON documents(vector_idx);",
         )?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<DocumentRecord> {
