@@ -120,7 +120,7 @@ impl MetadataStore for SqliteMetadataStore {
             "SELECT id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at
              FROM documents WHERE id=?1 AND deleted=0",
         )?;
-        let result = stmt.query_row(params![doc_id], |row| Self::row_to_record(row));
+        let result = stmt.query_row(params![doc_id], Self::row_to_record);
         match result {
             Ok(r) => Ok(Some(r)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -211,7 +211,7 @@ impl MetadataStore for SqliteMetadataStore {
              ORDER BY id
              LIMIT 1",
         )?;
-        let result = stmt.query_row(params![vector_idx], |row| Self::row_to_record(row));
+        let result = stmt.query_row(params![vector_idx], Self::row_to_record);
         match result {
             Ok(r) => Ok(Some(r)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
