@@ -639,7 +639,7 @@ impl VectorIndex for HNSWIndex {
     }
 
     fn n_items(&self) -> usize {
-        self.vectors.len() - self.removed.len()
+        self.vectors.len().saturating_sub(self.removed.len())
     }
 
     fn supports_remove(&self) -> bool {

@@ -89,9 +89,7 @@ struct McpState {
     /// Maps vector index → doc_id for retrieval
     vector_to_doc: HashMap<usize, String>,
     /// Maps doc_id → text content (in-memory cache with eviction)
-    doc_texts: HashMap<String, String>,
-    /// Ordered insertion keys for LRU eviction
-    doc_text_order: Vec<String>,
+    doc_texts: DocTextCache,
     next_id: usize,
     /// Knowledge graph store (Gaussian splat graph)
     graph: crate::graph_splat::GaussianGraphStore,
@@ -100,32 +98,107 @@ struct McpState {
     spatial_index: crate::spatial::SpatialIndex,
 }
 
+/// LRU cache of doc_id → text with O(1) insert / O(1) remove via lazy
+/// deletion: removal leaves a tombstone in the order queue; eviction skips
+/// entries already gone. Each queue entry carries the generation at which it
+/// was pushed, so a re-inserted id is never killed by its own older
+/// tombstone reaching the front (remove → re-add of the same id puts two
+/// entries in the queue; only the one whose generation matches the live
+/// entry evicts).
+///
+/// Note on LRU semantics: this preserves the historic behavior — eviction
+/// order is *insertion* order (FIFO), not access order; `get` does not
+/// refresh recency. Making it true LRU would change which docs survive
+/// under load.
+struct DocTextCache {
+    map: HashMap<String, String>,
+    /// Live id → generation of its queue entry (absent once removed).
+    seq: HashMap<String, u64>,
+    /// Insertion order; may contain stale (tombstoned) entries.
+    order: std::collections::VecDeque<(String, u64)>,
+    next_seq: u64,
+    /// Max live entries. Production default: `MAX_DOC_TEXT_CACHE`; smaller
+    /// in tests to exercise eviction.
+    cap: usize,
+}
+
+impl Default for DocTextCache {
+    fn default() -> Self {
+        Self {
+            map: HashMap::new(),
+            seq: HashMap::new(),
+            order: std::collections::VecDeque::new(),
+            next_seq: 0,
+            cap: MAX_DOC_TEXT_CACHE,
+        }
+    }
+}
+
+impl DocTextCache {
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Insert/replace a text, evicting oldest-inserted entries over the cap.
+    ///
+    /// Replacement (id already cached) refreshes the text in place without
+    /// touching the queue — same as the previous HashMap-based behavior —
+    /// which also keeps the queue bounded on hot keys that are re-stored
+    /// often.
+    fn insert(&mut self, id: String, text: String) {
+        if self.map.contains_key(&id) {
+            self.map.insert(id, text);
+            return;
+        }
+        self.next_seq += 1;
+        let gen = self.next_seq;
+        self.seq.insert(id.clone(), gen);
+        self.order.push_back((id.clone(), gen));
+        self.map.insert(id, text);
+        while self.map.len() > self.cap {
+            match self.order.pop_front() {
+                Some((old, g)) => {
+                    // Evict only if this queue entry is still the live one
+                    // (a tombstone or a superseded generation is skipped).
+                    if self.seq.get(&old) == Some(&g) {
+                        self.seq.remove(&old);
+                        self.map.remove(&old);
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+
+    fn get(&self, id: &str) -> Option<&String> {
+        self.map.get(id)
+    }
+
+    /// O(1) lazy removal: the id's queue entry becomes a tombstone and is
+    /// skipped when it reaches the front during eviction.
+    fn remove(&mut self, id: &str) {
+        self.map.remove(id);
+        self.seq.remove(id);
+    }
+
+    #[cfg(test)]
+    fn live_order(&self) -> Vec<String> {
+        self.order
+            .iter()
+            .filter(|(k, g)| self.seq.get(k) == Some(g))
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+}
+
 impl McpState {
-    /// Insert text into cache, evicting oldest entries if over limit.
     fn cache_doc_text(&mut self, id: String, text: String) {
-        use std::collections::hash_map::Entry;
-        match self.doc_texts.entry(id.clone()) {
-            Entry::Occupied(mut e) => {
-                e.insert(text);
-                return;
-            }
-            Entry::Vacant(_) => {}
-        }
-        // Evict oldest entries if at capacity
-        while self.doc_texts.len() >= MAX_DOC_TEXT_CACHE && !self.doc_text_order.is_empty() {
-            if let Some(old_id) = self.doc_text_order.first().cloned() {
-                self.doc_texts.remove(&old_id);
-                self.doc_text_order.remove(0);
-            }
-        }
-        self.doc_text_order.push(id.clone());
         self.doc_texts.insert(id, text);
     }
 
-    /// Remove text from cache.
+    /// Remove text from cache (O(1) lazy deletion).
     fn uncache_doc_text(&mut self, id: &str) {
         self.doc_texts.remove(id);
-        self.doc_text_order.retain(|k| k != id);
     }
 }
 
@@ -879,8 +952,12 @@ fn handle_graph_add_entity(state: &Mutex<McpState>, params: &Value) -> Result<Va
         .as_str()
         .ok_or("missing 'entity_type' field")?;
     const MAX_NAME_LEN: usize = 10_000;
+    const MAX_TYPE_LEN: usize = 256;
     if name.len() > MAX_NAME_LEN {
         return Err(format!("Name exceeds max length ({MAX_NAME_LEN})"));
+    }
+    if entity_type.len() > MAX_TYPE_LEN {
+        return Err(format!("entity_type exceeds max length ({MAX_TYPE_LEN})"));
     }
 
     let dim = {
@@ -918,6 +995,12 @@ fn handle_graph_add_relation(state: &Mutex<McpState>, params: &Value) -> Result<
     let relation_type = params["relation_type"]
         .as_str()
         .ok_or("missing 'relation_type'")?;
+    const MAX_RELATION_TYPE_LEN: usize = 256;
+    if relation_type.len() > MAX_RELATION_TYPE_LEN {
+        return Err(format!(
+            "relation_type exceeds max length ({MAX_RELATION_TYPE_LEN})"
+        ));
+    }
     let weight = params["weight"].as_f64().unwrap_or(1.0);
 
     let mut s = state.lock().map_err(|e| {
@@ -1598,12 +1681,18 @@ pub fn run_mcp_server() {
         }
     };
 
-    // Warm start: reload documents from SQLite into vector store
+    // Warm start: reload documents from SQLite into vector store.
+    // SPLATDB_SPATIAL_WARMSTART=0|off|false skips the spatial registration
+    // phase (and its metadata extraction) — useful for large stores where
+    // spatial search is not used. Default: enabled.
+    let spatial_warmstart_enabled = spatial_warmstart_enabled_from_env();
     let mut vector_to_doc: HashMap<usize, String> = HashMap::new();
-    let mut doc_texts: HashMap<String, String> = HashMap::new();
-    let mut doc_text_order: Vec<String> = Vec::new();
+    let mut doc_texts = DocTextCache::default();
     let mut next_id: usize = 0;
+    let mut warm_start_spatial: Vec<(String, Option<String>, Option<String>, Option<String>)> =
+        Vec::new();
     let dim = store.get_statistics().embedding_dim;
+    let warm_start_t0 = std::time::Instant::now();
 
     match doc_store.list_ids(false) {
         Ok(ids) => {
@@ -1625,6 +1714,30 @@ pub fn run_mcp_server() {
                         continue;
                     }
 
+                    // Extract spatial metadata from the JSON metadata field
+                    // (skipped entirely when spatial warm-start is disabled)
+                    let (meta_wing, meta_room, meta_hall) = if spatial_warmstart_enabled {
+                        (
+                            record.metadata.as_ref().and_then(|m| {
+                                m.get("wing")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            }),
+                            record.metadata.as_ref().and_then(|m| {
+                                m.get("room")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            }),
+                            record.metadata.as_ref().and_then(|m| {
+                                m.get("hall")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            }),
+                        )
+                    } else {
+                        (None, None, None)
+                    };
+
                     // Re-compute embedding and add to vector store
                     let embedding = get_embedding(&text, dim);
                     if let Ok(arr) = Array2::from_shape_vec((1, dim), embedding) {
@@ -1632,13 +1745,21 @@ pub fn run_mcp_server() {
                         if store.add_splat(&arr) {
                             vector_to_doc.insert(vector_idx, doc_id.clone());
                             doc_texts.insert(doc_id.clone(), text);
-                            doc_text_order.push(doc_id.clone());
                             next_id = next_id.max(
                                 doc_id
                                     .strip_prefix("mem_")
                                     .and_then(|s| s.parse::<usize>().ok())
                                     .unwrap_or(0),
                             );
+                            // Save spatial metadata for later registration
+                            if meta_wing.is_some() || meta_room.is_some() || meta_hall.is_some() {
+                                warm_start_spatial.push((
+                                    doc_id.clone(),
+                                    meta_wing.clone(),
+                                    meta_room.clone(),
+                                    meta_hall.clone(),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1653,9 +1774,10 @@ pub fn run_mcp_server() {
             if !ids.is_empty() {
                 store.hnsw_sync_incremental();
                 eprintln!(
-                    "[splatsdb] Warm start: reloaded {}/{} documents from SQLite",
+                    "[splatsdb] Warm start: reloaded {}/{} documents from SQLite in {:.0} ms",
                     doc_texts.len().min(MAX_WARM_START_DOCS),
-                    total
+                    total,
+                    warm_start_t0.elapsed().as_secs_f64() * 1000.0
                 );
             }
         }
@@ -1667,11 +1789,31 @@ pub fn run_mcp_server() {
         doc_store,
         vector_to_doc,
         doc_texts,
-        doc_text_order,
         next_id,
         graph: crate::graph_splat::GaussianGraphStore::new(),
         spatial_index: crate::spatial::SpatialIndex::new(),
     });
+
+    // Register spatial metadata from warm start
+    {
+        let mut s = state.lock().unwrap();
+        for (doc_id, wing, room, hall) in &warm_start_spatial {
+            s.spatial_index
+                .register_doc(doc_id, wing.as_deref(), room.as_deref(), hall.as_deref());
+        }
+        if !warm_start_spatial.is_empty() {
+            eprintln!(
+                "[splatsdb] Warm start: registered {} spatial metadata entries in {:.0} ms (SPLATDB_SPATIAL_WARMSTART={})",
+                warm_start_spatial.len(),
+                warm_start_t0.elapsed().as_secs_f64() * 1000.0,
+                if spatial_warmstart_enabled { "on" } else { "off" }
+            );
+        } else if !spatial_warmstart_enabled {
+            eprintln!(
+                "[splatsdb] Warm start: spatial registration skipped (SPLATDB_SPATIAL_WARMSTART=0)"
+            );
+        }
+    }
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -1783,5 +1925,134 @@ pub fn run_mcp_server() {
         }
     }
 
-    eprintln!("[splatsdb] MCP server shutting down (stdin closed).");
+    eprintln!("[splatsdb] MCP server shutting down (stdin closed.");
+}
+
+/// SPLATDB_SPATIAL_WARMSTART parser: absent/anything-but-falsy → true
+/// (default ON); "0", "off", "false", "no" (case-insensitive, trimmed) →
+/// false.
+fn spatial_warmstart_enabled_from_env() -> bool {
+    match std::env::var("SPLATDB_SPATIAL_WARMSTART") {
+        Ok(v) => !spatial_warmstart_is_falsy(&v),
+        Err(_) => true,
+    }
+}
+
+/// Pure parser — separated from the env read so it is directly testable
+/// (no `std::env::set_var` in tests: racy under parallel test threads).
+fn spatial_warmstart_is_falsy(v: &str) -> bool {
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "0" | "off" | "false" | "no"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LRU behavior with a 4-key cache: insertion-order (FIFO) eviction,
+    /// tombstone skipping, and the generation guard — a re-inserted key must
+    /// survive when its own older tombstone reaches the eviction front.
+    #[test]
+    fn doc_text_cache_eviction_and_tombstones() {
+        let mut c = DocTextCache::default();
+        c.cap = 4;
+
+        // Fill to cap: FIFO order, no eviction yet.
+        for (k, v) in [("k1", "1"), ("k2", "2"), ("k3", "3"), ("k4", "4")] {
+            c.insert(k.into(), v.into());
+        }
+        assert_eq!(c.live_order(), vec!["k1", "k2", "k3", "k4"]);
+        assert_eq!(c.len(), 4);
+
+        // O(1) remove: entry leaves the map, order queue keeps a tombstone.
+        c.remove("k2");
+        assert_eq!(c.len(), 3);
+        assert!(c.get("k2").is_none());
+        assert_eq!(c.live_order(), vec!["k1", "k3", "k4"]);
+
+        // Re-insert k2: two queue entries for k2 (old + new gen); only the
+        // newest is live.
+        c.insert("k2".into(), "2b".into());
+        assert_eq!(c.get("k2"), Some(&"2b".to_string()));
+        assert_eq!(c.live_order(), vec!["k1", "k3", "k4", "k2"]);
+
+        // Replacement of a live key: text updated, eviction order untouched.
+        c.insert("k4".into(), "4b".into());
+        assert_eq!(c.get("k4"), Some(&"4b".to_string()));
+        assert_eq!(c.live_order(), vec!["k1", "k3", "k4", "k2"]);
+        assert_eq!(c.len(), 4);
+
+        // THE critical scenario: remove k1 (tombstone for gen 1 sits at the
+        // front of the queue) and re-insert it immediately (new gen at the
+        // back). Queue front is now: [k1-tombstone, k2-stale, k3, k4, k2, k1].
+        c.remove("k1");
+        assert_eq!(c.live_order(), vec!["k3", "k4", "k2"]);
+        c.insert("k1".into(), "1b".into());
+        assert_eq!(c.get("k1"), Some(&"1b".to_string()));
+        assert_eq!(c.live_order(), vec!["k3", "k4", "k2", "k1"]);
+
+        // Churn: each insert pops stale entries from the front (skipping
+        // them) until it evicts the oldest LIVE entry. n0 must evict k3 —
+        // and must NOT evict k1, whose own tombstone was popped and skipped.
+        c.insert("n0".into(), "v0".into());
+        assert_eq!(c.len(), 4);
+        assert!(
+            c.get("k1").is_some(),
+            "re-inserted k1 must survive its own tombstone"
+        );
+        assert!(
+            c.get("k3").is_none(),
+            "oldest live entry k3 must be evicted"
+        );
+        assert_eq!(c.live_order(), vec!["k4", "k2", "k1", "n0"]);
+
+        c.insert("n1".into(), "v1".into());
+        assert_eq!(c.live_order(), vec!["k2", "k1", "n0", "n1"]);
+
+        c.insert("n2".into(), "v2".into());
+        assert_eq!(c.live_order(), vec!["k1", "n0", "n1", "n2"]);
+
+        // k1 eventually evicted too — it was inserted before n0..n2 (FIFO),
+        // and its queue entry is the live generation this time.
+        c.insert("n3".into(), "v3".into());
+        assert!(c.get("k1").is_none());
+        assert_eq!(c.live_order(), vec!["n0", "n1", "n2", "n3"]);
+
+        // Sustained churn: cap invariant holds forever.
+        for i in 4..40 {
+            c.insert(format!("n{i:02}"), format!("v{i}"));
+            assert!(c.len() <= c.cap, "cap exceeded at i={i}: {}", c.len());
+        }
+        assert_eq!(c.len(), c.cap);
+        assert_eq!(c.live_order(), vec!["n36", "n37", "n38", "n39"]);
+    }
+
+    /// P4: truth table of the SPLATDB_SPATIAL_WARMSTART parser (pure helper,
+    /// no env mutation). Default (unset) → ON; falsy spellings → OFF.
+    #[test]
+    fn spatial_warmstart_flag_truth_table() {
+        for v in ["0", "off", "false", "no", "OFF", "False", " 0 ", "NO"] {
+            assert!(
+                spatial_warmstart_is_falsy(v),
+                "{v:?} must parse as disabled"
+            );
+        }
+        for v in [
+            "1",
+            "on",
+            "true",
+            "yes",
+            "",
+            "anything-else",
+            "TRUE",
+            "  on  ",
+        ] {
+            assert!(
+                !spatial_warmstart_is_falsy(v),
+                "{v:?} must parse as enabled"
+            );
+        }
+    }
 }
