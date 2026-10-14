@@ -146,8 +146,8 @@ impl DocTextCache {
     /// which also keeps the queue bounded on hot keys that are re-stored
     /// often.
     fn insert(&mut self, id: String, text: String) {
-        if self.map.contains_key(&id) {
-            self.map.insert(id, text);
+        if let Some(slot) = self.map.get_mut(&id) {
+            *slot = text;
             return;
         }
         self.next_seq += 1;
@@ -1689,8 +1689,7 @@ pub fn run_mcp_server() {
     let mut vector_to_doc: HashMap<usize, String> = HashMap::new();
     let mut doc_texts = DocTextCache::default();
     let mut next_id: usize = 0;
-    let mut warm_start_spatial: Vec<(String, Option<String>, Option<String>, Option<String>)> =
-        Vec::new();
+    let mut warm_start_spatial: WarmStartSpatial = Vec::new();
     let dim = store.get_statistics().embedding_dim;
     let warm_start_t0 = std::time::Instant::now();
 
@@ -1928,6 +1927,10 @@ pub fn run_mcp_server() {
     eprintln!("[splatsdb] MCP server shutting down (stdin closed.");
 }
 
+/// (doc_id, wing, room, hall) pairs collected during warm start for spatial
+/// registration afterwards.
+type WarmStartSpatial = Vec<(String, Option<String>, Option<String>, Option<String>)>;
+
 /// SPLATDB_SPATIAL_WARMSTART parser: absent/anything-but-falsy → true
 /// (default ON); "0", "off", "false", "no" (case-insensitive, trimmed) →
 /// false.
@@ -1956,8 +1959,10 @@ mod tests {
     /// survive when its own older tombstone reaches the eviction front.
     #[test]
     fn doc_text_cache_eviction_and_tombstones() {
-        let mut c = DocTextCache::default();
-        c.cap = 4;
+        let mut c = DocTextCache {
+            cap: 4,
+            ..Default::default()
+        };
 
         // Fill to cap: FIFO order, no eviction yet.
         for (k, v) in [("k1", "1"), ("k2", "2"), ("k3", "3"), ("k4", "4")] {
