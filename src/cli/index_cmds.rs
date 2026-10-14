@@ -167,8 +167,7 @@ pub fn cmd_ingest(
                         eprintln!("Save error: {}", e);
                         std::process::exit(1);
                     }
-                    if let Err(e) =
-                        persist.save_energy_state(&mu, &alpha.to_vec(), &kappa.to_vec())
+                    if let Err(e) = persist.save_energy_state(&mu, &alpha.to_vec(), &kappa.to_vec())
                     {
                         eprintln!("Warning: energy save failed: {}", e);
                     }

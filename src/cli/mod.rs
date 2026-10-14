@@ -619,9 +619,7 @@ pub fn dispatch(cli: Cli) {
             n_clusters,
             n_queries,
         } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
-        Commands::Serve { port, host } => {
-            data_cmds::cmd_serve(cli.data_dir, port, &host, config)
-        }
+        Commands::Serve { port, host } => data_cmds::cmd_serve(cli.data_dir, port, &host, config),
         Commands::Mcp => splatsdb::mcp_server::run_mcp_server(),
         // ── Graph Splat ──
         Commands::GraphAddDoc { text, embedding } => graph_cmds::cmd_graph_add_doc(text, embedding),
