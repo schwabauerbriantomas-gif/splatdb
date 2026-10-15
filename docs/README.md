@@ -5,7 +5,7 @@
 | [README.md](../README.md) | Project overview, quick start, benchmark summary (honest tables with k + recall per row) |
 | [BENCHMARKS.md](../BENCHMARKS.md) | All benchmark tables, each number with source, date, hardware, and reproduction command |
 | [CHANGELOG.md](../CHANGELOG.md) | Release changelog |
-| [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Pentest findings and mitigations (moved here by origin/main) |
+| [A5_FINDINGS.md](A5_FINDINGS.md) | A5 empirical audit — energy-as-score degrades retrieval; splats validated as routing codebook |
 
 ## Benchmark documentation policy
 
