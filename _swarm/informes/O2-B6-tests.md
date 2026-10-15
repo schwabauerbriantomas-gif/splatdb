@@ -61,12 +61,19 @@ test gpu::tests::test_ptx_kernel_performance ... ok
 - **build.rs** elige `nvcc.exe` de Windows en WSL y falla ("nvcc compilation failed") — la suite depende de `M2M_PTX_PATH` apuntando a un PTX Linux válido. Con el PTX del clone compilado con nvcc 12.4 Linux funciona perfecto.
 - B2 ya agregó sus propios unit tests de `find_neighbors_gaussian` en `src/splats.rs` (vistos al 01:12) — complementarios a los de esta suite.
 
-## Comandos para reproducir
+## Integración completa (fase 2, cierre)
 
-```bash
-cd /home/schwabauer/splatsdb-b6-clone
-export M2M_PTX_PATH=$PWD/ptx/distance.ptx M2M_EXTENDED_PTX_PATH=$PWD/ptx/extended_kernels.ptx
-cargo test --release --test integration_gaussian              # 4 tests (sin cuda)
-cargo test --release --features cuda --test integration_gaussian   # 5 tests (con parity GPU)
-cargo test --release --lib                                    # 314 passed / 1 failed (bug B2)
+**Commit `6a5a40a`** en `wip/v2.6.0-local` y `main` (fast-forward desde 1699709): B1–B6 integrados + fixes B6. 22 archivos, +4482/−403.
+
+**Fixes de B6 incluidos:**
+1. **K=32 smem:** `launch_gaussian_topk_kernel` ahora hace opt-in de smem dinámica extendida vía `CudaFunction::set_attribute(CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, smem)` cuando (D+256·K·2)·4 > 48KB. Resultado: **parity GPU verificada 3/3 K values** (antes 2/3, K=32 caía a CPU silencioso).
+2. **build.rs WSL-aware:** `which_nvcc()` nunca devuelve nvcc.exe/cl.exe de Windows en WSL; busca Linux nvcc en PATH, `~/.local/cuda*`, `/usr/local/cuda*`, `$CUDA_PATH`. `find_msvc_cl()` se desactiva en WSL (el `-ccbin cl.exe` de /mnt/c rompía el nvcc Linux). Ahora `cargo build --features cuda` **compila sus propios PTX sin ninguna env var** (probado con cargo clean + build desde cero).
+3. `ptx/` agregado a .gitignore.
+
+**Verificación final EN el principal (post-commit, --features cuda, sin env vars):**
 ```
+lib 330 · chaos 8 · integration 3 · integration_gaussian 5 · pentest 29 · qa 31 → 406 passed / 0 failed
+[benchmark B1 re-verificado] 10K x 640D, 100 queries | CPU: 718ms | GPU: 18ms | speedup: 39.89x
+```
+
+**No integrado (fuera de alcance):** push a origin (remoto intocado — `main` queda "ahead 2, behind 17" vs origin/main según diseño local del repo).
