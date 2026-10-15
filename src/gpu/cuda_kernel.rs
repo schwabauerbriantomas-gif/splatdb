@@ -13,19 +13,24 @@
 //! - --use_fast_math and -O3 during PTX compilation
 
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
 use std::sync::Arc;
 
 /// Persistent GPU state — keeps dataset in VRAM between calls.
 pub struct GpuIndex {
-    ctx: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     data_gpu: Option<CudaSlice<f32>>,
     n_vectors: usize,
     dim: usize,
-    kernel_loaded: bool,
+    /// PTX module loaded ONCE at construction — module JIT used to run on every
+    /// call (cuda_kernel.rs:135,228,319,430 pattern), dominating launch cost.
+    kernel_module: Option<Arc<CudaModule>>,
+    /// Per-splat amplitudes [N] (see upload_alpha_kappa).
+    alpha_gpu: Option<CudaSlice<f32>>,
+    /// Per-splat concentrations [N] (see upload_alpha_kappa).
+    kappa_gpu: Option<CudaSlice<f32>>,
 }
 
 impl GpuIndex {
@@ -40,14 +45,58 @@ impl GpuIndex {
         };
         eprintln!("[splatsdb] CUDA context created successfully");
         let stream = ctx.default_stream();
+
+        // Load the PTX module once and keep it alive for the index lifetime.
+        let kernel_module = Self::load_ptx_module(&ctx);
+
         Some(GpuIndex {
-            ctx,
             stream,
             data_gpu: None,
             n_vectors: 0,
             dim: 0,
-            kernel_loaded: false,
+            kernel_module,
+            alpha_gpu: None,
+            kappa_gpu: None,
         })
+    }
+
+    /// Load the distance.cu PTX module. None if M2M_PTX_PATH is unset/empty,
+    /// the file is missing, or cuModuleLoad fails.
+    fn load_ptx_module(ctx: &Arc<CudaContext>) -> Option<Arc<CudaModule>> {
+        let ptx_path = option_env!("M2M_PTX_PATH")?;
+        if ptx_path.is_empty() {
+            eprintln!("[splatsdb] No PTX kernels (built without nvcc or CUDA toolkit)");
+            return None;
+        }
+        if !std::path::Path::new(ptx_path).exists() {
+            eprintln!("[splatsdb] PTX path set but file not found: {}", ptx_path);
+            return None;
+        }
+        match ctx.load_module(Ptx::from_file(ptx_path)) {
+            Ok(m) => {
+                eprintln!("[splatsdb] PTX module loaded (cached): {}", ptx_path);
+                Some(m)
+            }
+            Err(e) => {
+                eprintln!("[splatsdb] PTX module load failed: {:?}", e);
+                None
+            }
+        }
+    }
+
+    /// Fetch a kernel function from the cached PTX module.
+    fn kernel_fn(&self, name: &str) -> Option<CudaFunction> {
+        let module = self.kernel_module.as_ref()?;
+        match module.load_function(name) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!(
+                    "[splatsdb] Kernel '{}' not found in PTX module: {:?}",
+                    name, e
+                );
+                None
+            }
+        }
     }
 
     /// Upload dataset to GPU memory (persists until next upload or drop).
@@ -64,29 +113,36 @@ impl GpuIndex {
         if self.data_gpu.is_some() {
             self.n_vectors = n_vectors;
             self.dim = dim;
-            self.kernel_loaded = self.try_load_kernels();
             true
         } else {
             false
         }
     }
 
-    /// Try to load PTX kernels compiled at build time.
-    fn try_load_kernels(&self) -> bool {
-        let ptx_path = option_env!("M2M_PTX_PATH");
-        match ptx_path {
-            Some(path) if !path.is_empty() => {
-                // Verify PTX file actually exists
-                let exists = std::path::Path::new(path).exists();
-                if exists {
-                    eprintln!("[splatsdb] PTX kernels available: {}", path);
-                } else {
-                    eprintln!("[splatsdb] PTX path set but file not found: {}", path);
-                }
-                exists
+    /// Upload per-splat Gaussian parameters: amplitudes alpha [N] and
+    /// concentrations kappa [N]. Both persist in VRAM until the next upload.
+    /// `n` must match the uploaded dataset size; returns false otherwise.
+    pub fn upload_alpha_kappa(&mut self, alpha: &[f32], kappa: &[f32]) -> bool {
+        if alpha.len() != self.n_vectors || kappa.len() != self.n_vectors {
+            eprintln!(
+                "[splatsdb] upload_alpha_kappa size mismatch: alpha={}, kappa={}, n_vectors={}",
+                alpha.len(),
+                kappa.len(),
+                self.n_vectors
+            );
+            return false;
+        }
+        let alpha_gpu = self.stream.clone_htod(alpha).ok();
+        let kappa_gpu = self.stream.clone_htod(kappa).ok();
+        match (alpha_gpu, kappa_gpu) {
+            (Some(a), Some(k)) => {
+                self.alpha_gpu = Some(a);
+                self.kappa_gpu = Some(k);
+                true
             }
             _ => {
-                eprintln!("[splatsdb] No PTX kernels (built without nvcc or CUDA toolkit)");
+                self.alpha_gpu = None;
+                self.kappa_gpu = None;
                 false
             }
         }
@@ -126,14 +182,12 @@ impl GpuIndex {
         n: usize,
         dim: usize,
     ) -> Option<Vec<f32>> {
-        let ptx_path = option_env!("M2M_PTX_PATH")?;
-        if ptx_path.is_empty() {
+        let ptx_path = option_env!("M2M_PTX_PATH");
+        if ptx_path.map_or(true, |p| p.is_empty()) {
             return None;
         }
 
-        // Load PTX module
-        let module = self.ctx.load_module(Ptx::from_file(ptx_path)).ok()?;
-        let func: CudaFunction = module.load_function("l2_distance_kernel").ok()?;
+        let func: CudaFunction = self.kernel_fn("l2_distance_kernel")?;
 
         // Bounds checks before i32 casts
         if n > i32::MAX as usize {
@@ -220,13 +274,12 @@ impl GpuIndex {
         n: usize,
         dim: usize,
     ) -> Option<Vec<Vec<f32>>> {
-        let ptx_path = option_env!("M2M_PTX_PATH")?;
-        if ptx_path.is_empty() {
+        let ptx_path = option_env!("M2M_PTX_PATH");
+        if ptx_path.map_or(true, |p| p.is_empty()) {
             return None;
         }
 
-        let module = self.ctx.load_module(Ptx::from_file(ptx_path)).ok()?;
-        let func: CudaFunction = module.load_function("batch_l2_distance_kernel").ok()?;
+        let func: CudaFunction = self.kernel_fn("batch_l2_distance_kernel")?;
 
         let queries_gpu = self.stream.clone_htod(queries).ok()?;
         let total_output = n_queries.checked_mul(n)?;
@@ -311,13 +364,12 @@ impl GpuIndex {
         n: usize,
         dim: usize,
     ) -> Option<Vec<f32>> {
-        let ptx_path = option_env!("M2M_PTX_PATH")?;
-        if ptx_path.is_empty() {
+        let ptx_path = option_env!("M2M_PTX_PATH");
+        if ptx_path.map_or(true, |p| p.is_empty()) {
             return None;
         }
 
-        let module = self.ctx.load_module(Ptx::from_file(ptx_path)).ok()?;
-        let func: CudaFunction = module.load_function("cosine_distance_kernel").ok()?;
+        let func: CudaFunction = self.kernel_fn("cosine_distance_kernel")?;
 
         let query_gpu = self.stream.clone_htod(query).ok()?;
         let mut output_gpu = self.stream.alloc_zeros::<f32>(n).ok()?;
@@ -422,12 +474,11 @@ impl GpuIndex {
         k: usize,
         metric: &str,
     ) -> Option<Vec<(Vec<usize>, Vec<f32>)>> {
-        let ptx_path = option_env!("M2M_PTX_PATH")?;
-        if ptx_path.is_empty() || k > 32 {
+        let ptx_path = option_env!("M2M_PTX_PATH");
+        if ptx_path.map_or(true, |p| p.is_empty()) || k > 32 {
             return None; // Kernel supports K <= 32
         }
 
-        let module = self.ctx.load_module(Ptx::from_file(ptx_path)).ok()?;
         let kernel_name = if metric == "cosine" {
             "cosine_topk_kernel"
         } else {
@@ -437,7 +488,7 @@ impl GpuIndex {
             "[splatsdb] Launching {} PTX kernel (Q={}, N={}, D={}, K={})",
             kernel_name, n_queries, n, dim, k
         );
-        let func: CudaFunction = module.load_function(kernel_name).ok()?;
+        let func: CudaFunction = self.kernel_fn(kernel_name)?;
 
         // Bounds checks before i32/u32 casts
         if n_queries > i32::MAX as usize {
@@ -508,6 +559,139 @@ impl GpuIndex {
 
         Some(results)
     }
+
+    /// GPU-only Gaussian top-k search:
+    /// score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2), higher is better.
+    /// Requires dataset + alpha/kappa uploaded. Returns (index, score) pairs
+    /// per query, sorted by descending score. No CPU fallback here — the
+    /// module-level wrapper (gpu::gaussian_topk_scores) provides it.
+    pub fn gaussian_topk_search(
+        &self,
+        queries: &[f32],
+        n_queries: usize,
+        k: usize,
+    ) -> Option<Vec<Vec<(usize, f32)>>> {
+        let n = self.n_vectors;
+        let dim = self.dim;
+        let data_gpu = self.data_gpu.as_ref()?;
+        let alpha_gpu = self.alpha_gpu.as_ref()?;
+        let kappa_gpu = self.kappa_gpu.as_ref()?;
+
+        if queries.len() != n_queries.checked_mul(dim)? {
+            return None;
+        }
+
+        self.launch_gaussian_topk_kernel(queries, data_gpu, alpha_gpu, kappa_gpu, n_queries, n, dim, k)
+    }
+
+    /// Launch the gaussian_topk PTX kernel. Mirrors launch_topk_kernel.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_gaussian_topk_kernel(
+        &self,
+        queries: &[f32],
+        data_gpu: &CudaSlice<f32>,
+        alpha_gpu: &CudaSlice<f32>,
+        kappa_gpu: &CudaSlice<f32>,
+        n_queries: usize,
+        n: usize,
+        dim: usize,
+        k: usize,
+    ) -> Option<Vec<Vec<(usize, f32)>>> {
+        if option_env!("M2M_PTX_PATH").map_or(true, |p| p.is_empty()) || k > 32 || k == 0 {
+            return None; // Kernel supports 1 <= K <= 32
+        }
+
+        let func: CudaFunction = self.kernel_fn("gaussian_topk_kernel")?;
+
+        // Bounds checks before i32/u32 casts
+        if n_queries > i32::MAX as usize || n_queries > u32::MAX as usize {
+            return None;
+        }
+        if n > i32::MAX as usize || dim > i32::MAX as usize || k > i32::MAX as usize {
+            return None;
+        }
+
+        let queries_gpu = self.stream.clone_htod(queries).ok()?;
+        let nq_k = n_queries.checked_mul(k)?;
+        let mut idx_gpu = self.stream.alloc_zeros::<i32>(nq_k).ok()?;
+        let mut score_gpu = self.stream.alloc_zeros::<f32>(nq_k).ok()?;
+
+        let block_dim: u32 = 256;
+        // Shared memory: D floats (query) + blockDim*K floats (score) + blockDim*K ints (idx)
+        let shared_mem_bytes = dim
+            .saturating_add((block_dim as usize).saturating_mul(k).saturating_mul(2))
+            .saturating_mul(4);
+
+        // K=32 needs (64 + 256*32*2)*4 = 65,536 bytes on D=64 — above the
+        // 48KB default. Opt in to extended dynamic shared memory (sm_86
+        // supports up to 99KB per block) or fall back to the CPU path.
+        if shared_mem_bytes > 48 * 1024 {
+            use cudarc::driver::sys::{CUfunction_attribute, CUfunction_attribute_enum};
+            let attr: CUfunction_attribute_enum =
+                CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES;
+            if func
+                .set_attribute(attr, shared_mem_bytes as i32)
+                .is_err()
+            {
+                eprintln!(
+                    "[splatsdb] gaussian_topk_kernel: opt-in extended shared memory \
+                     ({} bytes) refused by driver — using CPU fallback",
+                    shared_mem_bytes
+                );
+                return None;
+            }
+        }
+
+        let cfg = LaunchConfig {
+            grid_dim: (n_queries as u32, 1, 1), // one block per query
+            block_dim: (block_dim, 1, 1),
+            shared_mem_bytes: shared_mem_bytes as u32,
+        };
+
+        eprintln!(
+            "[splatsdb] Launching gaussian_topk_kernel PTX kernel (Q={}, N={}, D={}, K={})",
+            n_queries, n, dim, k
+        );
+
+        // SAFETY: gaussian_topk_kernel args are valid GPU allocations sized
+        // [Q,D]/[N,D]/[N]/[N]/[Q,K]/[Q,K]. shared_mem_bytes covers query cache
+        // (D floats) + per-thread top-k arrays (blockDim*K floats + ints).
+        // Grid is one block per query; 1 <= K <= 32 enforced above. Kernel
+        // writes exactly n_queries*k (idx, score) pairs.
+        unsafe {
+            self.stream
+                .launch_builder(&func)
+                .arg(&queries_gpu)
+                .arg(data_gpu)
+                .arg(alpha_gpu)
+                .arg(kappa_gpu)
+                .arg(&mut idx_gpu)
+                .arg(&mut score_gpu)
+                .arg(&(n_queries as i32))
+                .arg(&(n as i32))
+                .arg(&(dim as i32))
+                .arg(&(k as i32))
+                .launch(cfg)
+                .ok()?;
+        }
+
+        // Download only K*Q results
+        let indices_flat: Vec<i32> = self.stream.clone_dtoh(&idx_gpu).ok()?;
+        let scores_flat: Vec<f32> = self.stream.clone_dtoh(&score_gpu).ok()?;
+
+        let results: Vec<Vec<(usize, f32)>> = (0..n_queries)
+            .map(|q| {
+                indices_flat[q * k..(q + 1) * k]
+                    .iter()
+                    .zip(scores_flat[q * k..(q + 1) * k].iter())
+                    .filter(|(&i, _)| i >= 0)
+                    .map(|(&i, &s)| (i as usize, s))
+                    .collect()
+            })
+            .collect();
+
+        Some(results)
+    }
 }
 
 // ============================================================================
@@ -551,4 +735,26 @@ pub fn gpu_batch_search(
     let mut idx = GpuIndex::new()?;
     idx.upload_dataset(dataset, n_vectors, dim);
     idx.topk_search(queries, n_queries, k, metric)
+}
+
+/// GPU Gaussian top-k search — uses gaussian_topk PTX kernel when available.
+/// score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2), descending.
+pub fn gpu_gaussian_topk(
+    queries: &[f32],
+    n_queries: usize,
+    dataset: &[f32],
+    alpha: &[f32],
+    kappa: &[f32],
+    n_vectors: usize,
+    dim: usize,
+    k: usize,
+) -> Option<Vec<Vec<(usize, f32)>>> {
+    let mut idx = GpuIndex::new()?;
+    if !idx.upload_dataset(dataset, n_vectors, dim) {
+        return None;
+    }
+    if !idx.upload_alpha_kappa(alpha, kappa) {
+        return None;
+    }
+    idx.gaussian_topk_search(queries, n_queries, k)
 }

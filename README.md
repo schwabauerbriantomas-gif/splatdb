@@ -63,7 +63,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Pricing (cloud managed) | **Free** | N/A | $50–$500/mo | Usage-based | $99–$155/mo | Free |
 
-> **Honest note**: Faiss remains the gold standard for raw CPU throughput on pure ANN benchmarks (HNSW 14.8× faster QPS on CPU). However, SplatsDB GPU (RTX 3090) beats Faiss CPU at 12,195 QPS. Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatsDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
+> **Honest note**: Faiss remains the gold standard for raw CPU ANN throughput — its HNSW is **14.8× faster** than SplatsDB's HNSW on CPU (9,758 vs 658 QPS at k=64, recall 0.9926 vs 0.986). SplatsDB's GPU path is **brute-force exact top-k at k=10**: 12,195 QPS with the dataset persistent in VRAM. That is a different regime (exact vs approximate, k=10 vs k=64, GPU vs CPU) — not a like-for-like win over Faiss; see [Benchmarks](#benchmarks). Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatsDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
 
 ---
 
@@ -268,6 +268,18 @@ The query pipeline uses Hierarchical Rejection Mapping (HRM2):
 
 This reduces search from O(N) to O(N/P) with minimal recall loss.
 
+### Gaussian Re-scoring
+
+Candidate retrieval (HNSW or HRM2) returns neighbors by geometric distance. SplatsDB then re-scores candidates with a per-item Gaussian weight:
+
+```
+score(i) = αᵢ · exp(−κᵢ · ‖q − μᵢ‖²)
+```
+
+where each stored item carries α (opacity / importance) and κ (concentration / specificity) alongside its mean μ. The re-scoring step is what produces the confidence signal: an item with high κ only scores high when it is very close to the query, while a low-κ item contributes a broader, weaker match. The same α/κ model defines the energy landscape `E(x) = −log(Σᵢ αᵢ·exp(−κᵢ·‖x−μᵢ‖²))` used for uncertainty estimation (`src/energy.rs`, `src/ebm/`).
+
+Probabilistic scoring of candidates is not new as a technique — probabilistic cross-media embedding methods (e.g. PCME / PCME++) and mixture-model retrieval score candidates distributionally in the academic literature. SplatsDB's contribution is at the product level: per-item κ re-scoring, uncertainty flags, and confidence-aware results exposed as first-class database features (search results, MCP tools, energy/SOC commands), not as a research artifact.
+
 ### SimCos Embeddings
 
 > ⚠️ **SimCos is for quick demos only.** For production, always use real embeddings (OpenAI, Cohere, MiniLM, etc). SimCos uses trigram hashing — it has no semantic understanding.
@@ -306,11 +318,9 @@ A high κ means the document is tightly focused — it matches few queries, but 
 
 ## Benchmarks
 
-> **Integrity pledge**: No gaming. No hardcoding. No cherry-picking. No squashed git history. No anonymous authors. Every number below is measured on real hardware with published methodology and reproducible code in [`benchmarks/`](benchmarks/).
+> **Integrity pledge**: every number in this section states its k, its recall, and its source (result file or command). Numbers that could not be traced to a source have been removed, not rounded or restated. Full reproducible tables with exact commands live in [BENCHMARKS.md](BENCHMARKS.md).
 
-<p align="center"><img src="assets/splatsdb-benchmarks.png" alt="SplatsDB Benchmarks" width="900"/></p>
-
-All numbers are **measured on real hardware** and independently validated. No simulated or estimated data.
+All numbers are measured on real hardware. Exact QPS figures are only comparable at the same k, same search type (exact vs approximate), and same hardware — each table below states those conditions.
 
 ### Methodology
 
@@ -328,6 +338,8 @@ All numbers are **measured on real hardware** and independently validated. No si
 
 HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates. Re-benchmarked April 2026 with CUDA-extended kernel integration.
 
+> **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `a2908b1` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results.
+
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
 | SIFT-128 | 10K | 128 | 124s* | 0.93ms | 1.35ms | 1.66ms | **1,054** | **0.998** |
@@ -339,6 +351,8 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
+> Same provenance caveat as the HNSW table above for the HNSW rows (no preserved result file on this branch).
+
 | Method | Dataset | N | p50 Latency | QPS | Recall@10 |
 |--------|---------|------|-------------|------|-----------|
 | **HNSW (fresh build)** | SIFT-128 | 10K | **0.93ms** | **1,054** | **0.998** |
@@ -348,28 +362,33 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 
 HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, with >99.5% recall.
 
-### Faiss Comparison (Same Hardware, Same Dataset)
+### Faiss Comparison (Same Hardware, Same Dataset — k and Recall Stated Per Row)
 
-<p align="center"><img src="assets/splatsdb-faiss-comparison.png" alt="Faiss vs SplatsDB" width="900"/></p>
+> Same Ryzen 5 3400G + RTX 3090 host, same SIFT-128 100K dataset, 1,000 queries. Faiss from `faiss-cpu` 1.13.2. **Rows are not like-for-like**: the GPU row is brute-force exact search at k=10 (from `bench-gpu`), while the Faiss and CPU HNSW rows are approximate search at k=64 (from `bench_windows.py`). We report both k and recall per row; do not compare across regimes. Full data: `bench-data/benchmark_results_hardware.json` (2026-04-10).
 
-> Honest, reproducible side-by-side. Same Ryzen 5 3400G + RTX 3090, same SIFT-128 100K dataset, same k=64. Faiss from `faiss-cpu` 1.13.2. SplatsDB from `bench-hnsw` + `bench-gpu` CLI.
-
-|| Index | Build Time | p50 Latency | p99 Latency | QPS | Recall@64 |
-|-------|-----------|-------------|-------------|------|-----------|
-| Faiss HNSW (M=32, efSearch=100) | 24.5s | 0.10ms | 0.18ms | **9,758** | 0.9926 |
-| Faiss IVFFlat (nprobe=32) | 3.0s | 0.10ms | 0.15ms | **10,039** | 0.69 |
-| SplatsDB HNSW (CPU, ef=100) | 88s | 1.52ms | 2.52ms | 658 | **0.986** |
-| **SplatsDB GPU (RTX 3090, brute-force)** | 17ms* | **0.082ms** | **0.095ms** | **12,195** | **1.000** |
+| Index | Search type | k | Build | p50 | QPS | Recall@k |
+|-------|-----------|---|-------|-----|------|----------|
+| SplatsDB GPU (RTX 3090, VRAM-persistent) | brute-force exact | **10** | 17ms (VRAM upload) | 0.082ms | **12,195** | **1.0** (exact, verified vs CPU) |
+| Faiss HNSW (M=32, efSearch=100, CPU) | approximate ANN | 64 | 24.5s | 0.10ms | 9,758 | 0.9926 |
+| Faiss IVF-PQ (nprobe=32, CPU) | approximate ANN | 64 | 3.0s | 0.10ms | 10,039 | 0.69 |
+| SplatsDB HNSW (CPU, ef=100) | approximate ANN | 64 | 88s | 1.52ms | 658 | 0.986 |
 
 **Takeaways:**
-- SplatsDB GPU (12,195 QPS) **beats Faiss HNSW CPU** (9,758 QPS) — 1.25× faster
-- GPU brute-force = **100% recall** (exact search, no approximation)
-- GPU upload to VRAM: 17ms — effectively zero build time
-- Faiss HNSW CPU is still 14.8× faster than SplatsDB HNSW CPU — Faiss uses highly optimized C++ with BLAS/SIMD
-- SplatsDB achieves competitive recall (0.986 vs 0.993)
-- SplatsDB build is ~3.6× slower — computes splat parameters (α, κ) during indexing
-- SplatsDB's value is not just QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in one binary
+- **Different regimes, not a head-to-head win**: SplatsDB GPU is exact brute-force top-k at k=10 on an RTX 3090 (12,195 QPS); Faiss HNSW CPU is approximate ANN at k=64 (9,758 QPS, recall 0.9926). The numbers are not directly comparable.
+- GPU brute-force returns exact results — top-k verified identical to CPU reference (`results_match_cpu: true` in the JSON).
+- GPU upload to VRAM: 17ms (one-time per dataset load); with upload included the GPU path is 10,101 QPS.
+- On CPU like-for-like, **Faiss HNSW is 14.8× faster than SplatsDB HNSW** (9,758 vs 658 QPS at k=64) with similar recall (0.9926 vs 0.986). Faiss uses highly optimized C++ with BLAS/SIMD.
+- SplatsDB HNSW build is ~3.6× slower (88s vs 24.5s) — it computes splat parameters (α, κ) during indexing.
+- SplatsDB's value is not raw ANN QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in one binary
 - Full results: `bench-data/benchmark_results_hardware.json`
+
+> **Removed claims**: a previous version of this section claimed GPU throughput of 1,667 QPS at 640D and 20,000 QPS for linear scan over 100 splats. Both numbers had no preserved source (no result file or run log; the 640D figure was marked "untraced" in `a2908b1`). They were removed rather than restated.
+
+<details>
+<summary>Known caveat: benchmark chart images lag this table</summary>
+
+The PNG charts in `assets/` (`splatsdb-faiss-comparison.png`, `splatsdb-benchmarks.png`) were rendered from earlier data and present the GPU k=10 row inside a chart labeled "k=64", plus stale takeaways. Regenerate before citing; the tables in this README and in `BENCHMARKS.md` are the source of truth.
+</details>
 
 ### LongMemEval Agent Memory Benchmark
 
@@ -403,22 +422,28 @@ HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, w
 
 **What this validates**: With real sentence embeddings, SplatsDB achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
 
+> **Comparison caveat**: the paper's best of 86.2% measures **end-to-end systems** (retrieval + reading + answer extraction); SplatsDB's 96.6% measures **retrieval only** (answer session in top-k). The two numbers are not like-for-like — retrieval-only is an easier task. We report both and do not claim a system-level win.
+
 - Full results: `bench-data/longmemeval_full_results.json`
 - Benchmark script: `bench-data/longmemeval_full.py`
 - Previous keyword baseline: `bench-data/longmemeval_baseline_results.json`
 
 ### GPU Top-K Search (Custom CUDA Kernels)
 
-Combined distance + top-k selection in one GPU pass. Dataset persists in VRAM between queries. Benchmarked on RTX 3090 (24GB VRAM).
+Combined distance + top-k selection in one GPU pass. Dataset persists in VRAM between queries. Benchmarked on RTX 3090 (24GB VRAM), SIFT-128, 100K vectors, 1,000 queries, **k=10, exact brute-force** (recall 1.0 — top-k verified identical to CPU reference). Source: `bench-data/benchmark_results_hardware.json` (2026-04-10).
 
-| Dataset | Dim | Queries | k | CPU QPS | GPU Persistent QPS | Speedup |
-|---------|-----|---------|---|---------|--------------------|---------|
-| 100K | 128 | 1,000 | 10 | 2,941 | **12,195** | **4.1×** |
+| Dataset | Dim | Queries | k | CPU QPS | GPU Persistent QPS | GPU + Upload QPS | Speedup (persistent) |
+|---------|-----|---------|---|---------|--------------------|------------------|----------------------|
+| 100K | 128 | 1,000 | 10 | 2,941 | **12,195** | 10,101 | **4.1×** |
 
-- Upload bandwidth: **~3 GB/s** (PCIe)
+- Upload bandwidth: **~3 GB/s** (PCIe); one-time VRAM upload of 17ms
 - Per-query latency with dataset in VRAM: **0.082 ms**
-- GPU results verified against CPU: identical top-k indices and order
+- CPU baseline here is the same brute-force top-k in Rust (rayon), not HNSW — the 4.1× is GPU-vs-CPU of the same exact algorithm
 - Custom PTX `l2_topk_kernel` compiled with nvcc 12.4 + MSVC
+
+#### GPU vs CPU kernel benchmark (2026-10-15)
+
+Measured today on this repository, WSL2 + RTX 3090, with `cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture` (`src/gpu/mod.rs`): batch L2 distances for 10,000 vectors × 640D over 100 queries — **CPU 565ms vs GPU 27ms = 20.93×** on the same machine. Companion correctness test `test_ptx_kernel_correctness` passes (GPU/CPU agreement within tolerance). This is a kernel-level microbenchmark on synthetic data (fixed seed 12345), not an end-to-end search benchmark.
 
 ### CUDA Kernel Optimizations
 
@@ -950,8 +975,9 @@ cargo build --release --features cuda
 
 With 100K vectors (640D) on an RTX 3090:
 - **Upload**: 3.9 GB/s sustained bandwidth
-- **Query latency**: 0.60 ms per query (constant, independent of dataset size up to VRAM)
-- **Throughput**: 1,667 QPS (7.8x faster than CPU)
+- **Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`): batch L2 over 10K×640D × 100 queries — CPU 565ms vs GPU 27ms = **20.93×** on the same machine; correctness test passes alongside.
+
+> **Removed claim**: this section previously stated "0.60 ms per query, 1,667 QPS (7.8× faster than CPU)" for 640D. That number had no preserved source (marked "untraced" in commit `a2908b1`). The reproducible figure today is the kernel microbenchmark above; end-to-end 640D QPS will be re-measured and published with a result file before any number is restated.
 
 ### GPU Commands
 
@@ -1366,7 +1392,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 ### Where SplatsDB Wins
 
-1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval: **96.6% recall@10** with spatial pre-filter vs 86.2% best in original paper.
+1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval retrieval-only: **96.6% recall@10** with spatial pre-filter (vs 86.2% best end-to-end system in the original paper — different task, see caveat in the benchmark section).
 
 2. **MCP Server** — 15 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
 

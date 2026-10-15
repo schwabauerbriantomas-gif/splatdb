@@ -4,6 +4,7 @@ pub mod backend_comm;
 pub mod bm25_index;
 pub mod clustering;
 pub mod config;
+pub mod candidate_backend;
 pub mod cuda_search;
 pub mod data_lake;
 pub mod dataset_transformer;

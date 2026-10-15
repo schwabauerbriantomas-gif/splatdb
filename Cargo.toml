@@ -33,3 +33,5 @@ libc = "0.2"
 
 [dev-dependencies]
 approx = "0.5"
+# api_server tests: tower::ServiceExt::oneshot (same version tower-http/axum resolve)
+tower = { version = "0.5", features = ["util"] }

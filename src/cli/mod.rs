@@ -198,6 +198,12 @@ pub enum Commands {
         n_clusters: usize,
         #[arg(short = 'q', long, default_value = "100")]
         n_queries: usize,
+        /// RNG seed for reproducible synthetic data (default: random)
+        #[arg(short = 's', long)]
+        seed: Option<u64>,
+        /// Write JSON results to this file (pretty-printed); stdout stays one-line JSON
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
     },
     /// Benchmark GPU vs CPU search performance
     BenchGpu {
@@ -211,6 +217,49 @@ pub enum Commands {
         top_k: usize,
         #[arg(short, long, default_value = "l2")]
         metric: String,
+        /// RNG seed for reproducible synthetic data (default: random)
+        #[arg(short = 's', long)]
+        seed: Option<u64>,
+        /// Ground truth bin [u64 nq][u64 k][i64 idx] — same format as bench-hnsw
+        #[arg(long)]
+        gt: Option<PathBuf>,
+        /// Save the CPU-exact top-k as GT bin (same format) for later reuse
+        #[arg(long)]
+        gt_out: Option<PathBuf>,
+        /// Write JSON results to this file (pretty-printed); stdout stays one-line JSON
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+    },
+    /// A/B benchmark: kappa-weighted Gaussian ranking vs pure L2 ranking
+    BenchGaussian {
+        /// Number of synthetic splats (default 100K)
+        #[arg(short = 'n', long, default_value = "100000")]
+        n_vectors: usize,
+        #[arg(short = 'q', long, default_value = "100")]
+        n_queries: usize,
+        #[arg(short = 'k', long, default_value = "10")]
+        top_k: usize,
+        /// Fixed RNG seed for reproducible splats/queries
+        #[arg(short = 's', long, default_value = "42")]
+        seed: u64,
+        /// Write JSON results to this file (pretty-printed); stdout stays one-line JSON
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+        /// Save exact-CPU GT ranking as bin [u64 nq][u64 k][i64 idx]
+        #[arg(long)]
+        gt_out: Option<PathBuf>,
+        /// HNSW M parameter
+        #[arg(long, default_value = "16")]
+        hnsw_m: usize,
+        /// HNSW ef_construction
+        #[arg(long, default_value = "200")]
+        hnsw_ef_construction: usize,
+        /// HNSW ef_search
+        #[arg(long, default_value = "50")]
+        hnsw_ef_search: usize,
+        /// Candidates = top_k * this multiplier (rescanned with exact Gaussian score)
+        #[arg(long, default_value = "10")]
+        candidate_mult: usize,
     },
     /// Start HTTP API server for Python bindings
     Serve {
@@ -549,7 +598,13 @@ pub fn dispatch(cli: Cli) {
             n_queries,
             top_k,
             metric,
-        } => index_cmds::cmd_bench_gpu(n_vectors, dim, n_queries, top_k, metric),
+            seed,
+            gt,
+            gt_out,
+            out,
+        } => index_cmds::cmd_bench_gpu(
+            n_vectors, dim, n_queries, top_k, metric, seed, gt, gt_out, out,
+        ),
         Commands::Ingest {
             input,
             n_clusters,
@@ -605,7 +660,32 @@ pub fn dispatch(cli: Cli) {
             dim,
             n_clusters,
             n_queries,
-        } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries),
+            seed,
+            out,
+        } => index_cmds::cmd_bench_gpu_ingest(n_vectors, dim, n_clusters, n_queries, seed, out),
+        Commands::BenchGaussian {
+            n_vectors,
+            n_queries,
+            top_k,
+            seed,
+            out,
+            gt_out,
+            hnsw_m,
+            hnsw_ef_construction,
+            hnsw_ef_search,
+            candidate_mult,
+        } => index_cmds::cmd_bench_gaussian(
+            n_vectors,
+            n_queries,
+            top_k,
+            seed,
+            out,
+            gt_out,
+            hnsw_m,
+            hnsw_ef_construction,
+            hnsw_ef_search,
+            candidate_mult,
+        ),
         Commands::Serve { port, host } => data_cmds::cmd_serve(port, &host),
         Commands::Mcp => splatsdb::mcp_server::run_mcp_server(),
         // ── Graph Splat ──

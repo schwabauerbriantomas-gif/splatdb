@@ -1,8 +1,8 @@
 //! SplatStore - Main API for SplatsDB Vector Search.
 //! Ported from Python splats.py. CPU-only.
 
+use crate::candidate_backend::{BackendCaps, CandidateBackend, HnswBackend};
 use crate::dataset_transformer;
-use crate::interfaces::VectorIndex;
 use ndarray::{Array1, Array2, ArrayView1};
 
 use crate::config::SplatsDBConfig;
@@ -15,7 +15,12 @@ pub struct NeighborResult {
     pub alpha: f32,
     pub kappa: f32,
     pub index: usize,
+    /// Exact L2 distance ||q - mu|| (NOT squared).
     pub distance: f32,
+    /// Gaussian score `alpha_i * exp(-kappa_i * ||q - mu_i||^2)` — higher is
+    /// better. Kept in sync on every path that produces a `NeighborResult`
+    /// (see [`SplatStore::gaussian_score`]).
+    pub score: f32,
 }
 
 /// Main SplatStore - wraps HRM2Engine for high-level vector operations.
@@ -37,9 +42,11 @@ pub struct SplatStore {
     next_id: u64,
     // Preset-driven subsystems (None when disabled)
     quant_store: Option<crate::quantization::QuantizedStore>,
-    hnsw: Option<crate::hnsw_index::HNSWIndex>,
-    /// Number of vectors currently indexed in HNSW. When this < n_active,
-    /// there are unindexed vectors that need incremental insertion.
+    /// Candidate-generation backend (currently the homegrown HNSW behind the
+    /// `CandidateBackend` trait; CAGRA/other backends plug in here).
+    candidates: Option<Box<dyn CandidateBackend>>,
+    /// Number of vectors currently indexed in the candidate backend. When this
+    /// < n_active, there are unindexed vectors that need incremental insertion.
     hnsw_indexed_count: usize,
     lsh: Option<crate::lsh_index::CrossPolytopeLSH>,
     // Semantic memory is a separate layer (it contains its own SplatStore internally,
@@ -48,6 +55,15 @@ pub struct SplatStore {
 }
 
 impl SplatStore {
+    /// Gaussian score of a splat for a query at squared distance `d2`.
+    ///
+    /// Frozen convention (energy.rs:5-6, NO ½ factor):
+    /// `score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2)` — higher is better.
+    #[inline]
+    pub fn gaussian_score(alpha: f32, kappa: f32, d2: f32) -> f32 {
+        alpha * (-kappa * d2).exp()
+    }
+
     /// New.
     pub fn new(config: SplatsDBConfig) -> Self {
         let max_splats = config.max_splats;
@@ -79,15 +95,17 @@ impl SplatStore {
             None
         };
 
-        let hnsw = if config.enable_hnsw {
-            Some(crate::hnsw_index::HNSWIndex::new(
+        // Factory: candidate backend (HNSW today, chosen by config; CAGRA and
+        // other backends will be dispatched here without touching the store).
+        let candidates: Option<Box<dyn CandidateBackend>> = if config.enable_hnsw {
+            Some(Box::new(HnswBackend::new(
                 dim,
                 config.hnsw_m,
                 config.hnsw_ef_construction,
                 config.hnsw_ef_search,
                 &config.hnsw_metric,
                 42,
-            ))
+            )))
         } else {
             None
         };
@@ -119,7 +137,7 @@ impl SplatStore {
             engine,
             next_id: 0,
             quant_store,
-            hnsw,
+            candidates,
             hnsw_indexed_count: 0,
             lsh,
         }
@@ -197,9 +215,9 @@ impl SplatStore {
             qs.add_batch(&embeddings, 0);
         }
 
-        // HNSW secondary index
-        if let Some(ref mut hnsw) = self.hnsw {
-            hnsw.build(embeddings.clone());
+        // Candidate backend (HNSW today) — secondary index
+        if let Some(ref mut backend) = self.candidates {
+            backend.build(&embeddings);
             self.hnsw_indexed_count = self.n_active;
         }
 
@@ -224,8 +242,8 @@ impl SplatStore {
             return false;
         }
 
-        // Try to load persisted HNSW first
-        if self.hnsw.is_some() && self.try_load_hnsw(data_dir) {
+        // Try to load the persisted candidate backend (HNSW format) first
+        if self.candidates.is_some() && self.try_load_hnsw(data_dir) {
             eprintln!("[splatsdb] Loaded persisted HNSW index from disk");
             self.hnsw_indexed_count = self.n_active;
 
@@ -246,7 +264,11 @@ impl SplatStore {
         true
     }
 
-    /// Try to load persisted HNSW from `{data_dir}/hnsw_index.bin`.
+    /// Try to load a persisted candidate backend from `{data_dir}/hnsw_index.bin`.
+    ///
+    /// Dispatches on file content: today only the homegrown HNSW format
+    /// (magic `0x484E5357`) exists; CAGRA and other backends plug in here
+    /// by sniffing their own magic/suffix.
     /// Returns true if loaded successfully.
     pub fn try_load_hnsw(&mut self, data_dir: &str) -> bool {
         let path = std::path::Path::new(data_dir).join("hnsw_index.bin");
@@ -261,7 +283,8 @@ impl SplatStore {
 
         match crate::hnsw_index::HNSWIndex::load(&path, m, ef_construction, ef_search, metric, 42) {
             Ok(loaded) => {
-                self.hnsw = Some(loaded);
+                let dim = self.config.latent_dim;
+                self.candidates = Some(Box::new(HnswBackend::from_index(loaded, dim)));
                 true
             }
             Err(e) => {
@@ -271,19 +294,19 @@ impl SplatStore {
         }
     }
 
-    /// Save the HNSW index to `{data_dir}/hnsw_index.bin`.
+    /// Save the candidate backend to `{data_dir}/hnsw_index.bin`.
     pub fn save_hnsw(&self, data_dir: &str) -> Result<(), String> {
-        if let Some(ref hnsw) = self.hnsw {
-            if !hnsw.is_built() {
+        if let Some(ref backend) = self.candidates {
+            if !backend.is_built() {
                 return Ok(());
             }
             let dir = std::path::Path::new(data_dir);
             std::fs::create_dir_all(dir).map_err(|e| format!("create dir {}: {}", data_dir, e))?;
             let path = dir.join("hnsw_index.bin");
-            hnsw.save(&path)?;
+            backend.save(&path)?;
             eprintln!(
                 "[splatsdb] Saved HNSW index ({} vectors) to {}",
-                hnsw.n_items(),
+                backend.len(),
                 path.display()
             );
         }
@@ -292,35 +315,54 @@ impl SplatStore {
 
     // ── Incremental HNSW insertion ──────────────────────────────────
 
-    /// Check if HNSW has unindexed vectors (new vectors since last build/insert).
+    /// Check if the candidate backend has unindexed vectors (new vectors since
+    /// last build/insert).
     pub fn hnsw_needs_sync(&self) -> bool {
-        self.hnsw.is_some() && self.hnsw_indexed_count < self.n_active
+        self.candidates.is_some() && self.hnsw_indexed_count < self.n_active
     }
 
-    /// Get the number of vectors currently indexed in HNSW.
+    /// Get the number of vectors currently indexed in the candidate backend.
     pub fn hnsw_indexed_count(&self) -> usize {
         self.hnsw_indexed_count
     }
 
-    /// Insert all new (unindexed) vectors into the HNSW graph incrementally.
+    /// Insert all new (unindexed) vectors into the candidate backend
+    /// incrementally.
     ///
     /// Unlike `build_index()` which reconstructs everything, this only inserts
-    /// the vectors added since the last build/sync. O(M) per vector where M
-    /// is the HNSW connectivity parameter — typically M=48, so very fast.
+    /// the vectors added since the last build/sync. Uses the backend's
+    /// `add_batch` (capabilities-gated: only incremental backends reach here).
     ///
     /// Returns the number of newly inserted vectors, or 0 if nothing to do.
     pub fn hnsw_sync_incremental(&mut self) -> usize {
         let start = self.hnsw_indexed_count;
         let end = self.n_active;
-        if start >= end || self.hnsw.is_none() {
+        if start >= end || self.candidates.is_none() {
             return 0;
         }
 
         let count = end - start;
-        if let Some(ref mut hnsw) = self.hnsw {
-            for i in start..end {
-                let vec: Vec<f32> = self.mu.row(i).to_vec();
-                hnsw.insert(&vec);
+        if let Some(ref mut backend) = self.candidates {
+            if backend.capabilities().incremental {
+                let new_vecs: Vec<Vec<f32>> =
+                    (start..end).map(|i| self.mu.row(i).to_vec()).collect();
+                if let Err(e) = backend.add_batch(&new_vecs) {
+                    eprintln!(
+                        "[splatsdb] Warning: incremental backend insert failed ({}); \
+                         falling back to per-vector insertion",
+                        e
+                    );
+                    for v in &new_vecs {
+                        // Last resort for backends whose add_batch is partial.
+                        if let Err(e) = backend.add_batch(std::slice::from_ref(v)) {
+                            eprintln!("[splatsdb] Warning: skipping vector: {}", e);
+                        }
+                    }
+                }
+            } else {
+                // Non-incremental backend (e.g. CAGRA): full rebuild required.
+                let embeddings = self.mu.slice(ndarray::s![..end, ..]).to_owned();
+                backend.build(&embeddings);
             }
         }
         self.hnsw_indexed_count = end;
@@ -356,8 +398,15 @@ impl SplatStore {
     /// Returns the index of the new vector, or None if capacity exceeded.
     pub fn insert_with_hnsw(&mut self, vec: &[f32], data_dir: Option<&str>) -> Option<usize> {
         let idx = self.insert(vec)?;
-        if let Some(ref mut hnsw) = self.hnsw {
-            hnsw.insert(vec);
+        if let Some(ref mut backend) = self.candidates {
+            if backend.capabilities().incremental {
+                if let Err(e) = backend.add_batch(std::slice::from_ref(&vec.to_vec())) {
+                    eprintln!("[splatsdb] Warning: backend insert failed: {}", e);
+                }
+            } else {
+                let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
+                backend.build(&embeddings);
+            }
             self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
@@ -381,10 +430,16 @@ impl SplatStore {
             return false;
         }
 
-        if let Some(ref mut hnsw) = self.hnsw {
-            for i in n_before..self.n_active {
-                let vec: Vec<f32> = self.mu.row(i).to_vec();
-                hnsw.insert(&vec);
+        if let Some(ref mut backend) = self.candidates {
+            if backend.capabilities().incremental {
+                let new_vecs: Vec<Vec<f32>> =
+                    (n_before..self.n_active).map(|i| self.mu.row(i).to_vec()).collect();
+                if let Err(e) = backend.add_batch(&new_vecs) {
+                    eprintln!("[splatsdb] Warning: backend add_batch failed: {}", e);
+                }
+            } else {
+                let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
+                backend.build(&embeddings);
             }
             self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
@@ -441,6 +496,7 @@ impl SplatStore {
                 kappa: self.kappa[idx],
                 index: idx,
                 distance: dist_sq.sqrt(),
+                score: Self::gaussian_score(self.alpha[idx], self.kappa[idx], dist_sq),
             })
             .collect()
     }
@@ -475,19 +531,18 @@ impl SplatStore {
                 .sqrt()
         };
 
-        // Strategy 1: HNSW primary (sub-linear, high recall)
-        if let Some(ref hnsw) = self.hnsw {
-            if hnsw.is_built() {
-                // Over-fetch from HNSW for better recall, then exact re-rank
+        // Strategy 1: candidate backend primary (sub-linear, high recall)
+        if let Some(ref backend) = self.candidates {
+            if backend.is_built() {
+                // Over-fetch for better recall, then exact re-rank
                 let fetch_k = (k * self.config.over_fetch).min(n);
-                let hresults = hnsw.search(*query, fetch_k);
+                let hresults = backend.search(query.as_slice().unwrap_or(&[]), fetch_k);
 
                 // Re-rank with exact distances
                 let mut ranked: Vec<(usize, f32)> = hresults
-                    .indices
-                    .iter()
-                    .filter(|&&idx| idx < n)
-                    .map(|&idx| (idx, exact_dist(idx)))
+                    .into_iter()
+                    .filter(|&(idx, _)| idx < n)
+                    .map(|(idx, _)| (idx, exact_dist(idx)))
                     .collect();
 
                 ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -500,6 +555,11 @@ impl SplatStore {
                         kappa: self.kappa[idx],
                         index: idx,
                         distance: dist,
+                        score: Self::gaussian_score(
+                            self.alpha[idx],
+                            self.kappa[idx],
+                            dist * dist,
+                        ),
                     })
                     .collect();
             }
@@ -547,6 +607,7 @@ impl SplatStore {
                     kappa: self.kappa[idx],
                     index: idx,
                     distance: dist,
+                    score: Self::gaussian_score(self.alpha[idx], self.kappa[idx], dist * dist),
                 })
                 .collect();
         }
@@ -555,17 +616,126 @@ impl SplatStore {
         self.find_neighbors(query, k)
     }
 
+    /// Find the k best splats under the EXACT Gaussian score.
+    ///
+    /// `score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2)` (energy.rs:5-6
+    /// convention, NO ½ factor; higher is better).
+    ///
+    /// Pipeline: candidate generation via `find_neighbors_fused(q, k*8)` →
+    /// exact CPU re-score against the store's `mu`/`alpha`/`kappa` → top-k by
+    /// score (descending) → `NeighborResult { distance: ||q-mu_i|| (exact L2,
+    /// NOT squared), score }`. Candidates that lose on score can still win:
+    /// a splat with larger distance but smaller kappa may out-score a closer
+    /// one — the re-score makes that explicit.
+    ///
+    /// GPU hook (feature `cuda`): when CUDA is available at runtime and
+    /// `crate::gpu::gaussian_topk_scores` returns `Some`, the score top-k runs
+    /// exhaustively on the GPU against the persistent dataset (`mu`/`alpha`/
+    /// `kappa`). Otherwise the exact CPU candidate path below runs — including
+    /// on `--features cuda` builds without a GPU, where it stays sub-linear.
+    pub fn find_neighbors_gaussian(&self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
+        const GAUSSIAN_OVERFETCH: usize = 8;
+        let n = self.n_active;
+        if n == 0 || k == 0 {
+            return Vec::new();
+        }
+        let k = k.min(n);
+
+        // 0. GPU fast path: exhaustive score top-k over the persistent dataset.
+        #[cfg(feature = "cuda")]
+        {
+            if crate::gpu::is_cuda_available() {
+                let dim = self.config.latent_dim;
+                let dataset = self.mu.slice(ndarray::s![..n, ..]);
+                let alpha = self.alpha.slice(ndarray::s![..n]);
+                let kappa = self.kappa.slice(ndarray::s![..n]);
+                let q: Vec<f32> = query.to_vec();
+                if let Some(results) = crate::gpu::gaussian_topk_scores(
+                    &q,
+                    dataset.as_slice().unwrap_or(&[]),
+                    alpha.as_slice().unwrap_or(&[]),
+                    kappa.as_slice().unwrap_or(&[]),
+                    n,
+                    dim,
+                    1,
+                    k,
+                ) {
+                    if let Some(top) = results.into_iter().next() {
+                        return top
+                            .into_iter()
+                            .take(k)
+                            .map(|(idx, score)| {
+                                let row = self.mu.row(idx);
+                                let diff = &row - &query.to_owned();
+                                let dist = diff.dot(&diff).sqrt();
+                                NeighborResult {
+                                    mu: self.mu.row(idx).to_vec(),
+                                    alpha: self.alpha[idx],
+                                    kappa: self.kappa[idx],
+                                    index: idx,
+                                    distance: dist,
+                                    score,
+                                }
+                            })
+                            .collect();
+                    }
+                }
+            }
+        }
+
+        // 1. Candidate generation (over-fetch ×8, exact L2 re-rank inside).
+        let fetch_k = (k * GAUSSIAN_OVERFETCH).min(n);
+        let candidates = self.find_neighbors_fused(query, fetch_k);
+
+        // 2. Exact Gaussian re-score + top-k.
+        //    Candidate distances are exact L2 already; d2 = distance^2.
+        let mut scored: Vec<(f32, usize, f32)> = candidates
+            .into_iter()
+            .map(|c| {
+                let d2 = c.distance * c.distance;
+                let score = Self::gaussian_score(c.alpha, c.kappa, d2);
+                (score, c.index, c.distance)
+            })
+            .collect();
+
+        // Top-k by score, descending (partial sort + stable order for ties).
+        if k < scored.len() {
+            scored.select_nth_unstable_by(k, |a, b| {
+                b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        scored[..k].sort_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        scored[..k]
+            .iter()
+            .map(|&(score, idx, dist)| NeighborResult {
+                mu: self.mu.row(idx).to_vec(),
+                alpha: self.alpha[idx],
+                kappa: self.kappa[idx],
+                index: idx,
+                distance: dist,
+                score,
+            })
+            .collect()
+    }
+
     /// Check if quantization subsystem is active.
     pub fn has_quantization(&self) -> bool {
         self.quant_store.is_some()
     }
-    /// Check if HNSW index is active.
+    /// Check if the candidate backend (HNSW today) is active.
     pub fn has_hnsw(&self) -> bool {
-        self.hnsw.is_some()
+        self.candidates.is_some()
     }
-    /// Check if HNSW index is active AND has been built (has vectors).
+    /// Check if the candidate backend is active AND has been built (has vectors).
     pub fn hnsw_is_built(&self) -> bool {
-        self.hnsw.as_ref().is_some_and(|h| h.is_built())
+        self.candidates.as_ref().is_some_and(|b| b.is_built())
+    }
+    /// Capabilities advertised by the active candidate backend, if any.
+    pub fn backend_caps(&self) -> Option<BackendCaps> {
+        self.candidates.as_ref().map(|b| b.capabilities())
     }
     /// Check if LSH index is active.
     pub fn has_lsh(&self) -> bool {
@@ -623,6 +793,11 @@ impl SplatStore {
                         kappa: self.kappa[idx],
                         index: idx,
                         distance: dist,
+                        score: Self::gaussian_score(
+                            self.alpha[idx],
+                            self.kappa[idx],
+                            dist * dist,
+                        ),
                     })
                     .collect()
             }
@@ -840,6 +1015,7 @@ impl SplatStore {
                 kappa: self.kappa[idx],
                 index: idx,
                 distance: dist_sq.sqrt(),
+                score: Self::gaussian_score(self.alpha[idx], self.kappa[idx], dist_sq),
             })
             .collect()
     }
@@ -1462,5 +1638,307 @@ mod tests {
         let empty: Vec<usize> = vec![];
         let results_empty = store.find_neighbors_filtered(&q.view(), &empty, 5);
         assert!(results_empty.is_empty());
+    }
+
+    // ── find_neighbors_gaussian tests ────────────────────────────────
+
+    #[test]
+    fn test_gaussian_basic_ordering_and_self_query() {
+        // HNSW-enabled config: exercises candidate path + exact re-score.
+        let mut store = SplatStore::new(test_config_with_hnsw());
+        let data = random_vectors(100, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        let query = data.row(10).to_owned();
+        let results = store.find_neighbors_gaussian(&query.view(), 5);
+        assert_eq!(results.len(), 5);
+
+        // Scores strictly non-increasing (defaults alpha=kappa=1 → the Gaussian
+        // ranking must equal the distance ranking in this uniform case).
+        for w in results.windows(2) {
+            assert!(
+                w[0].score >= w[1].score,
+                "scores must be non-increasing: {} then {}",
+                w[0].score,
+                w[1].score
+            );
+        }
+        // Self-query: nearest splat is itself → score == alpha * exp(0) = alpha.
+        assert_eq!(results[0].index, 10);
+        assert!((results[0].score - store.alpha[10]).abs() < 1e-5);
+        assert!(results[0].distance < 1e-4);
+    }
+
+    #[test]
+    fn test_gaussian_low_kappa_beats_close_high_kappa() {
+        // EXPLICIT contract case: a FARTHER splat with SMALL kappa can out-score
+        // a CLOSER splat with LARGE kappa.
+        //
+        // Query at origin. Splat A at distance 1.0 with kappa 5.0:
+        //   score_A = 1.0 * exp(-5.0 * 1.0)  = 0.006738
+        // Splat B at distance 2.0 with kappa 0.05:
+        //   score_B = 1.0 * exp(-0.05 * 4.0) = 0.818731  ← wins despite 2× distance
+        let mut c = test_config_with_hnsw();
+        c.latent_dim = 8;
+        c.max_splats = 100;
+        let mut store = SplatStore::new(c);
+
+        let mut mu = Array2::zeros((2, 8));
+        mu[[0, 0]] = 1.0; // A: ||q-mu||^2 = 1.0
+        mu[[1, 0]] = 2.0; // B: ||q-mu||^2 = 4.0
+        store.load_splats(&mu, &[1.0, 1.0], &[5.0, 0.05]).unwrap();
+        store.build_index();
+
+        let q = Array1::zeros(8);
+        let results = store.find_neighbors_gaussian(&q.view(), 2);
+        assert_eq!(results.len(), 2);
+
+        // B (index 1) must rank FIRST: farther but small kappa → higher score.
+        assert_eq!(
+            results[0].index, 1,
+            "farther splat with kappa=0.05 must out-score closer splat with kappa=5.0"
+        );
+        assert_eq!(results[1].index, 0);
+
+        // Exact expected scores (NO ½ in the exponent).
+        let expect_b = 1.0f32 * (-0.05f32 * 4.0).exp();
+        let expect_a = 1.0f32 * (-5.0f32 * 1.0).exp();
+        assert!((results[0].score - expect_b).abs() < 1e-6);
+        assert!((results[1].score - expect_a).abs() < 1e-6);
+
+        // distance is exact L2 (not squared): 2.0 for the winner.
+        assert!((results[0].distance - 2.0).abs() < 1e-6);
+        assert!((results[1].distance - 1.0).abs() < 1e-6);
+
+        // And the by-distance ordering would be the opposite — proves the
+        // Gaussian re-score actually changed the ranking.
+        let by_dist = store.find_neighbors(&q.view(), 2);
+        assert_eq!(by_dist[0].index, 0);
+    }
+
+    #[test]
+    fn test_gaussian_matches_bruteforce_reference() {
+        // Cross-check: find_neighbors_gaussian(k) must equal an exhaustive
+        // brute-force Gaussian scan over ALL splats (same top-k, same scores).
+        // This catches candidate-generation misses (over-fetch too small).
+        let mut c = test_config_with_hnsw();
+        c.latent_dim = 16;
+        c.max_splats = 500;
+        let mut store = SplatStore::new(c);
+
+        // 40 vectors with k=5 → fetch_k = min(5*8, 40) = 40 = ALL splats are
+        // candidates, so the gaussian top-k MUST equal the exhaustive scan
+        // regardless of HNSW recall (deterministic exactness check).
+        let data = random_vectors(40, 16, 7);
+        store.add_splat(&data);
+        // Heterogeneous alpha/kappa so score ordering differs from distance ordering.
+        let alpha: Vec<f32> = (0..40).map(|i| 0.5 + (i as f32 % 7.0) * 0.3).collect();
+        let kappa: Vec<f32> = (0..40).map(|i| 0.1 + (i as f32 % 5.0) * 1.4).collect();
+        store.load_splats(&data, &alpha, &kappa).unwrap();
+        store.build_index();
+
+        let q = random_vectors(1, 16, 123);
+        let query = q.row(0).to_owned();
+
+        // Reference: exhaustive scan.
+        let mut reference: Vec<(f32, usize)> = (0..40)
+            .map(|i| {
+                let row = data.row(i);
+                let diff = &row - &query;
+                let d2 = diff.dot(&diff);
+                (SplatStore::gaussian_score(alpha[i], kappa[i], d2), i)
+            })
+            .collect();
+        reference.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let results = store.find_neighbors_gaussian(&query.view(), 7);
+        assert_eq!(results.len(), 7);
+        for (r, (exp_score, exp_idx)) in results.iter().zip(reference.iter()) {
+            assert_eq!(
+                r.index, *exp_idx,
+                "gaussian top-k must match exhaustive reference"
+            );
+            assert!(
+                (r.score - exp_score).abs() < 1e-5,
+                "score mismatch for idx {}: {} vs {}",
+                r.index,
+                r.score,
+                exp_score
+            );
+        }
+    }
+
+    #[test]
+    fn test_gaussian_empty_and_k_zero() {
+        let store = SplatStore::new(test_config_with_hnsw());
+        let q = Array1::zeros(32);
+        assert!(store.find_neighbors_gaussian(&q.view(), 5).is_empty());
+
+        let mut store = SplatStore::new(test_config_with_hnsw());
+        let data = random_vectors(10, 32, 42);
+        store.add_splat(&data);
+        store.build_index();
+        assert!(store.find_neighbors_gaussian(&q.view(), 0).is_empty());
+        // k > n clamps to n.
+        let results = store.find_neighbors_gaussian(&q.view(), 50);
+        assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn test_gaussian_without_hnsw_linear_fallback() {
+        // No HNSW in config: find_neighbors_fused falls back to linear scan,
+        // find_neighbors_gaussian must still return exact results.
+        let mut store = SplatStore::new(test_config());
+        let data = random_vectors(30, 64, 42);
+        store.add_splat(&data);
+        store.build_index();
+
+        let query = data.row(3).to_owned();
+        let results = store.find_neighbors_gaussian(&query.view(), 3);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].index, 3);
+        assert!((results[0].score - store.alpha[3]).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_neighbor_result_score_populated_all_paths() {
+        // Every NeighborResult-producing path must fill `score` consistently
+        // with score = alpha * exp(-kappa * d^2) where d = exact L2 distance.
+        let mut store = SplatStore::new(test_config_with_hnsw());
+        let data = random_vectors(80, 32, 5);
+        store.add_splat(&data);
+        store.build_index();
+
+        // Mutate alpha/kappa per-splat so paths can't accidentally all-equal.
+        let alpha: Vec<f32> = (0..80).map(|i| 0.3 + (i as f32 % 4.0) * 0.4).collect();
+        let kappa: Vec<f32> = (0..80).map(|i| 0.2 + (i as f32 % 6.0) * 0.9).collect();
+        store.load_splats(&data, &alpha, &kappa).unwrap();
+        store.build_index();
+
+        let q = random_vectors(1, 32, 9);
+        let query = q.row(0).to_owned();
+
+        let check = |name: &str, results: &[NeighborResult]| {
+            for r in results {
+                let expect =
+                    SplatStore::gaussian_score(r.alpha, r.kappa, r.distance * r.distance);
+                assert!(
+                    (r.score - expect).abs() < 1e-5,
+                    "{}: idx {} score {} != alpha*exp(-kappa*d2) = {}",
+                    name,
+                    r.index,
+                    r.score,
+                    expect
+                );
+            }
+        };
+
+        check("find_neighbors", &store.find_neighbors(&query.view(), 5));
+        check(
+            "find_neighbors_fused",
+            &store.find_neighbors_fused(&query.view(), 5),
+        );
+        check(
+            "find_neighbors_gaussian",
+            &store.find_neighbors_gaussian(&query.view(), 5),
+        );
+        check(
+            "find_neighbors_filtered",
+            &store.find_neighbors_filtered(&query.view(), &(0..10).collect::<Vec<_>>(), 5),
+        );
+
+        // find_neighbors_fast is &mut self — separate store.
+        let mut store2 = SplatStore::new(test_config_with_hnsw());
+        store2.load_splats(&data, &alpha, &kappa).unwrap();
+        store2.build_index();
+        // n=80 < 100 → linear path inside find_neighbors_fast.
+        let fast = store2.find_neighbors_fast(&query.view(), 5);
+        check("find_neighbors_fast", &fast);
+    }
+
+    #[test]
+    fn test_score_roundtrip_through_save_load() {
+        // Round-trip: results obtained pre-save and post-load must carry the
+        // same score for the same index (score is derived, but the store's
+        // alpha/kappa must survive persistence so scores stay identical).
+        let dir = std::env::temp_dir().join("splatsdb_gaussian_roundtrip");
+        std::fs::create_dir_all(&dir).unwrap();
+        let data_dir = dir.to_str().unwrap();
+
+        let mut alpha_kappa;
+        let q = Array1::zeros(8);
+
+        {
+            let mut c = test_config_with_hnsw();
+            c.latent_dim = 8;
+            c.max_splats = 100;
+            let mut store = SplatStore::new(c);
+            let mut mu = Array2::zeros((3, 8));
+            mu[[0, 0]] = 0.5;
+            mu[[1, 0]] = 1.5;
+            mu[[2, 0]] = 3.0;
+            let alpha = [1.0f32, 0.8, 0.6];
+            let kappa = [2.0f32, 0.5, 0.1];
+            store.load_splats(&mu, &alpha, &kappa).unwrap();
+            store.build_index_with_save(Some(data_dir));
+            alpha_kappa = (alpha, kappa);
+
+            let results = store.find_neighbors_gaussian(&q.view(), 3);
+            assert_eq!(results.len(), 3);
+            // Persist expected scores via the store's own serialization path.
+            let scores: Vec<(usize, f32, f32)> = results
+                .iter()
+                .map(|r| (r.index, r.score, r.distance))
+                .collect();
+            let path = dir.join("expected_scores.bin");
+            let bytes: Vec<u8> = scores
+                .iter()
+                .flat_map(|&(i, s, d)| {
+                    let mut b = Vec::new();
+                    b.extend_from_slice(&(i as u64).to_le_bytes());
+                    b.extend_from_slice(&s.to_le_bytes());
+                    b.extend_from_slice(&d.to_le_bytes());
+                    b
+                })
+                .collect();
+            std::fs::write(&path, bytes).unwrap();
+        }
+
+        {
+            let mut c = test_config_with_hnsw();
+            c.latent_dim = 8;
+            c.max_splats = 100;
+            let mut store = SplatStore::new(c);
+            let mut mu = Array2::zeros((3, 8));
+            mu[[0, 0]] = 0.5;
+            mu[[1, 0]] = 1.5;
+            mu[[2, 0]] = 3.0;
+            store
+                .load_splats(&mu, &alpha_kappa.0, &alpha_kappa.1)
+                .unwrap();
+            assert!(store.build_index_if_needed(data_dir));
+
+            let results = store.find_neighbors_gaussian(&q.view(), 3);
+            let path = dir.join("expected_scores.bin");
+            let bytes = std::fs::read(&path).unwrap();
+            for (chunk, r) in bytes.chunks_exact(16).zip(results.iter()) {
+                let idx = u64::from_le_bytes(chunk[0..8].try_into().unwrap()) as usize;
+                let score = f32::from_le_bytes(chunk[8..12].try_into().unwrap());
+                let dist = f32::from_le_bytes(chunk[12..16].try_into().unwrap());
+                assert_eq!(r.index, idx);
+                assert!(
+                    (r.score - score).abs() < 1e-6,
+                    "score changed after save/load: {} vs {}",
+                    r.score,
+                    score
+                );
+                assert!((r.distance - dist).abs() < 1e-6);
+            }
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
