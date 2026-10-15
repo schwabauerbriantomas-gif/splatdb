@@ -61,19 +61,16 @@ test gpu::tests::test_ptx_kernel_performance ... ok
 - **build.rs** elige `nvcc.exe` de Windows en WSL y falla ("nvcc compilation failed") — la suite depende de `M2M_PTX_PATH` apuntando a un PTX Linux válido. Con el PTX del clone compilado con nvcc 12.4 Linux funciona perfecto.
 - B2 ya agregó sus propios unit tests de `find_neighbors_gaussian` en `src/splats.rs` (vistos al 01:12) — complementarios a los de esta suite.
 
-## Integración completa (fase 2, cierre)
+## Integración completa (fase 2, cierre FINAL con push)
 
-**Commit `6a5a40a`** en `wip/v2.6.0-local` y `main` (fast-forward desde 1699709): B1–B6 integrados + fixes B6. 22 archivos, +4482/−403.
+**Estado final: `origin/main` = `main` = `wip/v2.6.0-local` @ `61bba43`, CI de GitHub EN VERDE (lint ✓ + test ✓).**
 
-**Fixes de B6 incluidos:**
-1. **K=32 smem:** `launch_gaussian_topk_kernel` ahora hace opt-in de smem dinámica extendida vía `CudaFunction::set_attribute(CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, smem)` cuando (D+256·K·2)·4 > 48KB. Resultado: **parity GPU verificada 3/3 K values** (antes 2/3, K=32 caía a CPU silencioso).
-2. **build.rs WSL-aware:** `which_nvcc()` nunca devuelve nvcc.exe/cl.exe de Windows en WSL; busca Linux nvcc en PATH, `~/.local/cuda*`, `/usr/local/cuda*`, `$CUDA_PATH`. `find_msvc_cl()` se desactiva en WSL (el `-ccbin cl.exe` de /mnt/c rompía el nvcc Linux). Ahora `cargo build --features cuda` **compila sus propios PTX sin ninguna env var** (probado con cargo clean + build desde cero).
-3. `ptx/` agregado a .gitignore.
+Historia de la integración:
+1. `6a5a40a` — O2 (B1–B6) + fixes B6 en el principal (verificado antes en clone: 406/0 con cuda).
+2. `53d3586` — **merge con origin/main** (que había avanzado 17 commits en paralelo: merge parcial del wip, P1–P4, fixes de issues #1/#3/#4/#5, fmt, clippy). 7 conflictos resueltos: mcp_server/persistence/sqlite_store → origin; api_server combinado (SplitMix64 nuestro + serve(config,data_dir) suyo + batching B3); cli combinado (benches B4 + serve suyo); README combinado (badge real 406, microbench 39.89× + tabla 12,195 QPS ahora con fuente: bench-data/benchmark_results_hardware.json, SIFT-128 100K, k=64); BENCHMARKS.md conservado.
+3. `7066bae` — lint: fmt + clippy -D warnings limpio en AMBAS configs (± cuda), ~20 lints corregidos (dead-code por cfg(cuda), map_or→is_none_or, field_reassign, type_complexity, redundant_closure). server_config ahora aplica preset HNSW de B3 SOBRE el config del CLI (--dim de issue #3 preservado).
+4. `61bba43` — smoke test: ventana de health 10s→60s (en CI debug + contención de tests paralelos el boot tarda más; diagnosticado con logs reales del job fallido, reproducido local en debug: 403/0).
 
-**Verificación final EN el principal (post-commit, --features cuda, sin env vars):**
-```
-lib 330 · chaos 8 · integration 3 · integration_gaussian 5 · pentest 29 · qa 31 → 406 passed / 0 failed
-[benchmark B1 re-verificado] 10K x 640D, 100 queries | CPU: 718ms | GPU: 18ms | speedup: 39.89x
-```
+**Verificaciones locales previas al push:** fmt --check OK · clippy 0 errores (±cuda) · release+cuda 410/0 · release sin cuda 403/0 · debug 403/0.
 
-**No integrado (fuera de alcance):** push a origin (remoto intocado — `main` queda "ahead 2, behind 17" vs origin/main según diseño local del repo).
+**Fixes B6 incluidos:** (1) K=32 smem opt-in vía `cuFuncSetAttribute` → parity GPU 3/3; (2) build.rs WSL-aware (nvcc Linux en `~/.local/cuda*`/`/usr/local/cuda*`, jamás nvcc.exe de Windows ni `-ccbin cl.exe` en WSL) → `cargo build --features cuda` compila PTX sin env vars; (3) `ptx/` en .gitignore.
