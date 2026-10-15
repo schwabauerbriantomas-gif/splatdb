@@ -104,7 +104,10 @@ fn e2e_fused_matches_linear_top3_5k_vectors() {
     let queries = random_normalized(N_QUERIES, DIM, SEED + 1);
 
     let mut store = SplatStore::new(e2e_config());
-    assert!(store.add_splat(&data), "batch insert of {N_VECTORS} vectors");
+    assert!(
+        store.add_splat(&data),
+        "batch insert of {N_VECTORS} vectors"
+    );
     assert_eq!(store.n_active(), N_VECTORS);
 
     store.build_index();
@@ -137,7 +140,12 @@ fn e2e_fused_matches_linear_top3_5k_vectors() {
             );
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches}/{} fused results differ from linear", N_QUERIES * TOP_K);
+    assert_eq!(
+        mismatches,
+        0,
+        "{mismatches}/{} fused results differ from linear",
+        N_QUERIES * TOP_K
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,25 +269,22 @@ mod gpu_parity {
                 let mut scored: Vec<(usize, f32)> = (0..GPU_N)
                     .map(|i| {
                         let row = &dataset[i * DIM..(i + 1) * DIM];
-                        let d2: f32 =
-                            qs.iter().zip(row.iter()).map(|(a, b)| (a - b) * (a - b)).sum();
+                        let d2: f32 = qs
+                            .iter()
+                            .zip(row.iter())
+                            .map(|(a, b)| (a - b) * (a - b))
+                            .sum();
                         (i, alpha[i] * (-(kappa[i] * d2)).exp())
                     })
                     .collect();
-                scored.sort_by(|a, b| {
-                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-                });
+                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 scored.truncate(k);
                 scored
             })
             .collect()
     }
 
-    fn assert_parity(
-        gpu_out: &[Vec<(usize, f32)>],
-        cpu_ref: &[Vec<(usize, f32)>],
-        ctx: &str,
-    ) {
+    fn assert_parity(gpu_out: &[Vec<(usize, f32)>], cpu_ref: &[Vec<(usize, f32)>], ctx: &str) {
         assert_eq!(gpu_out.len(), cpu_ref.len(), "{ctx}: query count");
         for (q, (gq, cq)) in gpu_out.iter().zip(cpu_ref.iter()).enumerate() {
             assert_eq!(gq.len(), cq.len(), "{ctx}: k mismatch on query {q}");
@@ -314,25 +319,22 @@ mod gpu_parity {
             // Direct GPU path (gaussian_topk_kernel PTX, 1 <= K <= 32).
             // The smem opt-in fix means K=32 (65.5KB dynamic smem on D=64)
             // must launch on sm_86 — None here is a hard failure.
-            let gpu_out = gpu_gaussian_topk(
-                &queries, GPU_Q, &dataset, &alpha, &kappa, GPU_N, DIM, k,
-            )
-            .unwrap_or_else(|| {
-                panic!(
-                    "gpu_gaussian_topk returned None for k={k} — kernel must support \
+            let gpu_out =
+                gpu_gaussian_topk(&queries, GPU_Q, &dataset, &alpha, &kappa, GPU_N, DIM, k)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "gpu_gaussian_topk returned None for k={k} — kernel must support \
                      1<=K<=32 (extended smem opt-in failed?)"
-                )
-            });
+                        )
+                    });
 
-            let cpu_ref =
-                reference_topk(&queries, &dataset, &alpha, &kappa, GPU_Q, k);
+            let cpu_ref = reference_topk(&queries, &dataset, &alpha, &kappa, GPU_Q, k);
             assert_parity(&gpu_out, &cpu_ref, &format!("direct kernel k={k}"));
 
             // Public wrapper: same result, whichever internal path it takes.
-            let wrapped = gpu::gaussian_topk_scores(
-                &queries, &dataset, &alpha, &kappa, GPU_N, DIM, GPU_Q, k,
-            )
-            .expect("wrapper must return Some with valid inputs");
+            let wrapped =
+                gpu::gaussian_topk_scores(&queries, &dataset, &alpha, &kappa, GPU_N, DIM, GPU_Q, k)
+                    .expect("wrapper must return Some with valid inputs");
             assert_parity(&wrapped, &cpu_ref, &format!("wrapper k={k}"));
             gpu_verified += 1;
         }
@@ -375,11 +377,7 @@ mod api_smoke {
             .and_then(|l| l.split_whitespace().nth(1))
             .and_then(|s| s.parse().ok())
             .expect("status line");
-        let body = response
-            .split("\r\n\r\n")
-            .nth(1)
-            .unwrap_or("")
-            .to_string();
+        let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
         (status, body)
     }
 
@@ -399,7 +397,10 @@ mod api_smoke {
                 "127.0.0.1",
                 port,
                 splatsdb::config::SplatsDBConfig::default(),
-                std::env::temp_dir().join("splatsdb_smoke").to_str().unwrap(),
+                std::env::temp_dir()
+                    .join("splatsdb_smoke")
+                    .to_str()
+                    .unwrap(),
             ));
         });
 
@@ -452,10 +453,7 @@ mod api_smoke {
             assert!(r["index"].is_u64(), "result missing index: {r}");
             assert!(r["score"].is_f64(), "result missing score: {r}");
         }
-        let scores: Vec<f64> = results
-            .iter()
-            .filter_map(|r| r["score"].as_f64())
-            .collect();
+        let scores: Vec<f64> = results.iter().filter_map(|r| r["score"].as_f64()).collect();
         let mut sorted = scores.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert_eq!(scores, sorted, "search results must be distance-sorted");

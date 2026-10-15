@@ -183,7 +183,7 @@ impl GpuIndex {
         dim: usize,
     ) -> Option<Vec<f32>> {
         let ptx_path = option_env!("M2M_PTX_PATH");
-        if ptx_path.map_or(true, |p| p.is_empty()) {
+        if ptx_path.is_none_or(|p| p.is_empty()) {
             return None;
         }
 
@@ -275,7 +275,7 @@ impl GpuIndex {
         dim: usize,
     ) -> Option<Vec<Vec<f32>>> {
         let ptx_path = option_env!("M2M_PTX_PATH");
-        if ptx_path.map_or(true, |p| p.is_empty()) {
+        if ptx_path.is_none_or(|p| p.is_empty()) {
             return None;
         }
 
@@ -365,7 +365,7 @@ impl GpuIndex {
         dim: usize,
     ) -> Option<Vec<f32>> {
         let ptx_path = option_env!("M2M_PTX_PATH");
-        if ptx_path.map_or(true, |p| p.is_empty()) {
+        if ptx_path.is_none_or(|p| p.is_empty()) {
             return None;
         }
 
@@ -475,7 +475,7 @@ impl GpuIndex {
         metric: &str,
     ) -> Option<Vec<(Vec<usize>, Vec<f32>)>> {
         let ptx_path = option_env!("M2M_PTX_PATH");
-        if ptx_path.map_or(true, |p| p.is_empty()) || k > 32 {
+        if ptx_path.is_none_or(|p| p.is_empty()) || k > 32 {
             return None; // Kernel supports K <= 32
         }
 
@@ -581,7 +581,9 @@ impl GpuIndex {
             return None;
         }
 
-        self.launch_gaussian_topk_kernel(queries, data_gpu, alpha_gpu, kappa_gpu, n_queries, n, dim, k)
+        self.launch_gaussian_topk_kernel(
+            queries, data_gpu, alpha_gpu, kappa_gpu, n_queries, n, dim, k,
+        )
     }
 
     /// Launch the gaussian_topk PTX kernel. Mirrors launch_topk_kernel.
@@ -597,7 +599,7 @@ impl GpuIndex {
         dim: usize,
         k: usize,
     ) -> Option<Vec<Vec<(usize, f32)>>> {
-        if option_env!("M2M_PTX_PATH").map_or(true, |p| p.is_empty()) || k > 32 || k == 0 {
+        if option_env!("M2M_PTX_PATH").is_none_or(|p| p.is_empty()) || k > 32 || k == 0 {
             return None; // Kernel supports 1 <= K <= 32
         }
 
@@ -629,10 +631,7 @@ impl GpuIndex {
             use cudarc::driver::sys::{CUfunction_attribute, CUfunction_attribute_enum};
             let attr: CUfunction_attribute_enum =
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES;
-            if func
-                .set_attribute(attr, shared_mem_bytes as i32)
-                .is_err()
-            {
+            if func.set_attribute(attr, shared_mem_bytes as i32).is_err() {
                 eprintln!(
                     "[splatsdb] gaussian_topk_kernel: opt-in extended shared memory \
                      ({} bytes) refused by driver — using CPU fallback",
@@ -739,6 +738,7 @@ pub fn gpu_batch_search(
 
 /// GPU Gaussian top-k search — uses gaussian_topk PTX kernel when available.
 /// score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2), descending.
+#[allow(clippy::too_many_arguments)]
 pub fn gpu_gaussian_topk(
     queries: &[f32],
     n_queries: usize,
