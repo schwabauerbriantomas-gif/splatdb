@@ -4,10 +4,8 @@
 |----------|----------|
 | [README.md](../README.md) | Project overview, quick start, benchmark summary (honest tables with k + recall per row) |
 | [BENCHMARKS.md](../BENCHMARKS.md) | All benchmark tables, each number with source, date, hardware, and reproduction command |
-| [AUDIT.md](../AUDIT.md) | Code audit notes |
-| [SECURITY_AUDIT.md](../SECURITY_AUDIT.md) | Pentest findings and mitigations |
-| [PORT_SPEC.md](../PORT_SPEC.md) | Port/rename specification |
-| [REFACTOR_PLAN.md](../REFACTOR_PLAN.md) | Refactoring plan |
+| [CHANGELOG.md](../CHANGELOG.md) | Release changelog |
+| [SECURITY_AUDIT.md](SECURITY_AUDIT.md) | Pentest findings and mitigations (moved here by origin/main) |
 
 ## Benchmark documentation policy
 
