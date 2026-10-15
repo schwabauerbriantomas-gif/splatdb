@@ -704,7 +704,78 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     result == 0
 }
 
-// ─── Server construction ──────────────────────────────────
+/// Load vectors from the `default` shard of `data_dir` into `store`.
+///
+/// Returns the number of vectors loaded. Mirrors the CLI's
+/// `load_or_create_store` behaviour (src/cli/helpers.rs), keeping `serve`
+/// consistent with `status`/`search` over the same data-dir.
+fn load_default_shard(store: &mut SplatStore, data_dir: &str) -> anyhow::Result<usize> {
+    let persist = crate::storage::persistence::SplatsDBPersistence::with_backend(
+        data_dir,
+        crate::storage::persistence::StorageBackend::Sqlite,
+        false,
+    )
+    .map_err(|e| anyhow::anyhow!("persistence init failed: {e}"))?;
+    match persist.load_vectors("default")? {
+        Some(vectors) => {
+            if !store.add_splat(&vectors) {
+                anyhow::bail!(
+                    "store capacity exceeded (max_splats={}) while loading {} vectors",
+                    store.max_splats(),
+                    vectors.nrows()
+                );
+            }
+            Ok(vectors.nrows())
+        }
+        None => Ok(0),
+    }
+}
+
+pub async fn run_server(
+    addr: &str,
+    port: u16,
+    config: SplatsDBConfig,
+    data_dir: &str,
+) -> anyhow::Result<()> {
+    let hnsw_on = config.enable_hnsw;
+    let mut store = SplatStore::new(config);
+
+    // Auto-load the `default` shard from `data_dir` (if present) so `serve`
+    // boots with the vectors indexed by the CLI instead of an empty store,
+    // and honours the CLI --dim flag instead of SplatsDBConfig::default() (issue #3).
+    match load_default_shard(&mut store, data_dir) {
+        Ok(n) if n > 0 => eprintln!(
+            "[splatsdb] serve: loaded {n} vectors (dim {}) from {data_dir}",
+            store.get_statistics().embedding_dim
+        ),
+        Ok(_) => eprintln!("[splatsdb] serve: no existing data in {data_dir}, starting empty"),
+        Err(e) => eprintln!("[splatsdb] serve: failed to load {data_dir}: {e}"),
+    }
+
+    let store = Arc::new(Mutex::new(store));
+    let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
+    let batches_served = Arc::new(AtomicUsize::new(0));
+    tokio::spawn(batch_worker(batch_rx, store.clone(), batches_served.clone()));
+
+    let state = AppState {
+        store,
+        next_id: Arc::new(AtomicUsize::new(0)),
+        batch_tx,
+        batches_served,
+    };
+
+    let app = build_router(state);
+
+    let bind_addr = format!("{addr}:{port}");
+    println!(
+        "SplatsDB server listening on {bind_addr} \
+         (hnsw={}, batching: window={BATCH_WINDOW_MS}ms max={MAX_BATCH}, gpu={})",
+        hnsw_on,
+        crate::gpu::is_cuda_available()
+    );
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+    Ok(axum::serve(listener, app).await?)
+}
 
 /// Server configuration: HNSW ENABLED with a reasonable over-fetch.
 ///
@@ -751,35 +822,6 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-pub async fn run_server(addr: &str, port: u16) -> anyhow::Result<()> {
-    let config = server_config();
-    let hnsw_on = config.enable_hnsw;
-    let store = SplatStore::new(config);
-
-    let store = Arc::new(Mutex::new(store));
-    let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
-    let batches_served = Arc::new(AtomicUsize::new(0));
-    tokio::spawn(batch_worker(batch_rx, store.clone(), batches_served.clone()));
-
-    let state = AppState {
-        store,
-        next_id: Arc::new(AtomicUsize::new(0)),
-        batch_tx,
-        batches_served,
-    };
-
-    let app = build_router(state);
-
-    let bind_addr = format!("{addr}:{port}");
-    println!(
-        "SplatsDB server listening on {bind_addr} \
-         (hnsw={}, batching: window={BATCH_WINDOW_MS}ms max={MAX_BATCH}, gpu={})",
-        hnsw_on,
-        crate::gpu::is_cuda_available()
-    );
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    Ok(axum::serve(listener, app).await?)
-}
 
 // ─── Tests ────────────────────────────────────────────────
 

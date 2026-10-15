@@ -1,0 +1,84 @@
+{
+  "benchmark": "LongMemEval-S-cleaned \u2014 SplatDB Native Methodology",
+  "date": "2026-04-09",
+  "model": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "n_sessions": 23867,
+  "n_queries": 500,
+  "embedding_time_s": 82.6,
+  "hnsw_params": {
+    "M": 32,
+    "ef_construction": 400,
+    "ef_search": 100,
+    "over_fetch": 3,
+    "metric": "l2"
+  },
+  "splatdb_rust": {
+    "qps": 671.63,
+    "p50_us": 1448,
+    "build_ms": 106962
+  },
+  "recall": {
+    "brute_force": {
+      "@1": 0.11,
+      "@3": 0.194,
+      "@5": 0.232,
+      "@10": 0.304
+    },
+    "hnsw_raw": {
+      "@1": 0.104,
+      "@3": 0.192,
+      "@5": 0.236,
+      "@10": 0.308
+    },
+    "hnsw_overfetch_rerank": {
+      "@1": 0.104,
+      "@3": 0.192,
+      "@5": 0.236,
+      "@10": 0.304
+    }
+  },
+  "latency_ms": {
+    "hnsw_raw_p50": 0.837,
+    "overfetch_rerank_p50": 0.871,
+    "brute_force_p50": 3.171
+  },
+  "per_type_overfetch": {
+    "single-session-user": {
+      "@1": 0.0143,
+      "@3": 0.0143,
+      "@5": 0.0286,
+      "@10": 0.0571
+    },
+    "multi-session": {
+      "@1": 0.0677,
+      "@3": 0.1579,
+      "@5": 0.2331,
+      "@10": 0.3008
+    },
+    "single-session-preference": {
+      "@1": 0.0667,
+      "@3": 0.1,
+      "@5": 0.1,
+      "@10": 0.1667
+    },
+    "temporal-reasoning": {
+      "@1": 0.0752,
+      "@3": 0.1128,
+      "@5": 0.188,
+      "@10": 0.2857
+    },
+    "knowledge-update": {
+      "@1": 0.0769,
+      "@3": 0.1154,
+      "@5": 0.1154,
+      "@10": 0.2051
+    },
+    "single-session-assistant": {
+      "@1": 0.4286,
+      "@3": 0.8393,
+      "@5": 0.8571,
+      "@10": 0.875
+    }
+  }
+}

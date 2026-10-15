@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 /// A single document record.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DocumentRecord {
     pub id: String,
     pub shard_idx: i64,
@@ -52,6 +52,32 @@ pub trait MetadataStore: Send + Sync {
         &self,
         include_deleted: bool,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Find the first non-deleted document with the given `vector_idx`.
+    ///
+    /// Default: generic O(N) scan in `list_ids` order. Backends with an index
+    /// on `vector_idx` (e.g. SQLite `idx_vector`) override this with an
+    /// indexed lookup — see `SqliteMetadataStore::find_by_vector_idx` and its
+    /// parity test.
+    ///
+    /// On duplicated `vector_idx` values the winner is the first matching
+    /// non-deleted record in `list_ids` order (for SQLite: ascending `id`,
+    /// because the covering index on the TEXT PRIMARY KEY yields rows in
+    /// lexicographic `id` order).
+    fn find_by_vector_idx(
+        &self,
+        vector_idx: i64,
+    ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let ids = self.list_ids(true)?;
+        for id in ids {
+            if let Some(record) = self.get(&id)? {
+                if record.vector_idx == vector_idx && !record.deleted {
+                    return Ok(Some(record));
+                }
+            }
+        }
+        Ok(None)
+    }
 
     /// Flush/sync pending writes (for databases with write buffers).
     fn flush(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -13,6 +13,7 @@ pub fn cmd_search(
     query: String,
     k: usize,
     format: String,
+    shard: String,
 ) {
     let q = match parse_query(&query) {
         Ok(v) => v,
@@ -21,7 +22,7 @@ pub fn cmd_search(
             std::process::exit(1);
         }
     };
-    let (store, _) = load_or_create_store(&data_dir, &config);
+    let (store, _) = load_shard_store(&data_dir, &config, &shard);
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
@@ -32,6 +33,7 @@ pub fn cmd_search_file(
     input: PathBuf,
     k: usize,
     format: String,
+    shard: String,
 ) {
     let q = match load_query_bin(&input) {
         Ok(v) => v,
@@ -40,7 +42,7 @@ pub fn cmd_search_file(
             std::process::exit(1);
         }
     };
-    let (store, _) = load_or_create_store(&data_dir, &config);
+    let (store, _) = load_shard_store(&data_dir, &config, &shard);
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
