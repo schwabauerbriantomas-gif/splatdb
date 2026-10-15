@@ -118,6 +118,7 @@ pub fn gpu_info() -> Option<String> {
 /// kernel matches within a thread — cross-thread exact ties are negligible for
 /// continuous data). Falls back to an exact CPU reference (natural exp, same
 /// ordering) when CUDA is unavailable.
+#[allow(clippy::too_many_arguments)]
 pub fn gaussian_topk_scores(
     queries: &[f32],
     dataset: &[f32],
@@ -184,10 +185,7 @@ pub(crate) fn cpu_gaussian_topk(
                 })
                 .collect();
             // Stable sort descending by score → ties keep smaller index first.
-            scored.sort_by(|a, b| {
-                b.1.partial_cmp(&a.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             scored.truncate(k_eff);
             scored
         })
@@ -575,7 +573,11 @@ mod tests {
         assert!((out[0][0].1 - 0.5).abs() < 1e-6, "got {}", out[0][0].1);
         let expected2 = 2.0f32 * (-25.0f32).exp();
         assert_eq!(out[0][1].0, 1);
-        assert!((out[0][1].1 - expected2).abs() < 1e-6, "got {}", out[0][1].1);
+        assert!(
+            (out[0][1].1 - expected2).abs() < 1e-6,
+            "got {}",
+            out[0][1].1
+        );
     }
 
     /// Gaussian top-k: kappa per item makes ordering differ from ascending d2.
@@ -609,9 +611,7 @@ mod tests {
 
         let (dataset, alpha, kappa, queries) = gaussian_test_data(n, dim, n_queries, 42);
 
-        let cpu = cpu_gaussian_topk(
-            &queries, &dataset, &alpha, &kappa, n, dim, n_queries, k,
-        );
+        let cpu = cpu_gaussian_topk(&queries, &dataset, &alpha, &kappa, n, dim, n_queries, k);
 
         // Direct GPU kernel path (None => PTX/GPU kernel unavailable -> skip).
         let gpu = cuda_kernel::gpu_gaussian_topk(
@@ -621,9 +621,7 @@ mod tests {
             assert_eq!(gpu.len(), n_queries);
             for q in 0..n_queries {
                 assert_eq!(gpu[q].len(), k, "query {} missing results", q);
-                for (rank, ((gi, gs), (ci, cs))) in
-                    gpu[q].iter().zip(cpu[q].iter()).enumerate()
-                {
+                for (rank, ((gi, gs), (ci, cs))) in gpu[q].iter().zip(cpu[q].iter()).enumerate() {
                     assert_eq!(
                         gi, ci,
                         "query {} rank {}: GPU idx {} != CPU idx {}",
@@ -633,7 +631,12 @@ mod tests {
                     assert!(
                         diff < 1e-5,
                         "query {} rank {} idx {}: GPU score {} vs CPU {} (diff {})",
-                        q, rank, gi, gs, cs, diff
+                        q,
+                        rank,
+                        gi,
+                        gs,
+                        cs,
+                        diff
                     );
                 }
             }
@@ -644,10 +647,9 @@ mod tests {
         } else {
             eprintln!("[gaussian-topk test] GPU kernel unavailable -> CPU-only check");
             // Public wrapper must still return the CPU reference.
-            let via_wrapper = gaussian_topk_scores(
-                &queries, &dataset, &alpha, &kappa, n, dim, n_queries, k,
-            )
-            .expect("wrapper must fall back to CPU");
+            let via_wrapper =
+                gaussian_topk_scores(&queries, &dataset, &alpha, &kappa, n, dim, n_queries, k)
+                    .expect("wrapper must fall back to CPU");
             assert_eq!(via_wrapper, cpu);
         }
     }
@@ -667,9 +669,7 @@ mod tests {
 
         let (dataset, alpha, kappa, queries) = gaussian_test_data(n, dim, n_queries, 7);
 
-        let cpu = cpu_gaussian_topk(
-            &queries, &dataset, &alpha, &kappa, n, dim, n_queries, k,
-        );
+        let cpu = cpu_gaussian_topk(&queries, &dataset, &alpha, &kappa, n, dim, n_queries, k);
         let gpu = cuda_kernel::gpu_gaussian_topk(
             &queries, n_queries, &dataset, &alpha, &kappa, n, dim, k,
         );
@@ -721,7 +721,8 @@ mod tests {
                     assert!(
                         row[rank - 1].1 >= s,
                         "query {}: scores not descending at rank {}",
-                        q, rank
+                        q,
+                        rank
                     );
                 }
             }
@@ -732,6 +733,7 @@ mod tests {
     /// Deterministic pseudo-random test data (same LCG as existing tests).
     /// Returns (dataset [N*D], alpha [N] in [0.1,1], kappa [N] in [0.05,1],
     /// queries [Q*D]).
+    #[cfg_attr(not(feature = "cuda"), allow(dead_code))]
     fn gaussian_test_data(
         n: usize,
         dim: usize,
@@ -743,11 +745,9 @@ mod tests {
             *state = state
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
-            (( *state >> 33) as f32) / (u32::MAX as f32)
+            ((*state >> 33) as f32) / (u32::MAX as f32)
         };
-        let dataset: Vec<f32> = (0..n * dim)
-            .map(|_| next(&mut state) * 2.0 - 1.0)
-            .collect();
+        let dataset: Vec<f32> = (0..n * dim).map(|_| next(&mut state) * 2.0 - 1.0).collect();
         let alpha: Vec<f32> = (0..n).map(|_| 0.1 + 0.9 * next(&mut state)).collect();
         let kappa: Vec<f32> = (0..n).map(|_| 0.05 + 0.95 * next(&mut state)).collect();
         let queries: Vec<f32> = (0..n_queries * dim)

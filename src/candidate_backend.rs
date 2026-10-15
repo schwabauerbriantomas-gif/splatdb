@@ -25,21 +25,12 @@ use ndarray::Array2;
 use std::path::Path;
 
 /// Capabilities advertised by a [`CandidateBackend`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BackendCaps {
     /// Backend supports (tombstone-based) removal of indexed vectors.
     pub supports_delete: bool,
     /// Backend supports incremental insertion without a full rebuild.
     pub incremental: bool,
-}
-
-impl Default for BackendCaps {
-    fn default() -> Self {
-        Self {
-            supports_delete: false,
-            incremental: false,
-        }
-    }
 }
 
 /// Candidate-generation backend for `SplatStore`.
@@ -234,7 +225,11 @@ mod tests {
         assert_eq!(backend.len(), 30);
 
         let extra: Vec<Vec<f32>> = (0..5)
-            .map(|i| (0..dim).map(|j| ((i * 13 + j) as f32 * 0.11).cos()).collect())
+            .map(|i| {
+                (0..dim)
+                    .map(|j| ((i * 13 + j) as f32 * 0.11).cos())
+                    .collect()
+            })
             .collect();
         backend.add_batch(&extra).expect("add_batch should succeed");
         assert_eq!(backend.len(), 35);

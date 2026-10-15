@@ -597,7 +597,10 @@ mod tests {
             "training: semantic memory should be off"
         );
         // Matryoshka dims
-        assert_eq!(c.training_matryoshka_dims, vec![32, 64, 128, 256, 512, 1024]);
+        assert_eq!(
+            c.training_matryoshka_dims,
+            vec![32, 64, 128, 256, 512, 1024]
+        );
         // Noise levels for augmentation
         assert!(
             !c.noise_levels.is_empty(),

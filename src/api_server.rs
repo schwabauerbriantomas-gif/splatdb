@@ -378,7 +378,11 @@ async fn batch_worker(
 /// Execute one coalesced batch and deliver each request's slice of the
 /// results on its oneshot channel. Any request that arrives on a channel
 /// that was already dropped is silently discarded.
-async fn serve_batch(batch: Vec<BatchRequest>, store: &Arc<Mutex<SplatStore>>, snapshot: &mut Option<DatasetSnapshot>) {
+async fn serve_batch(
+    batch: Vec<BatchRequest>,
+    store: &Arc<Mutex<SplatStore>>,
+    snapshot: &mut Option<DatasetSnapshot>,
+) {
     let queries: Vec<Vec<f32>> = batch.iter().map(|b| b.query.clone()).collect();
     let ks: Vec<usize> = batch.iter().map(|b| b.k).collect();
     let rescore: Vec<bool> = batch.iter().map(|b| b.rescore_gaussian).collect();
@@ -416,7 +420,9 @@ async fn serve_batch(batch: Vec<BatchRequest>, store: &Arc<Mutex<SplatStore>>, s
             // spawn_blocking panicked — worker state (snapshot) is lost, which
             // is safe: it is only a cache.
             for b in batch {
-                let _ = b.resp.send(Err(format!("batch worker task failed: {join_err}")));
+                let _ = b
+                    .resp
+                    .send(Err(format!("batch worker task failed: {join_err}")));
             }
         }
     }
@@ -737,6 +743,7 @@ pub async fn run_server(
     config: SplatsDBConfig,
     data_dir: &str,
 ) -> anyhow::Result<()> {
+    let config = server_config(config);
     let hnsw_on = config.enable_hnsw;
     let mut store = SplatStore::new(config);
 
@@ -755,7 +762,11 @@ pub async fn run_server(
     let store = Arc::new(Mutex::new(store));
     let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
     let batches_served = Arc::new(AtomicUsize::new(0));
-    tokio::spawn(batch_worker(batch_rx, store.clone(), batches_served.clone()));
+    tokio::spawn(batch_worker(
+        batch_rx,
+        store.clone(),
+        batches_served.clone(),
+    ));
 
     let state = AppState {
         store,
@@ -777,25 +788,22 @@ pub async fn run_server(
     Ok(axum::serve(listener, app).await?)
 }
 
-/// Server configuration: HNSW ENABLED with a reasonable over-fetch.
+/// Server preset applied on top of the CLI-provided config: HNSW ENABLED with
+/// a reasonable over-fetch.
 ///
 /// The server previously used `SplatsDBConfig::default()`, which ships HNSW
 /// disabled (config/mod.rs: `enable_hnsw: false`) — every `/search` degraded
 /// to a linear O(N·D) scan even through `find_neighbors_fused` (R9 §5.3).
-fn server_config() -> SplatsDBConfig {
-    SplatsDBConfig {
-        // HNSW enabled: the server previously used `SplatsDBConfig::default()`
-        // which ships HNSW disabled (config/mod.rs: `enable_hnsw: false`) —
-        // every /search degraded to a linear O(N·D) scan even through
-        // `find_neighbors_fused` (R9 §5.3).
-        enable_hnsw: true,
-        hnsw_m: 32,
-        hnsw_ef_construction: 200,
-        hnsw_ef_search: 100,
-        // HNSW candidate over-fetch factor before exact re-rank.
-        over_fetch: 5,
-        ..SplatsDBConfig::default()
-    }
+/// The CLI config (dim, data_dir plumbing from issue #3) is preserved; only
+/// the HNSW tuning knobs are overridden here.
+fn server_config(mut base: SplatsDBConfig) -> SplatsDBConfig {
+    base.enable_hnsw = true;
+    base.hnsw_m = 32;
+    base.hnsw_ef_construction = 200;
+    base.hnsw_ef_search = 100;
+    // HNSW candidate over-fetch factor before exact re-rank.
+    base.over_fetch = 5;
+    base
 }
 
 /// Build the application router (shared by `run_server` and tests).
@@ -822,7 +830,6 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-
 // ─── Tests ────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -834,15 +841,16 @@ mod tests {
     use tower::ServiceExt; // oneshot
 
     fn test_config() -> SplatsDBConfig {
-        let mut c = SplatsDBConfig::default();
-        c.max_splats = 500;
-        c.latent_dim = 32;
-        c.enable_hnsw = true;
-        c.hnsw_m = 8;
-        c.hnsw_ef_construction = 50;
-        c.hnsw_ef_search = 32;
-        c.over_fetch = 5;
-        c
+        SplatsDBConfig {
+            max_splats: 500,
+            latent_dim: 32,
+            enable_hnsw: true,
+            hnsw_m: 8,
+            hnsw_ef_construction: 50,
+            hnsw_ef_search: 32,
+            over_fetch: 5,
+            ..SplatsDBConfig::default()
+        }
     }
 
     /// App instance with a fresh store, a live batch worker and a readable
@@ -851,7 +859,11 @@ mod tests {
         let store = Arc::new(Mutex::new(SplatStore::new(test_config())));
         let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
         let batches_served = Arc::new(AtomicUsize::new(0));
-        tokio::spawn(batch_worker(batch_rx, store.clone(), batches_served.clone()));
+        tokio::spawn(batch_worker(
+            batch_rx,
+            store.clone(),
+            batches_served.clone(),
+        ));
         let state = AppState {
             store,
             next_id: Arc::new(AtomicUsize::new(0)),
@@ -968,13 +980,8 @@ mod tests {
     #[tokio::test]
     async fn test_search_empty_store() {
         let (app, _) = test_app().await;
-        let (status, body) = send(
-            app,
-            "POST",
-            "/search",
-            Some(json!({ "query": "anything" })),
-        )
-        .await;
+        let (status, body) =
+            send(app, "POST", "/search", Some(json!({ "query": "anything" }))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["results"].as_array().unwrap().len(),
@@ -1137,9 +1144,7 @@ mod tests {
         // Seed 6 splats directly.
         {
             let mut s = store.lock().await;
-            let data = Array2::from_shape_fn((6, 32), |(i, j)| {
-                if i % 32 == j { 1.0 } else { 0.0 }
-            });
+            let data = Array2::from_shape_fn((6, 32), |(i, j)| if i % 32 == j { 1.0 } else { 0.0 });
             assert!(s.add_splat(&data));
         }
 
@@ -1159,7 +1164,11 @@ mod tests {
         assert_eq!(out.len(), 2);
         // Row 0: plain L2 — nearest is splat 0 at distance ~0.
         assert_eq!(out[0][0].index, 0);
-        assert!(out[0][0].score < 1e-4, "exact match L2 ~0, got {}", out[0][0].score);
+        assert!(
+            out[0][0].score < 1e-4,
+            "exact match L2 ~0, got {}",
+            out[0][0].score
+        );
         assert!(out[0][0].score <= out[0][1].score, "L2 ascending");
         // Row 1: gaussian — nearest is splat 3, score = alpha·exp(0) ≈ 1.
         assert_eq!(out[1][0].index, 3);
@@ -1249,8 +1258,7 @@ mod tests {
         // 8 concurrent searches on a current-thread runtime: all sends are
         // enqueued before the worker is polled, so they must land in fewer
         // than 8 batches (in practice exactly 1).
-        let mut futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = (StatusCode, Value)> + Send>>> =
-            Vec::new();
+        let mut futs: Vec<BoxFut> = Vec::new();
         for i in 0..8 {
             let app_i = app.clone();
             futs.push(Box::pin(async move {
@@ -1281,9 +1289,8 @@ mod tests {
     /// Poor-man's join_all without pulling in the `futures` crate: spawn each
     /// future as a tokio task and collect. On a current-thread runtime this
     /// still enqueues all sends before the worker runs.
-    async fn futures_join_all(
-        futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = (StatusCode, Value)> + Send>>>,
-    ) -> Vec<(StatusCode, Value)> {
+    type BoxFut = std::pin::Pin<Box<dyn std::future::Future<Output = (StatusCode, Value)> + Send>>;
+    async fn futures_join_all(futs: Vec<BoxFut>) -> Vec<(StatusCode, Value)> {
         let mut handles = Vec::with_capacity(futs.len());
         for f in futs {
             handles.push(tokio::spawn(f));

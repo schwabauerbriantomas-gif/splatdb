@@ -317,6 +317,7 @@ pub fn cmd_ingest_leader(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
 pub fn cmd_bench_gpu(
     n_vectors: usize,
     dim: usize,
@@ -342,14 +343,12 @@ pub fn cmd_bench_gpu(
             "[splatsdb] Generating {} vectors ({}D), seed: {}...",
             n_vectors,
             dim,
-            seed
-                .map(|s| s.to_string())
+            seed.map(|s| s.to_string())
                 .unwrap_or_else(|| "<random>".to_string())
         );
         // Seeded RNG (ChaCha8) for reproducible data, or thread RNG when no seed.
         let mut thread_rng = rand::thread_rng();
-        let mut seeded = seed
-            .map(|s| <rand_chacha::ChaCha8Rng as rand::SeedableRng>::seed_from_u64(s));
+        let mut seeded = seed.map(<rand_chacha::ChaCha8Rng as rand::SeedableRng>::seed_from_u64);
         let mut genf = |lo: f32, hi: f32| -> f32 {
             match seeded.as_mut() {
                 Some(r) => rand::Rng::gen_range(r, lo..hi),
@@ -360,30 +359,29 @@ pub fn cmd_bench_gpu(
         let queries: Vec<f32> = (0..n_queries * dim).map(|_| genf(-1.0, 1.0)).collect();
 
         // Ground truth: load from --gt (same parser as bench-hnsw), else compute CPU-exact.
-        let gt_data: Option<(usize, usize, Vec<i64>)> = match gt
-            .as_ref()
-            .map(|p| cli_load_ground_truth_bin(p))
-        {
-            Some(Ok(g)) => {
-                eprintln!(
-                    "[splatsdb] Loaded GT from {}: {} queries, k={}",
-                    gt.as_ref().unwrap().display(),
-                    g.0,
-                    g.1
-                );
-                Some(g)
-            }
-            Some(Err(e)) => {
-                eprintln!("Error loading ground truth: {}", e);
-                std::process::exit(1);
-            }
-            None => None,
-        };
+        let gt_data: Option<(usize, usize, Vec<i64>)> =
+            match gt.as_ref().map(|p| cli_load_ground_truth_bin(p)) {
+                Some(Ok(g)) => {
+                    eprintln!(
+                        "[splatsdb] Loaded GT from {}: {} queries, k={}",
+                        gt.as_ref().unwrap().display(),
+                        g.0,
+                        g.1
+                    );
+                    Some(g)
+                }
+                Some(Err(e)) => {
+                    eprintln!("Error loading ground truth: {}", e);
+                    std::process::exit(1);
+                }
+                None => None,
+            };
 
         eprintln!("[splatsdb] CPU benchmark (exact brute-force, rayon)...");
         let t0 = Instant::now();
-        let cpu_results =
-            cli_cpu_topk(&queries, n_queries, &dataset, n_vectors, dim, top_k, &metric);
+        let cpu_results = cli_cpu_topk(
+            &queries, n_queries, &dataset, n_vectors, dim, top_k, &metric,
+        );
         let cpu_ms = t0.elapsed().as_millis() as f64;
 
         // Optionally persist the CPU-exact top-k as GT (same bin format bench-hnsw reads).
@@ -436,9 +434,7 @@ pub fn cmd_bench_gpu(
         let qps_gpu_persistent = gpu_result
             .as_ref()
             .map(|(_, query_ms, _, _, _)| n_queries as f64 / (query_ms / 1000.0));
-        let results_match = gpu_result
-            .as_ref()
-            .map(|(_, _, matches, _, _)| *matches);
+        let results_match = gpu_result.as_ref().map(|(_, _, matches, _, _)| *matches);
         let recall_at_k = gpu_result
             .as_ref()
             .map(|(_, _, _, r, _)| r.clone())
@@ -506,8 +502,7 @@ pub fn cmd_bench_gpu_ingest(
             .unwrap_or_else(|| "<random>".to_string())
     );
     let mut thread_rng = rand::thread_rng();
-    let mut seeded = seed
-        .map(|s| <rand_chacha::ChaCha8Rng as rand::SeedableRng>::seed_from_u64(s));
+    let mut seeded = seed.map(<rand_chacha::ChaCha8Rng as rand::SeedableRng>::seed_from_u64);
     let mut genf = |lo: f32, hi: f32| -> f32 {
         match seeded.as_mut() {
             Some(r) => rand::Rng::gen_range(r, lo..hi),
@@ -670,9 +665,7 @@ pub fn cmd_bench_gaussian(
     for v in mu.iter_mut() {
         *v = rng.gen_range(-1.0..1.0);
     }
-    let alpha: Vec<f32> = (0..n_vectors)
-        .map(|_| rng.gen_range(0.05..=1.0))
-        .collect();
+    let alpha: Vec<f32> = (0..n_vectors).map(|_| rng.gen_range(0.05..=1.0)).collect();
     let kappa: Vec<f32> = (0..n_vectors)
         .map(|_| (rng.gen_range(0.1f64.ln()..=100.0f64.ln())).exp() as f32)
         .collect();
@@ -724,8 +717,7 @@ pub fn cmd_bench_gaussian(
         "[bench-gaussian] Path B: building HNSW (m={}, ef_c={}) over splat centroids...",
         hnsw_m, hnsw_ef_construction
     );
-    let mu_arr = ndarray::Array2::from_shape_vec((n_vectors, dim), mu.clone())
-        .expect("mu shape");
+    let mu_arr = ndarray::Array2::from_shape_vec((n_vectors, dim), mu.clone()).expect("mu shape");
     let t_build = Instant::now();
     let mut hnsw = splatsdb::hnsw_index::HNSWIndex::new(
         dim,
@@ -838,7 +830,9 @@ pub fn cmd_bench_gaussian(
 
     eprintln!(
         "[bench-gaussian] recall@{} HNSW+rescore = {:.4}, agreement(gauss vs L2) = {:.2}%",
-        top_k, recall_hnsw, agreement_hnsw_vs_l2 * 100.0
+        top_k,
+        recall_hnsw,
+        agreement_hnsw_vs_l2 * 100.0
     );
 
     let payload = serde_json::json!({
@@ -904,8 +898,7 @@ fn cli_pure_l2_topk(
             let mut scored: Vec<(f32, usize)> = (0..n_vectors)
                 .map(|si| {
                     let m = &mu[si * dim..(si + 1) * dim];
-                    let d2: f32 =
-                        q.iter().zip(m.iter()).map(|(a, b)| (a - b) * (a - b)).sum();
+                    let d2: f32 = q.iter().zip(m.iter()).map(|(a, b)| (a - b) * (a - b)).sum();
                     (d2, si)
                 })
                 .collect();
@@ -929,8 +922,7 @@ fn cli_recall_ranking(approx: &[Vec<usize>], gt: &[Vec<usize>]) -> f64 {
     let mut total = 0usize;
     for i in 0..n {
         let k = approx[i].len().min(gt[i].len());
-        let gt_set: std::collections::HashSet<usize> =
-            gt[i].iter().take(k).copied().collect();
+        let gt_set: std::collections::HashSet<usize> = gt[i].iter().take(k).copied().collect();
         total += k;
         for &idx in approx[i].iter().take(k) {
             if gt_set.contains(&idx) {
@@ -1012,7 +1004,11 @@ fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 
 /// Short git hash + branch read from .git (HEAD + packed-refs/refs), no git dep.
 fn cli_git_hash() -> String {
-    let read = |p: &Path| std::fs::read_to_string(p).ok().map(|s| s.trim().to_string());
+    let read = |p: &Path| {
+        std::fs::read_to_string(p)
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
     let head = match read(Path::new(".git/HEAD")) {
         Some(h) => h,
         None => return "unknown".to_string(),
@@ -1039,6 +1035,7 @@ fn cli_git_hash() -> String {
 }
 
 /// Load GT bin (same format as bench-hnsw): [u64 n_queries][u64 k][i64 data].
+#[cfg_attr(not(feature = "cuda"), allow(dead_code))]
 fn cli_load_ground_truth_bin(path: &Path) -> Result<(usize, usize, Vec<i64>), String> {
     use std::io::Read;
     let mut file =
@@ -1050,9 +1047,7 @@ fn cli_load_ground_truth_bin(path: &Path) -> Result<(usize, usize, Vec<i64>), St
     file.read_exact(&mut buf8)
         .map_err(|e| format!("Read error: {}", e))?;
     let k = usize::try_from(u64::from_le_bytes(buf8)).map_err(|_| "k overflow")?;
-    let total = n_queries
-        .checked_mul(k)
-        .ok_or("overflow in n_queries*k")?;
+    let total = n_queries.checked_mul(k).ok_or("overflow in n_queries*k")?;
     let mut data = vec![0i64; total];
     let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut data);
     file.read_exact(bytes)
@@ -1085,6 +1080,7 @@ fn cli_save_ground_truth_bin(path: &Path, ranking: &[Vec<usize>]) -> Result<(), 
 /// silently dispatches to GPU when built with --features cuda, so calling it
 /// as the "CPU" baseline measured the GPU twice (forensic finding R7).
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(feature = "cuda"), allow(dead_code))]
 fn cli_cpu_topk(
     queries: &[f32],
     n_queries: usize,
@@ -1108,7 +1104,10 @@ fn cli_cpu_topk(
                         let vn: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-10);
                         1.0 - dot / (qn * vn)
                     } else {
-                        q.iter().zip(v.iter()).map(|(a, b)| (a - b) * (a - b)).sum::<f32>()
+                        q.iter()
+                            .zip(v.iter())
+                            .map(|(a, b)| (a - b) * (a - b))
+                            .sum::<f32>()
                     };
                     (d, vi)
                 })
@@ -1124,10 +1123,8 @@ fn cli_cpu_topk(
 }
 
 /// Compare two top-k result sets (unordered overlap == equality of sets).
-fn cli_topk_sets_equal(
-    a: &[Vec<usize>],
-    b: &[Vec<usize>],
-) -> bool {
+#[cfg_attr(not(feature = "cuda"), allow(dead_code))]
+fn cli_topk_sets_equal(a: &[Vec<usize>], b: &[Vec<usize>]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -1139,6 +1136,7 @@ fn cli_topk_sets_equal(
 }
 
 /// recall@k of GPU results (index-only rows) vs GT indices.
+#[cfg_attr(not(feature = "cuda"), allow(dead_code))]
 fn cli_recall_at_k(
     results: &[Vec<usize>],
     gt_nq: usize,
@@ -1155,8 +1153,7 @@ fn cli_recall_at_k(
     let mut total = 0usize;
     for (i, idxs) in results.iter().enumerate().take(effective_n) {
         let row = &gt_idx[i * gt_k..(i + 1) * gt_k];
-        let gt_set: std::collections::HashSet<i64> =
-            row[..effective_k].iter().copied().collect();
+        let gt_set: std::collections::HashSet<i64> = row[..effective_k].iter().copied().collect();
         total += effective_k;
         for &idx in idxs.iter().take(effective_k) {
             if gt_set.contains(&(idx as i64)) {

@@ -432,8 +432,9 @@ impl SplatStore {
 
         if let Some(ref mut backend) = self.candidates {
             if backend.capabilities().incremental {
-                let new_vecs: Vec<Vec<f32>> =
-                    (n_before..self.n_active).map(|i| self.mu.row(i).to_vec()).collect();
+                let new_vecs: Vec<Vec<f32>> = (n_before..self.n_active)
+                    .map(|i| self.mu.row(i).to_vec())
+                    .collect();
                 if let Err(e) = backend.add_batch(&new_vecs) {
                     eprintln!("[splatsdb] Warning: backend add_batch failed: {}", e);
                 }
@@ -555,11 +556,7 @@ impl SplatStore {
                         kappa: self.kappa[idx],
                         index: idx,
                         distance: dist,
-                        score: Self::gaussian_score(
-                            self.alpha[idx],
-                            self.kappa[idx],
-                            dist * dist,
-                        ),
+                        score: Self::gaussian_score(self.alpha[idx], self.kappa[idx], dist * dist),
                     })
                     .collect();
             }
@@ -633,7 +630,11 @@ impl SplatStore {
     /// exhaustively on the GPU against the persistent dataset (`mu`/`alpha`/
     /// `kappa`). Otherwise the exact CPU candidate path below runs — including
     /// on `--features cuda` builds without a GPU, where it stays sub-linear.
-    pub fn find_neighbors_gaussian(&self, query: &ArrayView1<f32>, k: usize) -> Vec<NeighborResult> {
+    pub fn find_neighbors_gaussian(
+        &self,
+        query: &ArrayView1<f32>,
+        k: usize,
+    ) -> Vec<NeighborResult> {
         const GAUSSIAN_OVERFETCH: usize = 8;
         let n = self.n_active;
         if n == 0 || k == 0 {
@@ -704,9 +705,7 @@ impl SplatStore {
                 b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
             });
         }
-        scored[..k].sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored[..k].sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         scored[..k]
             .iter()
@@ -793,11 +792,7 @@ impl SplatStore {
                         kappa: self.kappa[idx],
                         index: idx,
                         distance: dist,
-                        score: Self::gaussian_score(
-                            self.alpha[idx],
-                            self.kappa[idx],
-                            dist * dist,
-                        ),
+                        score: Self::gaussian_score(self.alpha[idx], self.kappa[idx], dist * dist),
                     })
                     .collect()
             }
@@ -1750,9 +1745,7 @@ mod tests {
                 (SplatStore::gaussian_score(alpha[i], kappa[i], d2), i)
             })
             .collect();
-        reference.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        reference.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         let results = store.find_neighbors_gaussian(&query.view(), 7);
         assert_eq!(results.len(), 7);
@@ -1823,8 +1816,7 @@ mod tests {
 
         let check = |name: &str, results: &[NeighborResult]| {
             for r in results {
-                let expect =
-                    SplatStore::gaussian_score(r.alpha, r.kappa, r.distance * r.distance);
+                let expect = SplatStore::gaussian_score(r.alpha, r.kappa, r.distance * r.distance);
                 assert!(
                     (r.score - expect).abs() < 1e-5,
                     "{}: idx {} score {} != alpha*exp(-kappa*d2) = {}",
@@ -1868,7 +1860,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let data_dir = dir.to_str().unwrap();
 
-        let mut alpha_kappa;
+        let alpha_kappa;
         let q = Array1::zeros(8);
 
         {
