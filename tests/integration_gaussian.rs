@@ -404,9 +404,10 @@ mod api_smoke {
             ));
         });
 
-        // Wait for /health with retries (server boot is asynchronous).
+        // Wait for /health with retries (server boot is asynchronous; under
+        // CI's debug-build CPU contention boot can take tens of seconds).
         let mut healthy = false;
-        for _ in 0..100 {
+        for _ in 0..600 {
             if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
                 drop(s);
                 let (status, body) = http_request(port, "GET", "/health", None);
