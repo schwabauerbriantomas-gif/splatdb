@@ -1,187 +1,168 @@
-# BENCHMARKS.md — SplatsDB Rust
+# SplatsDB Benchmarks — Regenerable Tables Only
 
-> All benchmarks measured on **2026-03-29**.  
-> Hardware: AMD Ryzen 5 3400G (4c/8t), 32GB DDR4, NVIDIA RTX 3090 (24GB VRAM, sm_86, CUDA 12.4).  
-> Software: Rust 1.94.1, cudarc 0.19.4, ndarray 0.16, rayon 1.11.  
-> Build: `cargo run --release --features cuda`
+Every number in this file is tied to a source: either a committed result JSON or an exact reproduction command. `k` and `recall@k` are stated next to every QPS figure — QPS numbers are only comparable at the same k, same search type (exact vs approximate), and same hardware.
 
----
+- Hardware (all tables unless noted): Ryzen 5 3400G (4C/8T) + RTX 3090 24GB + 16GB DDR4, Windows 11 + WSL2
+- Last full regeneration: **2026-10-15** (partial — see per-table dates)
+- Numbers without a preserved source have been removed from the docs (see [Removed claims](#removed-claims))
+- Reproduction commands are being consolidated by the benchmark harness work (TODO-B4); placeholders below are marked `[COMANDO: ...]`
 
-## 1. GPU Top-K Search (Custom CUDA Kernels)
-
-Custom PTX kernels compiled by `build.rs` via nvcc. Combined distance computation + top-k selection in a single GPU pass. Dataset persists in VRAM between queries.
-
-### Kernel Architecture
-
-| Kernel | Operation | Shared Memory |
-|--------|-----------|---------------|
-| `l2_distance_kernel` | Single query vs N vectors, L2 | Query cache (D floats) |
-| `batch_l2_distance_kernel` | Q queries vs N vectors, L2 | None |
-| `cosine_distance_kernel` | Single query vs N vectors, cosine | Query cache (D floats) |
-| `l2_topk_kernel` | Q queries vs N vectors, L2 + top-k | Query + thread-local top-k |
-| `cosine_topk_kernel` | Q queries vs N vectors, cosine + top-k | Query + thread-local top-k |
-
-### Optimizations
-
-- **float4 vectorized loads** for D divisible by 4 (640D = 160 x float4 per vector)
-- **Shared memory** query caching (avoids redundant global reads)
-- **Thread-local sorted top-k** (max K=32) with shared memory merge by thread 0
-- **`__launch_bounds__(256)`** for optimal occupancy on sm_86
-- **`-O3 --use_fast_math`** PTX compilation flags
-
-### Results
-
-#### 10K Vectors, 640D, 100 Queries, k=10
-
-| Mode | Total Time | Per Query | QPS | Speedup |
-|------|-----------|-----------|-----|---------|
-| CPU (Rust, rayon) | 372ms | 3.72ms | 269 | 1.0x |
-| GPU + upload | 190ms | 1.90ms | 526 | 1.96x |
-| GPU persistent | 60ms | 0.60ms | 1,667 | **6.2x** |
-
-#### 100K Vectors, 640D, 100 Queries, k=10
-
-| Mode | Total Time | Per Query | QPS | Speedup |
-|------|-----------|-----------|-----|---------|
-| CPU (Rust, rayon) | 467ms | 4.67ms | 214 | 1.0x |
-| GPU + upload | 122ms | 1.22ms | 820 | 2.6x |
-| GPU persistent | 60ms | 0.60ms | 1,667 | **7.8x** |
-
-#### Upload Bandwidth
-
-| Dataset Size | Upload Time | Bandwidth |
-|-------------|------------|-----------|
-| 10K x 640 x f32 (24.4MB) | ~6ms | ~4.1 GB/s |
-| 100K x 640 x f32 (244MB) | 62ms | 3.9 GB/s |
-
-#### Verification
-
-All GPU results verified against CPU: **results match** (same top-k indices in same order).
-
-### Key Insight: Persistent VRAM
-
-The `GpuIndex` keeps the dataset in GPU memory. Once uploaded:
-- Query time is constant regardless of dataset size (bounded by GPU compute, not transfer)
-- 100K and 10K queries complete in ~60ms because the bottleneck is kernel launch + top-k merge, not distance computation
-- For production serving, the dataset stays in VRAM and only queries flow through
-
-### When GPU Helps Most
-
-| Scenario | GPU Advantage |
-|----------|--------------|
-| Persistent serving (dataset in VRAM) | 7.8x throughput |
-| Batch queries (100+ at once) | Better GPU utilization |
-| Large datasets (>100K) | Upload amortized over many queries |
-| High-dimensional (>256D) | float4 vectorization kicks in |
-
-### When CPU is Sufficient
-
-| Scenario | Recommendation |
-|----------|---------------|
-| <10K vectors | CPU is fast enough (<5ms) |
-| One-off queries | Upload overhead dominates |
-| Memory-constrained | GPU needs VRAM for dataset |
+> The previous version of this file (dated 2026-03-29) contained tables whose numbers could not be traced to any preserved result file (most notably 1,667 QPS at 640D and 20,000 QPS linear-scan over 100 splats). It was replaced wholesale. The removed numbers are cataloged in the final section, not silently dropped.
 
 ---
 
-## 2. CPU Performance Baseline
+## Table of Contents
 
-CPU search using `rayon`-parallelized ndarray operations.
-
-| Vectors | Dim | Queries | k | Total (ms) | QPS | Per Query (ms) |
-|---------|-----|---------|---|-----------|-----|---------------|
-| 10,000 | 640 | 100 | 10 | 372 | 269 | 3.72 |
-| 100,000 | 640 | 100 | 10 | 467 | 214 | 4.67 |
-
-CPU performance scales roughly linearly with N (2x dataset = 1.26x time, benefiting from cache effects at 100K).
-
----
-
-## 3. Quantization (TurboQuant / PolarQuant)
-
-Quantization reduces memory at the cost of approximate distances. Measured with `QuantizedStore`:
-
-| Algorithm | Bits | Compression Ratio | Use Case |
-|-----------|------|-------------------|----------|
-| TurboQuant | 8 | ~4x | Search-optimized |
-| TurboQuant | 4 | ~8x | Balanced |
-| PolarQuant | 3 | ~10x | Max compression |
-
-These are theoretical compression ratios based on the encoding scheme. Actual search quality (recall@k) not yet benchmarked in Rust.
+1. [GPU brute-force top-k vs CPU (SIFT-128)](#1-gpu-brute-force-top-k-vs-cpu-sift-128)
+2. [Faiss vs SplatsDB HNSW (CPU, k=64)](#2-faiss-vs-splatsdb-hnsw-cpu-k64)
+3. [SplatsDB HNSW standalone (k=10)](#3-splatsdb-hnsw-standalone-k10)
+4. [GPU vs CPU kernel microbenchmark (640D)](#4-gpu-vs-cpu-kernel-microbenchmark-640d)
+5. [LongMemEval agent memory (recall@k)](#5-longmemeval-agent-memory-recallk)
+6. [Removed claims](#removed-claims)
+7. [Pending regeneration (TODO-B4)](#pending-regeneration-todo-b4)
 
 ---
 
-## 4. DatasetTransformer + GPU Pipeline
+## 1. GPU brute-force top-k vs CPU (SIFT-128)
 
-End-to-end benchmark: raw vectors → KMeans clustering → splat centroids → indexed search. Compares transformer-compressed search vs raw GPU search.
+**Source**: `bench-data/benchmark_results_hardware.json` (`splatdb_gpu_topk`, run date 2026-04-10)
+**Hardware**: Ryzen 5 3400G + RTX 3090, Windows 11 + WSL2
+**Conditions**: SIFT-128, 100,000 vectors, 1,000 queries, **k=10**, exact brute-force (recall 1.0 — GPU top-k verified identical to CPU reference, `results_match_cpu: true`)
 
-### Configuration
+| Engine | Mode | QPS | Per-query | Recall@10 |
+|--------|------|-----|-----------|-----------|
+| Rust CPU (rayon) | brute-force exact | 2,941 | 340 µs | 1.0 |
+| CUDA PTX `l2_topk_kernel` | GPU, VRAM-persistent | **12,195** | 82 µs | 1.0 (matches CPU) |
+| CUDA PTX `l2_topk_kernel` | GPU, incl. one-time upload (17 ms) | 10,101 | — | 1.0 |
 
-| Parameter | Value |
-|-----------|-------|
-| Raw vectors | 100,000 × 640D (244 MB) |
-| Clusters | 100 (KMeans, seed=42) |
-| Compression | 1,000:1 (100K → 100 splats) |
-| Search queries | 100 |
-| Top-k | 10 |
+Speedup (persistent vs CPU, same algorithm): **4.1×**. This is GPU-vs-CPU of the *same exact algorithm* — not a comparison against ANN indexes.
 
-### Pipeline Breakdown
-
-| Phase | Time | Notes |
-|-------|------|-------|
-| **DatasetTransformer ingest** | 126,594 ms (2.1 min) | Normalize + KMeans clustering |
-| **Index build** | 307 ms | HNSW + TurboQuant on 100 splats |
-| **Linear search** (100 queries vs 100 splats) | 5 ms | 50 µs/query, **20,000 QPS** |
-| **Fused search** (10 queries, all backends) | 188 ms | 18.8 ms/query (HNSW overhead on tiny set) |
-| **GPU raw search** (100 queries vs 100K vectors) | 126 ms | Upload 66ms + Query 60ms, 1,667 QPS |
-| **Total pipeline** | 126,906 ms (2.1 min) | Dominated by KMeans |
-
-### Key Insight
-
-The transformer's one-time cost (2.1 min for 100K vectors) is amortized by:
-- **12x faster queries** than GPU raw (20K QPS vs 1.7K QPS) at search time
-- **1,000:1 compression** (244 MB → ~0.25 MB)
-- Linear scan over 100 splats is faster than GPU over 100K vectors
-
-### When to Use Transformer Pipeline
-
-| Scenario | Recommendation |
-|----------|---------------|
-| Static/slow-changing dataset | Pre-compute splats offline, serve fast |
-| Embedding cache for RAG | Compress LLM embeddings once, search many times |
-| Edge deployment | 100 splats vs 100K vectors in memory |
-| Dynamic data (frequent updates) | Direct GPU search (skip transformer) |
-
----
-
-## 5. Test Coverage
-
-| Build | Tests | Notes |
-|-------|-------|-------|
-| `cargo test --lib` | 226 | CPU-only, no GPU deps |
-| `cargo test --lib --features cuda` | 226 | Same tests, GPU modules available |
-
-All tests passing with 0 warnings.
-
----
-
-## Reproducing
-
+Reproduce:
 ```bash
-# CPU benchmark
-cargo run --release -- bench-gpu -n 100000 -d 640 -q 100 -k 10 -m l2
-
-# GPU benchmark (requires CUDA Toolkit + MSVC)
-$env:CUDA_PATH = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4"
-cargo run --release --features cuda -- bench-gpu -n 100000 -d 640 -q 100 -k 10 -m l2
-
-# GPU + Transformer pipeline benchmark
-cargo run --release --features cuda -- bench-gpu-ingest -n 100000 -d 640 -k 100 -q 100
-
-# Preset subsystem info
-cargo run --release -- preset-info
-cargo run --release -- preset-info --preset gpu
-
-# GPU info
-cargo run --features cuda -- gpu-info
+# TODO-B4: exact command with flags being wired by the harness consolidation
+[COMANDO: cargo run --release --features cuda -- bench-gpu -n 100000 -d 128 -q 1000 -k 10 -m l2]
 ```
+> Note: the committed JSON was transcribed from a `bench-gpu` run on 2026-04-10; the run's raw log was not preserved. The command above is the documented invocation that produces these metrics (QPS = n_queries / search_ms).
+
+---
+
+## 2. Faiss vs SplatsDB HNSW (CPU, k=64)
+
+**Source**: `bench-data/benchmark_results_hardware.json` (run date 2026-04-10), generated by `bench-data/bench_windows.py` (Windows native) + `bench-data/faiss_benchmark.py` (SplatsDB side via `bench-hnsw` CLI)
+**Hardware**: Ryzen 5 3400G (CPU only), Windows 11
+**Conditions**: SIFT-128, 100,000 vectors, 1,000 queries, **k=64**, approximate ANN, ground truth `sift_gt_100000.bin`
+
+| Index | Params | Build | QPS | Recall@64 |
+|-------|--------|-------|-----|-----------|
+| Faiss HNSW | M=32, efC=400, efS=100 | 24.5s | **9,758** | 0.9926 |
+| Faiss IVF-PQ | nlist=256, m=16, nprobe=32 | 3.0s | 10,039 | 0.69 |
+| SplatsDB HNSW | M=32, efC=400, efS=100, over_fetch=2 | 88s | 658 | 0.986 |
+
+Reading: like-for-like on CPU at k=64, Faiss HNSW is **14.8×** faster than SplatsDB HNSW at similar recall (0.9926 vs 0.986). SplatsDB build is ~3.6× slower (computes α, κ during indexing).
+
+**Do not** compare these k=64 CPU rows against the k=10 GPU brute-force row in table 1 — different k, different search type, different processor.
+
+Reproduce:
+```bash
+# TODO-B4: harness wrapper; underlying invocations:
+[COMANDO: python bench-data/bench_windows.py]        # Faiss side (Windows native, faiss-cpu 1.13.2)
+[COMANDO: cargo run --release -- bench-hnsw --train bench-data/sift_train_100000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_100000.bin --dim 128 --k 64]  # SplatsDB side
+```
+
+---
+
+## 3. SplatsDB HNSW standalone (k=10)
+
+**Source**: `bench-hnsw` CLI runs (v2.5, April 2026); GT computed independently (sklearn brute-force), verified against ANN-Benchmarks GT on overlapping queries. **Raw run output was not preserved as a result file on this branch.**
+**Hardware**: Ryzen 5 3400G, Windows 11
+**Conditions**: SIFT-128, HNSW M=32, ef_construction=400, ef_search=100, exact L2 re-rank, **k=10**
+
+> **Provenance caveat**: the maintainer's later validated re-run (commit `a2908b1` on `main`; JSON `bench-data/hnsw_validated_results.json`, not present on this branch) on **synthetic uniform-random** SIFT-like data measured 789 QPS / recall@10 0.861 at 10K and 242 QPS at 100K — lower than the table below, consistent with synthetic data being harder for HNSW. Treat the April figures as indicative pending a re-run with persisted results.
+
+| N | Build | p50 | p95 | p99 | QPS | Recall@10 |
+|---|-------|-----|-----|-----|-----|-----------|
+| 10K | 124s* | 0.93ms | 1.35ms | 1.66ms | **1,054** | 0.998 |
+| 100K | 1,284s* | 1.74ms | 2.26ms | 2.52ms | **579** | 0.995 |
+
+*Build is one-time; the graph persists to `hnsw_index.bin`.
+
+Reproduce:
+```bash
+# TODO-B4
+[COMANDO: cargo run --release -- bench-hnsw --train bench-data/sift_train_10000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_10000.bin --dim 128 --k 10]
+[COMANDO: cargo run --release -- bench-hnsw --train bench-data/sift_train_100000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_100000.bin --dim 128 --k 10]
+```
+
+---
+
+## 4. GPU vs CPU kernel microbenchmark (640D)
+
+**Source**: `cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture` (test in `src/gpu/mod.rs`), run **2026-10-15** on this repository, WSL2 + RTX 3090
+**Conditions**: synthetic data (LCG seed 12345), 10,000 vectors × 640D, batch of 100 queries, batch L2 distances (full distance matrix per query, no top-k), GPU dataset persistent in VRAM
+
+| Path | Time (100-query batch) | Speedup |
+|------|------------------------|---------|
+| CPU (single-threaded Rust loop) | 565 ms | — |
+| GPU (`batch_l2_distances`, RTX 3090) | **27 ms** | **20.93×** |
+
+Companion correctness test `test_ptx_kernel_correctness`: **PASS** (GPU/CPU agreement within 1e-2).
+
+This is a kernel-level microbenchmark, not an end-to-end search benchmark; the CPU baseline is a single-threaded loop (worst-case CPU).
+
+Reproduce:
+```bash
+cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture   # prints CPU/GPU ms + speedup
+cargo test --release --features cuda test_ptx_kernel_correctness -- --nocapture
+```
+
+---
+
+## 5. LongMemEval agent memory (recall@k)
+
+**Source**: `bench-data/longmemeval_full_results.json` + `bench-data/longmemeval_splatdb_native.json`, scripts `bench-data/longmemeval_full.py` / `bench-data/longmemeval_splatdb_native.py`
+**Hardware**: RTX 3090 (embedding with `all-MiniLM-L6-v2`, 384d), Ryzen 5 3400G
+**Conditions**: 500 questions, ~24K haystack sessions, HNSW M=32 / efC=400 / efS=100, over-fetch 3× + exact re-rank, spatial pre-filter (Wing = question group → ~48 candidates/query)
+
+| Metric | Value |
+|--------|-------|
+| Recall@1 / @3 / @5 | 75.8% / 88.2% / 92.2% |
+| **Recall@10** | **96.6%** |
+| QPS (spatial pre-filter path) | 3,125 |
+| p50 / p95 latency | 0.029ms / 0.036ms |
+| Index build | 105.3s |
+
+Per-type recall@10: knowledge-update 100.0% (78q), multi-session 99.2% (133q), single-session-assistant 98.2% (56q), single-session-preference 96.7% (30q), temporal-reasoning 95.5% (133q), single-session-user 88.6% (70q).
+
+**Comparison caveat**: the LongMemEval paper's best of 86.2% is for **end-to-end systems**; SplatsDB's 96.6% is **retrieval-only** (answer session in top-k). Not like-for-like; no system-level win is claimed.
+
+Reproduce:
+```bash
+# TODO-B4 (requires embedding service + datasets in bench-data/)
+[COMANDO: python bench-data/longmemeval_full.py]
+[COMANDO: python bench-data/longmemeval_splatdb_native.py]
+```
+
+---
+
+## Removed claims
+
+The following numbers appeared in previous versions of README.md / BENCHMARKS.md and were **removed because no source could be traced** (no result file, no run log). They are listed here so the removal is transparent. If re-measured with a persisted result file, they may return.
+
+| Removed claim | Where it appeared | Why removed |
+|---------------|-------------------|-------------|
+| 20,000 QPS — linear scan, 100 splats (50 µs/query) | BENCHMARKS.md (v1, 2026-03-29) pipeline table | Transcribed from a one-off DatasetTransformer run; no result file or log preserved. Analytically plausible order of magnitude, but unverifiable. |
+| 1,667 QPS — GPU persistent, 100K×640D ("7.8× faster than CPU", "0.60ms/query") | BENCHMARKS.md (v1) §1, README GPU section | No preserved source; marked "untraced" by the author in commit `a2908b1` (2026-07-05) and dropped from `main`. |
+| 269 / 214 QPS — CPU rayon, 640D | BENCHMARKS.md (v1) §2 | Same untraced run family as the 1,667 figure; no result file. |
+| "SplatsDB GPU **beats** Faiss HNSW CPU — 1.25× faster" | README Faiss comparison | Misleading framing: compares GPU brute-force at k=10 against Faiss CPU ANN at k=64. Different regimes; restated as "different regimes, not a head-to-head win". |
+| LongMemEval "beats all published systems" | README, `benchmark_results_hardware.json` analysis note | Retrieval-only (96.6%) vs paper's end-to-end systems (86.2%) — different tasks; caveat added, no system-level claim. |
+
+Also superseded: BENCHMARKS_V2.md (micro-optimization measurements from the pre-rename criterion bench, no regeneration script) — it remains in the repo for history but is not referenced as a claims source.
+
+---
+
+## Pending regeneration (TODO-B4)
+
+- Unified harness emitting one versioned JSON per run (engine, qps, recall@k, p50/p95, hardware, date, git sha) — the `[COMANDO: ...]` placeholders above will be replaced by single entry points.
+- End-to-end 640D GPU QPS re-measurement (replaces the removed 1,667 figure) with persisted results.
+- GPU path recall measured against SIFT GT inside `bench-gpu` (today only "matches CPU" is checked; the CPU path is exact so this is equivalent, but it should be explicit).
+- Regeneration of the `assets/` benchmark PNGs from the corrected tables (current PNGs mix the k=10 GPU row into a chart labeled k=64, and carry the removed "beats" takeaways).

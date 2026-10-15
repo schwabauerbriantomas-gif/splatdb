@@ -64,3 +64,4 @@ demo-search.*
 logo.png
 logo.svg
 __pycache__/
+ptx/

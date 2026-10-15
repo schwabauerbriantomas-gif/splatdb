@@ -461,3 +461,118 @@ __global__ void cosine_topk_kernel(
         }
     }
 }
+
+// ============================================================================
+// Gaussian Score + Top-K Selection (SplatsDB energy landscape)
+// ============================================================================
+// score_i = alpha_i * exp(-kappa_i * ||q - mu_i||^2)
+// NO 1/2 factor in the exponent — convention from src/energy.rs (e_splats).
+// HIGHER score = better. Top-K is over the FINAL score: per-item kappa makes
+// this NOT equivalent to ascending d^2 ordering.
+// Same structure as l2_topk_kernel: one block per query, query cached in smem,
+// thread-local top-K (K <= 32), merge in shared memory by thread 0.
+// Tie-breaking: strict > keeps the earlier insert — within a thread the
+// smaller index wins on equal scores. Across threads an EXACT score tie may
+// order differently than the CPU stable sort (negligible for continuous data).
+
+extern "C" __launch_bounds__(256)
+__global__ void gaussian_topk_kernel(
+    const float* __restrict__ queries,   // [Q, D]
+    const float* __restrict__ dataset,   // [N, D]
+    const float* __restrict__ alpha,     // [N]
+    const float* __restrict__ kappa,     // [N]
+    int* __restrict__ out_indices,       // [Q, K]
+    float* __restrict__ out_scores,      // [Q, K]
+    int Q,
+    int N,
+    int D,
+    int K
+) {
+    extern __shared__ float s_data[];
+    float* s_query = s_data;
+    float* s_score = s_query + D;
+    int* s_idx = reinterpret_cast<int*>(s_score + blockDim.x * K);
+
+    int q = blockIdx.x;
+    if (q >= Q) return;
+
+    // Cooperative load of query into shared memory
+    for (int j = threadIdx.x; j < D; j += blockDim.x) {
+        s_query[j] = queries[q * D + j];
+    }
+    __syncthreads();
+
+    // Thread-local top-k, DESCENDING by score (max K=32)
+    float local_score[32];
+    int local_idx[32];
+    for (int i = 0; i < K; i++) { local_score[i] = -1e30f; local_idx[i] = -1; }
+
+    // Process assigned vectors (strided by blockDim)
+    for (int i = threadIdx.x; i < N; i += blockDim.x) {
+        const float* vec = dataset + i * D;
+        float sum = 0.0f;
+
+        if (D % 4 == 0) {
+            const float4* vec4 = reinterpret_cast<const float4*>(vec);
+            const float4* q4 = reinterpret_cast<const float4*>(s_query);
+            int D4 = D / 4;
+            #pragma unroll 4
+            for (int j = 0; j < D4; j++) {
+                float4 v = vec4[j]; float4 qq = q4[j];
+                float dx=qq.x-v.x, dy=qq.y-v.y, dz=qq.z-v.z, dw=qq.w-v.w;
+                sum += dx*dx + dy*dy + dz*dz + dw*dw;
+            }
+        } else {
+            #pragma unroll 8
+            for (int j = 0; j < D; j++) {
+                float diff = s_query[j] - vec[j];
+                sum += diff * diff;
+            }
+        }
+
+        float score = alpha[i] * __expf(-kappa[i] * sum);
+
+        // Insert into sorted (descending) thread-local top-k
+        if (score > local_score[K - 1]) {
+            local_score[K - 1] = score;
+            local_idx[K - 1] = i;
+            // Bubble up to maintain descending order
+            for (int j = K - 1; j > 0 && local_score[j] > local_score[j-1]; j--) {
+                float td = local_score[j]; local_score[j] = local_score[j-1]; local_score[j-1] = td;
+                int ti = local_idx[j]; local_idx[j] = local_idx[j-1]; local_idx[j-1] = ti;
+            }
+        }
+    }
+
+    // Write thread-local results to shared memory
+    for (int i = 0; i < K; i++) {
+        s_score[threadIdx.x * K + i] = local_score[i];
+        s_idx[threadIdx.x * K + i] = local_idx[i];
+    }
+    __syncthreads();
+
+    // Thread 0 merges all blockDim*K candidates into final top-K (descending)
+    if (threadIdx.x == 0) {
+        float best_score[32];
+        int best_idx[32];
+        for (int i = 0; i < K; i++) { best_score[i] = -1e30f; best_idx[i] = -1; }
+
+        int total = blockDim.x * K;
+        for (int i = 0; i < total; i++) {
+            float s = s_score[i];
+            if (s > best_score[K - 1]) {
+                best_score[K - 1] = s;
+                best_idx[K - 1] = s_idx[i];
+                for (int j = K - 1; j > 0 && best_score[j] > best_score[j-1]; j--) {
+                    float td = best_score[j]; best_score[j] = best_score[j-1]; best_score[j-1] = td;
+                    int ti = best_idx[j]; best_idx[j] = best_idx[j-1]; best_idx[j-1] = ti;
+                }
+            }
+        }
+
+        for (int i = 0; i < K; i++) {
+            out_indices[q * K + i] = best_idx[i];
+            out_scores[q * K + i] = best_score[i];
+        }
+    }
+}
