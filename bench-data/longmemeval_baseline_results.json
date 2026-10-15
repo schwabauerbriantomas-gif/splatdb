@@ -1,0 +1,57 @@
+{
+  "benchmark": "LongMemEval-S-cleaned",
+  "date": "2026-04-09",
+  "n_questions": 500,
+  "question_types": {
+    "single-session-user": 70,
+    "multi-session": 133,
+    "single-session-preference": 30,
+    "temporal-reasoning": 133,
+    "knowledge-update": 78,
+    "single-session-assistant": 56
+  },
+  "haystack_stats": {
+    "sessions_median": 48,
+    "sessions_max": 62,
+    "turns_median": 491,
+    "turns_max": 616,
+    "chars_median": 489793
+  },
+  "baseline": {
+    "answer_present_in_haystack": "52.0%",
+    "keyword_top10_recall": "91.0%",
+    "keyword_top5_recall": "84.4%"
+  },
+  "per_type": {
+    "single-session-user": {
+      "total": 70,
+      "answer_present": 57,
+      "kw_top10": 0
+    },
+    "multi-session": {
+      "total": 133,
+      "answer_present": 72,
+      "kw_top10": 0
+    },
+    "single-session-preference": {
+      "total": 30,
+      "answer_present": 0,
+      "kw_top10": 0
+    },
+    "temporal-reasoning": {
+      "total": 133,
+      "answer_present": 40,
+      "kw_top10": 0
+    },
+    "knowledge-update": {
+      "total": 78,
+      "answer_present": 60,
+      "kw_top10": 0
+    },
+    "single-session-assistant": {
+      "total": 56,
+      "answer_present": 31,
+      "kw_top10": 0
+    }
+  }
+}

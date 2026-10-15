@@ -395,7 +395,12 @@ mod api_smoke {
                 .enable_all()
                 .build()
                 .expect("tokio runtime");
-            let _ = rt.block_on(splatsdb::api_server::run_server("127.0.0.1", port));
+            let _ = rt.block_on(splatsdb::api_server::run_server(
+                "127.0.0.1",
+                port,
+                splatsdb::config::SplatsDBConfig::default(),
+                std::env::temp_dir().join("splatsdb_smoke").to_str().unwrap(),
+            ));
         });
 
         // Wait for /health with retries (server boot is asynchronous).

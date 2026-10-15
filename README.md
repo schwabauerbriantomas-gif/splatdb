@@ -11,23 +11,11 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-378%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-406%20passing-brightgreen.svg)]()
 [![LOC](https://img.shields.io/badge/LOC-31K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
-
-<p align="center">
-  <a href="https://github.com/schwabauerbriantomas-gif/splatsdb/releases/download/v2.5.0/splatsdb-explainer.mp4">
-    <img src="https://img.shields.io/badge/🎬_Watch_Explainer_Video-10_min-00e5ff?style=for-the-badge" alt="SplatsDB Explainer Video"/>
-  </a>
-</p>
-
-> **🎬 10-minute explainer** — Gaussian Splatting, HRM2 retrieval, GPU benchmarks, and real Faiss comparison in 10 minutes.
-
-<p align="center">
-  <img src="assets/splatsdb-confidence.png" alt="SplatsDB Confidence Scoring Demo" width="720"/>
-</p>
 
 <p align="center"><sub>Search returns confidence scores based on κ (concentration) — agents know when to trust results.</sub></p>
 
@@ -49,12 +37,12 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Language | Rust | C++ | Go/Rust | Rust | Go+C++ | Rust |
 | License | GPL-3.0 | MIT | Proprietary | Apache 2.0 | Apache 2.0 | Apache 2.0 |
 | Gaussian Splats | ✅ | — | — | — | — | — |
-| Uncertainty scores | ✅ | — | — | — | — | — |
+| Uncertainty scores | ✅ (flagging only — see [A5 findings](docs/A5_FINDINGS.md)) | — | — | — | — | — |
 | Knowledge Graph | ✅ | — | — | — | — | — |
 | Spatial Memory (Wing/Room/Hall/Tunnel) | ✅ | — | — | — | — | — |
-| MCP server (15 tools) | ✅ | — | — | — | — | — |
+| MCP server (18 tools) | ✅ | — | — | — | — | — |
 | Distributed sharding (hash/cluster/geo) | ✅ | — | ✅ Cloud | ✅ | ✅ | — |
-| Energy-aware routing | ✅ | — | — | — | — | — |
+| Energy-aware routing | ✅ (SOC internals — **not** a retrieval-quality feature; energy must stay out of the ranking score, see [A5 findings](docs/A5_FINDINGS.md)) | — | — | — | — | — |
 | RRF result fusion | ✅ | — | — | — | ✅ | — |
 | Self-hosted | ✅ | ✅ | ❌ SaaS-only | ✅ | ✅ | ✅ |
 | Embedded (no server) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
@@ -95,7 +83,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 
 SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering — to vector search. Instead of storing raw embedding vectors, each document is represented as a probabilistic Gaussian (mean μ, opacity α, concentration κ). This enables:
 
-- **Richer similarity semantics** via splat overlap instead of point-to-point distance
+- **Richer similarity semantics** via splat overlap instead of point-to-point distance *(as a storage/compression representation — for ranking quality, score with the embedding metric: an empirical audit found splat-energy/density fusion degrades recall by 25 pts with p<0.05; splats shine as a routing codebook: 0.87 recall@10 reading 31% of the corpus. Details: [docs/A5_FINDINGS.md](docs/A5_FINDINGS.md))*
 - **Natural compression** through distribution parameters (3–8 bit quantization)
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
@@ -336,18 +324,27 @@ All numbers are measured on real hardware. Exact QPS figures are only comparable
 
 ### HNSW Search (v2.5 — current)
 
-HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates. Re-benchmarked April 2026 with CUDA-extended kernel integration.
+HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates.
+
+> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI. Ground truth: brute-force L2 (NumPy). Full methodology and raw output in [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
 
 > **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `a2908b1` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results.
 
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
-| SIFT-128 | 10K | 128 | 124s* | 0.93ms | 1.35ms | 1.66ms | **1,054** | **0.998** |
-| SIFT-128 | 100K | 128 | 1,284s* | 1.74ms | 2.26ms | 2.52ms | **579** | **0.995** |
+| synthetic-sift128 | 10K | 128 | 22s* | 1.20ms | 1.69ms | 2.10ms | **789** | **0.861** |
+| synthetic-sift128 | 100K | 128 | 982s* | 4.09ms | 5.12ms | 5.78ms | **242** | n/a† |
+
+<details>
+<summary><b>Why recall is lower than a typical SIFT-128 benchmark</b></summary>
+
+This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce: see [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
+</details>
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
+†Recall@10 for 100K not computed (brute-force GT on 100K×1000 was too expensive for this session). QPS and latency are valid.
 
-> **Build time note**: HNSW construction at 100K vectors takes ~25 minutes (M=32, ef_construction=400). This is slower than Faiss HNSW (~30s for 100K) because SplatsDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
+> **Build time note**: HNSW construction at M=32, ef_construction=400 is slower than Faiss HNSW because SplatsDB computes splat parameters (α, κ) during indexing. The index persists to disk — build once, query forever. For faster build at lower recall, reduce ef_construction or use the `simple` preset.
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
@@ -355,12 +352,12 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 
 | Method | Dataset | N | p50 Latency | QPS | Recall@10 |
 |--------|---------|------|-------------|------|-----------|
-| **HNSW (fresh build)** | SIFT-128 | 10K | **0.93ms** | **1,054** | **0.998** |
-| **HNSW (fresh build)** | SIFT-128 | 100K | **1.74ms** | **579** | **0.995** |
-| Linear scan | SIFT-128 | 10K | 1,143ms | 0.9 | 1.000 |
+| **HNSW (synthetic)** | synthetic-sift128 | 10K | **1.20ms** | **789** | **0.861** |
+| **HNSW (synthetic)** | synthetic-sift128 | 100K | **4.09ms** | **242** | n/a |
+| Linear scan | synthetic-sift128 | 10K | 1,143ms | 0.9 | 1.000 |
 | HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95 |
 
-HNSW delivers **1,170x speedup** over linear scan at 10K and **640x at 100K**, with >99.5% recall.
+On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real-SIFT recall would be higher.
 
 ### Faiss Comparison (Same Hardware, Same Dataset — k and Recall Stated Per Row)
 
@@ -398,7 +395,9 @@ The PNG charts in `assets/` (`splatsdb-faiss-comparison.png`, `splatsdb-benchmar
 
 **Pipeline**: Embed all ~24K sessions with `all-MiniLM-L6-v2` (384d, GPU RTX 3090) → cosine similarity search → measure if answer session appears in top-k.
 
-**Session Recall** (answer session found in top-k):
+> **Honest methodology note**: The recall numbers below were measured with **NumPy brute-force cosine similarity** (see [`longmemeval_full_results.json`](bench-data/longmemeval_full_results.json)), not SplatsDB's own HNSW. They validate the *retrieval approach* (embeddings + cosine), not SplatsDB's search engine specifically. A separate run using SplatsDB's native Rust HNSW ([`longmemeval_splatdb_native.json`](bench-data/longmemeval_splatdb_native.json)) showed recall@10 = 0.304 — see that file for details on why native HNSW recall is lower (session-grouping and ef_search tuning differ).
+
+**Session Recall** (answer session found in top-k, NumPy brute-force):
 
 | k | Recall |
 |---|--------|
@@ -418,9 +417,7 @@ The PNG charts in `assets/` (`splatsdb-faiss-comparison.png`, `splatsdb-benchmar
 | temporal-reasoning | 133 | 95.5% |
 | single-session-user | 70 | 88.6% |
 
-**SplatsDB HNSW search** (500 sessions, 384d, 500 queries, spatial pre-filter → ~48 candidates): 3,125 QPS, P50 0.029ms, P95 0.036ms
-
-**What this validates**: With real sentence embeddings, SplatsDB achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
+**What this validates**: With real sentence embeddings, the retrieval approach achieves **96.6% recall@10** on conversational memory retrieval. The system excels at knowledge-update (100%) and multi-session queries (99.2%). Temporal-reasoning (95.5%) and preference questions (96.7%) — where the original keyword baseline showed 30% and 0% — are dramatically improved by semantic search.
 
 > **Comparison caveat**: the paper's best of 86.2% measures **end-to-end systems** (retrieval + reading + answer extraction); SplatsDB's 96.6% measures **retrieval only** (answer session in top-k). The two numbers are not like-for-like — retrieval-only is an easier task. We report both and do not claim a system-level win.
 
@@ -826,7 +823,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.1.0"}
+{"status": "ok", "version": "2.5.0"}
 ```
 
 #### `POST /status` — Store Statistics
@@ -973,11 +970,19 @@ cargo build --release --features cuda
 
 ### Performance
 
-With 100K vectors (640D) on an RTX 3090:
-- **Upload**: 3.9 GB/s sustained bandwidth
-- **Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`): batch L2 over 10K×640D × 100 queries — CPU 565ms vs GPU 27ms = **20.93×** on the same machine; correctness test passes alongside.
+**Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): batch L2 over 10K×640D × 100 queries — CPU 718ms vs GPU 18ms = **39.89×**; correctness test passes alongside.
 
-> **Removed claim**: this section previously stated "0.60 ms per query, 1,667 QPS (7.8× faster than CPU)" for 640D. That number had no preserved source (marked "untraced" in commit `a2908b1`). The reproducible figure today is the kernel microbenchmark above; end-to-end 640D QPS will be re-measured and published with a result file before any number is restated.
+**End-to-end top-k** (SIFT-128 100K vectors, k=10, dataset resident in VRAM): source [`bench-data/benchmark_results_hardware.json`](bench-data/benchmark_results_hardware.json) (2026-04-10).
+
+| Metric | Value |
+|--------|-------|
+| **GPU QPS (persistent)** | 12,195 |
+| **CPU QPS (same data)** | 2,941 |
+| **Speedup** | 4.1× |
+| **Per-query latency (GPU)** | 0.082 ms |
+| **Upload time (100K → VRAM)** | 17 ms |
+
+> GPU QPS measured with dataset resident in VRAM between queries (persistent mode). First-query upload cost is amortized over the query batch. GPU results verified identical to CPU brute-force (100% recall).
 
 ### GPU Commands
 
@@ -1132,7 +1137,7 @@ Optional: recent memories can be weighted higher via exponential decay with conf
 
 ### Verbatim Storage (Planned)
 
-> Inspired by [MemorySpaces's](https://github.com/milla-jovovich/memoryspaces) principle: "Store everything verbatim, never let an LLM decide what to remember."
+> Inspired by [MemPalace's](https://github.com/MemPalace/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
 
 Most vector DBs store only embeddings — the original text is lost or truncated. SplatsDB's planned verbatim storage keeps three layers per document:
 
@@ -1159,7 +1164,7 @@ This is the opposite of how Pinecone/Qdrant handle text — they truncate or dis
 
 Vector compression (TurboQuant/PolarQuant) handles embeddings. But the *text* itself also needs compression for efficient agent memory.
 
-The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemorySpaces's AAAK](https://github.com/milla-jovovich/memoryspaces) achieves ~30x text compression by stripping everything except semantic content.
+The concept: a compressed representation that any LLM can read natively without a decoder — similar to how [MemPalace's AAAK](https://github.com/MemPalace/mempalace) achieves ~30x text compression by stripping everything except semantic content.
 
 ```
 Original text (1,200 tokens):
@@ -1234,7 +1239,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
-| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (15 tools, production-hardened) |
+| `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (18 tools, production-hardened) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
@@ -1281,7 +1286,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Spatial Memory Architecture
 
-> Inspired by [MemorySpaces](https://github.com/milla-jovovich/memoryspaces) — organizing memory like a physical space.
+> Inspired by [MemPalace](https://github.com/MemPalace/mempalace) — organizing memory like a physical space.
 
 SplatsDB's KMeans++ clusters are currently pure geometry — they group vectors by proximity but carry no semantic meaning. The spatial memory architecture maps these clusters to navigable structures:
 
@@ -1327,7 +1332,7 @@ Query: "auth decisions from project X"
 4. Vector search within that subspace     → high recall, minimal noise
 ```
 
-This is structurally identical to how MemorySpaces achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
+This is structurally identical to how MemPalace achieves +34% retrieval improvement over flat search — you reduce the search space *before* computing distances, so the signal-to-noise ratio improves dramatically.
 
 ### Tunnels = Cross-Wing Knowledge Graph
 
@@ -1392,9 +1397,9 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 ### Where SplatsDB Wins
 
-1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. LongMemEval retrieval-only: **96.6% recall@10** with spatial pre-filter (vs 86.2% best end-to-end system in the original paper — different task, see caveat in the benchmark section).
+1. **Spatial Memory** — Wing/Room/Hall/Tunnel with auto-labeling and auto-tunnel detection. No other vector DB has hierarchical spatial navigation. Qdrant has generic payload filters but no spatial hierarchy. On LongMemEval, the retrieval approach (embeddings + cosine) achieves **96.6% recall@10** (NumPy brute-force baseline; see methodology note in benchmarks section) vs 86.2% best in original paper.
 
-2. **MCP Server** — 15 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
+2. **MCP Server** — 18 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
 
 3. **Distributed Sharding** — 3 strategies (hash/cluster/geo), load balancing (round-robin/least-loaded/broadcast), RRF result fusion, energy-aware routing, offline sync with retry. All built-in, no external dependencies.
 
@@ -1488,12 +1493,12 @@ Standard BEIR protocol — NDCG@10, Recall@10 via pytrec-eval. Same evaluator, s
 
 | Domain | Docs | Queries | NDCG@10 | Recall@10 |
 |--------|------|---------|---------|-----------|
-| scifact | 5,183 | 300 | 0.6450 | 0.7815 |
-| trec-covid | 171,332 | 50 | 0.4734 | 0.0133 |
-| fiqa | 57,638 | 648 | 0.3697 | 0.6426 |
-| arguana | 8,674 | 1,406 | 0.5020 | 0.8114 |
-| nfcorpus | 3,633 | 325 | 0.3419 | 0.1338 |
-| **Average** | | | **0.4664** | **0.4765** |
+| scifact | 5,183 | 300 | 0.6451 | 0.7833 |
+| trec-covid | 171,332 | 50 | 0.4725 | 0.0128 |
+| fiqa | 57,638 | 648 | 0.3687 | 0.4413 |
+| arguana | 8,674 | 1,406 | 0.5017 | 0.7902 |
+| nfcorpus | 3,633 | 323 | 0.3159 | 0.1550 |
+| **Average** | | | **0.4608** | **0.4365** |
 
 **v2 — Improved (BGE-small + BM25 + RRF fusion + entity boost)**
 
@@ -1507,6 +1512,8 @@ Uses SplatsDB's full pipeline: BM25 from `bm25_index.rs`, RRF from `cluster/aggr
 | **Average (3/5)** | **0.5507** | **+0.054** | **0.6192** | **+0.044** |
 
 > **Note**: trec-covid and fiqa v2 results not completed due to BM25 scoring performance on >50K corpora in Python. The Rust implementation would handle this efficiently.
+>
+> **Source**: v1 results from `bench-data/beir_results.json` (BEIR v1.0, all-MiniLM-L6-v2, standard protocol). v2 results from internal benchmark runs — result file not yet published.
 
 **Alternative Approaches — A/B tested on scifact/arguana/nfcorpus**
 

@@ -301,21 +301,16 @@ impl SplatsDBPersistence {
         self.meta.get(doc_id)
     }
 
-    /// Find a document by vector index. Uses SQL index for O(1) lookup.
+    /// Find a document by vector index.
+    ///
+    /// Delegates to the backend: SQLite uses the `idx_vector` index (see
+    /// `SqliteMetadataStore::find_by_vector_idx` and its parity test); other
+    /// backends fall back to the generic O(N) scan.
     pub fn find_doc_by_vector_idx(
         &self,
         vector_idx: i64,
     ) -> Result<Option<DocumentRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        // Try the optimized SQL path first (works with SqliteMetadataStore)
-        let ids = self.meta.list_ids(true)?;
-        for id in ids {
-            if let Some(record) = self.meta.get(&id)? {
-                if record.vector_idx == vector_idx && !record.deleted {
-                    return Ok(Some(record));
-                }
-            }
-        }
-        Ok(None)
+        self.meta.find_by_vector_idx(vector_idx)
     }
 
     // ---- Energy State (file-based) ----
