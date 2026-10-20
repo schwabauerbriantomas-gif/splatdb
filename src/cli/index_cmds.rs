@@ -171,6 +171,12 @@ pub fn cmd_ingest(
                     {
                         eprintln!("Warning: energy save failed: {}", e);
                     }
+                    // campo splat con geometría correcta: radios + membresías CSR
+                    if let Err(e) =
+                        super::field_cmds::persist_field(&data_dir, &backend, &vectors, &mu)
+                    {
+                        eprintln!("Warning: field persist failed: {}", e);
+                    }
                 }
                 _ => {
                     eprintln!("Ingest error: no splats to persist (store is empty)");
@@ -250,6 +256,12 @@ pub fn cmd_ingest_hierarchical(
                     {
                         eprintln!("Warning: energy save failed: {}", e);
                     }
+                    // campo splat con geometría correcta: radios + membresías CSR
+                    if let Err(e) =
+                        super::field_cmds::persist_field(&data_dir, &backend, &vectors, &mu)
+                    {
+                        eprintln!("Warning: field persist failed: {}", e);
+                    }
                 }
                 _ => {
                     eprintln!("Ingest error: no splats to persist (store is empty)");
@@ -311,13 +323,20 @@ pub fn cmd_ingest_leader(
                     (store.get_mu(), store.get_alpha(), store.get_kappa())
                 {
                     let n = store.n_active();
-                    let vectors = mu.slice(ndarray::s![..n, ..]).to_owned();
-                    if let Err(e) = p.save_vectors(&vectors, "default") {
+                    let mu_owned = mu.slice(ndarray::s![..n, ..]).to_owned();
+                    if let Err(e) = p.save_vectors(&mu_owned, "default") {
                         eprintln!("Warning: save failed: {}", e);
                     }
-                    if let Err(e) = p.save_energy_state(&vectors, &alpha.to_vec(), &kappa.to_vec())
+                    if let Err(e) =
+                        p.save_energy_state(&mu_owned, &alpha.to_vec(), &kappa.to_vec())
                     {
                         eprintln!("Warning: energy save failed: {}", e);
+                    }
+                    // campo splat con geometría correcta (usa los crudos de entrada)
+                    if let Err(e) =
+                        super::field_cmds::persist_field(&data_dir, &backend, &vectors, &mu_owned)
+                    {
+                        eprintln!("Warning: field persist failed: {}", e);
                     }
                 }
             }
