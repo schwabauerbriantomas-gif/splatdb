@@ -402,14 +402,14 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
     let mut ob = vec![0u8; (k + 1) * 8];
     f.read_exact(&mut ob).ok()?;
     let mut offsets = vec![0u64; k + 1];
-    for (i, c) in ob.chunks_exact(8).enumerate() {
-        offsets[i] = u64::from_le_bytes(c.try_into().ok()?);
+    for (i, c) in ob.as_chunks::<8>().0.iter().enumerate() {
+        offsets[i] = u64::from_le_bytes(*c);
     }
     let mut ib = vec![0u8; n * 4];
     f.read_exact(&mut ib).ok()?;
     let mut ids = vec![0u32; n];
-    for (i, c) in ib.chunks_exact(4).enumerate() {
-        ids[i] = u32::from_le_bytes(c.try_into().ok()?);
+    for (i, c) in ib.as_chunks::<4>().0.iter().enumerate() {
+        ids[i] = u32::from_le_bytes(*c);
     }
     let mut f = std::fs::File::open(dir.join("radii.bin")).ok()?;
     let mut k8 = [0u8; 8];
@@ -418,8 +418,8 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
     let mut rb = vec![0u8; kr * 4];
     f.read_exact(&mut rb).ok()?;
     let mut radii = vec![0f32; kr];
-    for (i, c) in rb.chunks_exact(4).enumerate() {
-        radii[i] = f32::from_le_bytes(c.try_into().ok()?);
+    for (i, c) in rb.as_chunks::<4>().0.iter().enumerate() {
+        radii[i] = f32::from_le_bytes(*c);
     }
     let persist = crate::storage::persistence::SplatsDBPersistence::with_backend(
         data_dir,

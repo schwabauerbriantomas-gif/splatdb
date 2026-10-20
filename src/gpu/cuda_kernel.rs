@@ -34,15 +34,10 @@ pub struct GpuIndex {
 }
 
 impl GpuIndex {
-    /// Create a new GPU index. Returns None if CUDA is unavailable.
+    /// Create a new GPU index. Returns None if CUDA is unavailable
+    /// (no driver, no device, or PTX load failure).
     pub fn new() -> Option<Self> {
-        let ctx = match CudaContext::new(0) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[splatsdb] CUDA context creation failed: {:?}", e);
-                return None;
-            }
-        };
+        let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
         eprintln!("[splatsdb] CUDA context created successfully");
         let stream = ctx.default_stream();
 
