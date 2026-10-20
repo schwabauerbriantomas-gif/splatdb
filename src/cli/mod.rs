@@ -282,6 +282,9 @@ pub enum Commands {
         port: u16,
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+        /// Búsqueda exacta en GPU (kernel PTX l2_topk) para /search
+        #[arg(long)]
+        gpu: bool,
     },
     /// Start MCP server (stdio transport for AI agent integration)
     Mcp,
@@ -732,7 +735,9 @@ pub fn dispatch(cli: Cli) {
             hnsw_ef_search,
             candidate_mult,
         ),
-        Commands::Serve { port, host } => data_cmds::cmd_serve(cli.data_dir, port, &host, config),
+        Commands::Serve { port, host, gpu } => {
+            data_cmds::cmd_serve(cli.data_dir, port, &host, config, gpu)
+        }
         Commands::Mcp => splatsdb::mcp_server::run_mcp_server(),
         // ── Graph Splat ──
         Commands::GraphAddDoc { text, embedding } => graph_cmds::cmd_graph_add_doc(text, embedding),

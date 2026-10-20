@@ -68,6 +68,13 @@ pub struct AppState {
     pub batch_tx: mpsc::Sender<BatchRequest>,
     /// Number of batches served by the worker (observability / tests).
     pub batches_served: Arc<AtomicUsize>,
+    /// Índice exacto en GPU (kernel PTX l2_topk). topk_search es &self → se
+    /// comparte sin Mutex. Presente solo con serve --gpu y feature cuda.
+    #[cfg(feature = "cuda")]
+    pub gpu: Option<Arc<crate::gpu::cuda_kernel::GpuIndex>>,
+    /// Campo splat (celdas con radio) para /field-search exacto. None si no
+    /// hay field/ persistido en el data-dir.
+    pub field: Option<Arc<FieldData>>,
 }
 
 /// A single search request queued for batch execution. The reply is delivered
@@ -117,6 +124,9 @@ pub struct StoreResponse {
 #[derive(Serialize)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
+    /// "gpu" cuando la query corrió por el kernel PTX exacto (serve --gpu).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -283,16 +293,44 @@ async fn search_memories(
     }
 
     if n_active == 0 {
-        return Ok(Json(SearchResponse { results: vec![] }));
+        return Ok(Json(SearchResponse { results: vec![], backend: None }));
     }
 
     let k = req.top_k.unwrap_or(10).max(1).min(n_active).min(MAX_TOP_K);
 
+    let had_embedding = req.embedding.is_some();
     let embedding = req
         .embedding
         .unwrap_or_else(|| simple_hash_embedding(&req.query, dim));
 
     let rescore_gaussian = matches!(params.rescore.as_deref(), Some("gaussian"));
+
+    // ── GPU exact fast path (serve --gpu): kernel PTX fused l2+topk.
+    // Exacto, sin store mutex (índice compartido &self). Rescore gaussiano y
+    // query de texto (hash embedding) siguen por el camino CPU.
+    #[cfg(feature = "cuda")]
+    if let Some(gpu) = &state.gpu {
+        if had_embedding && !rescore_gaussian {
+            if let Some(mut per_query) = gpu.topk_search(&embedding, 1, k, "l2") {
+                if let Some((idxs, dists)) = per_query.pop() {
+                    let mut pairs: Vec<(usize, f32)> =
+                        idxs.into_iter().zip(dists).collect();
+                    pairs.sort_by(|a, b| {
+                        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let results = pairs
+                        .into_iter()
+                        .map(|(i, d)| SearchResult { index: i, score: d, metadata: None })
+                        .collect();
+                    return Ok(Json(SearchResponse {
+                        results,
+                        backend: Some("gpu".into()),
+                    }));
+                }
+            }
+            eprintln!("[splatsdb] GPU topk devolvió None; query cae a CPU");
+        }
+    }
 
     // ── Micro-batched path (R9 §2): enqueue and wait on a private oneshot.
     // The store mutex is taken only by the batch worker, once per batch.
@@ -323,7 +361,163 @@ async fn search_memories(
         })?
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    Ok(Json(SearchResponse { results }))
+    Ok(Json(SearchResponse { results, backend: None }))
+}
+
+// ─── Campo splat (celdas con radio): /field-search exacto ────────────────
+// Geometría correcta del campo (veredicto bench-latent): la energía
+// alpha·exp(−kappa·d²) NO es una cota y destruye el ranking en 768d; la
+// desigualdad triangular d(q,x) ≥ d(q,mu_c) − R_c SÍ lo es → sweep exacto.
+
+/// Crudos + splats + membresías CSR + radios, persistidos por
+/// `field_cmds::persist_field` tras cada ingest.
+pub struct FieldData {
+    pub raw: Array2<f32>,
+    pub splats: Array2<f32>,
+    pub offsets: Vec<u64>,
+    pub ids: Vec<u32>,
+    pub radii: Vec<f32>,
+}
+
+fn load_field(data_dir: &str) -> Option<FieldData> {
+    use std::io::Read;
+    let dir = std::path::Path::new(data_dir).join("field");
+    if !dir.join("members.idx").exists() || !dir.join("radii.bin").exists() {
+        return None;
+    }
+    let mut f = std::fs::File::open(dir.join("members.idx")).ok()?;
+    let mut hdr = [0u8; 16];
+    f.read_exact(&mut hdr).ok()?;
+    let n = u64::from_le_bytes(hdr[..8].try_into().ok()?) as usize;
+    let k = u64::from_le_bytes(hdr[8..].try_into().ok()?) as usize;
+    let mut ob = vec![0u8; (k + 1) * 8];
+    f.read_exact(&mut ob).ok()?;
+    let mut offsets = vec![0u64; k + 1];
+    for (i, c) in ob.chunks_exact(8).enumerate() {
+        offsets[i] = u64::from_le_bytes(c.try_into().ok()?);
+    }
+    let mut ib = vec![0u8; n * 4];
+    f.read_exact(&mut ib).ok()?;
+    let mut ids = vec![0u32; n];
+    for (i, c) in ib.chunks_exact(4).enumerate() {
+        ids[i] = u32::from_le_bytes(c.try_into().ok()?);
+    }
+    let mut f = std::fs::File::open(dir.join("radii.bin")).ok()?;
+    let mut k8 = [0u8; 8];
+    f.read_exact(&mut k8).ok()?;
+    let kr = u64::from_le_bytes(k8) as usize;
+    let mut rb = vec![0u8; kr * 4];
+    f.read_exact(&mut rb).ok()?;
+    let mut radii = vec![0f32; kr];
+    for (i, c) in rb.chunks_exact(4).enumerate() {
+        radii[i] = f32::from_le_bytes(c.try_into().ok()?);
+    }
+    let persist = crate::storage::persistence::SplatsDBPersistence::with_backend(
+        data_dir,
+        crate::storage::persistence::StorageBackend::Sqlite,
+        false,
+    )
+    .ok()?;
+    let raw = persist.load_vectors("raw").ok()??;
+    let splats = persist.load_vectors("default").ok()??;
+    if raw.nrows() != n || splats.nrows() != k || kr != k {
+        eprintln!("[splatsdb] field/ desincronizado; /field-search deshabilitado");
+        return None;
+    }
+    Some(FieldData { raw, splats, offsets, ids, radii })
+}
+
+fn field_sweep(field: &FieldData, q: &[f32], kq: usize) -> serde_json::Value {
+    let t0 = std::time::Instant::now();
+    let qv = ndarray::arr1(q);
+    let k = field.splats.nrows();
+    let n = field.raw.nrows();
+    let d_mu: ndarray::Array1<f32> = field
+        .splats
+        .map_axis(ndarray::Axis(1), |r| {
+            let d = r.to_owned() - &qv;
+            d.dot(&d).max(0.0).sqrt()
+        });
+    // cota por cluster: un cluster entero es podable si (d(q,mu)−R)² > kth
+    let lb: Vec<f32> = (0..k).map(|c| (d_mu[c] - field.radii[c]).max(0.0)).collect();
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by(|a, b| d_mu[*a].partial_cmp(&d_mu[*b]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut top: Vec<(f32, u32)> = Vec::with_capacity(kq + 8);
+    let mut kth = f32::INFINITY;
+    // kth SOLO acota cuando el top-k está completo (cota inválida con top parcial)
+    let mut visited = 0usize;
+    let mut scanned = 0usize;
+    for &c in &order {
+        let lb_c = lb[c] * lb[c];
+        if !(lb_c < kth || top.len() < kq) {
+            continue;
+        }
+        let (lo, hi) = (field.offsets[c] as usize, field.offsets[c + 1] as usize);
+        if hi == lo {
+            continue;
+        }
+        visited += 1;
+        scanned += hi - lo;
+        for &id in &field.ids[lo..hi] {
+            let row = field.raw.row(id as usize);
+            let diff = row.to_owned() - &qv;
+            let d2 = diff.dot(&diff);
+            if top.len() < kq || d2 < kth {
+                top.push((d2, id));
+                top.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                if top.len() > kq {
+                    top.truncate(kq);
+                }
+                kth = if top.len() >= kq { top[top.len() - 1].0 } else { f32::INFINITY };
+            }
+        }
+    }
+    let pct = |x: f64| (x * 10000.0).round() / 10000.0;
+    serde_json::json!({
+        "backend": "field_exact_bounds",
+        "k": kq,
+        "n_vectors": n,
+        "n_splats": k,
+        "clusters_visited": visited,
+        "cluster_frac": pct(visited as f64 / k as f64),
+        "vectors_scanned": scanned,
+        "scan_frac": pct(scanned as f64 / n as f64),
+        "time_ms": t0.elapsed().as_millis() as u64,
+        "results": top.iter()
+            .map(|(d, i)| serde_json::json!({"index": *i as usize, "score": *d}))
+            .collect::<Vec<_>>(),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct FieldSearchRequest {
+    pub embedding: Vec<f32>,
+    pub top_k: Option<usize>,
+}
+
+async fn field_search_handler(
+    State(state): State<AppState>,
+    Json(req): Json<FieldSearchRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let Some(field) = &state.field else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "no hay field/ en este data-dir (correr ingest con splatdb >= 2.6.1)".into(),
+        ));
+    };
+    if req.embedding.len() != field.splats.ncols() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "dim esperada {}, llegada {}",
+                field.splats.ncols(),
+                req.embedding.len()
+            ),
+        ));
+    }
+    let k = req.top_k.unwrap_or(10).max(1).min(1000);
+    Ok(Json(field_sweep(field, &req.embedding, k)))
 }
 
 // ─── Batch worker (R9 §2) ─────────────────────────────────
@@ -742,6 +936,7 @@ pub async fn run_server(
     port: u16,
     config: SplatsDBConfig,
     data_dir: &str,
+    gpu_enabled: bool,
 ) -> anyhow::Result<()> {
     let config = server_config(config);
     let hnsw_on = config.enable_hnsw;
@@ -759,6 +954,47 @@ pub async fn run_server(
         Err(e) => eprintln!("[splatsdb] serve: failed to load {data_dir}: {e}"),
     }
 
+    // ── Índice exacto en GPU (--gpu, feature cuda): kernel PTX l2+topk sobre
+    // los vectores cargados. Fallback silencioso a CPU si no hay GPU.
+    #[cfg(feature = "cuda")]
+    let gpu_index: Option<Arc<crate::gpu::cuda_kernel::GpuIndex>> = if gpu_enabled {
+        match crate::gpu::cuda_kernel::GpuIndex::new() {
+            Some(mut g) => match store.get_mu() {
+                Some(mu) if mu.nrows() > 0 && mu.ncols() > 0 => {
+                    let (n, d) = (mu.nrows(), mu.ncols());
+                    let slice = mu
+                        .as_slice()
+                        .map(<[f32]>::to_vec)
+                        .unwrap_or_else(|| mu.iter().copied().collect());
+                    if g.upload_dataset(&slice, n, d) {
+                        eprintln!("[splatsdb] serve: GPU exact index listo ({n} vectores, dim {d})");
+                        Some(Arc::new(g))
+                    } else {
+                        eprintln!("[splatsdb] serve: upload GPU falló; búsqueda en CPU");
+                        None
+                    }
+                }
+                _ => {
+                    eprintln!("[splatsdb] serve: store vacío, GPU sin dataset");
+                    None
+                }
+            },
+            None => {
+                eprintln!("[splatsdb] serve: GPU no disponible (--gpu ignorado); búsqueda en CPU");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "cuda"))]
+    let _ = gpu_enabled;
+
+    let field_data = load_field(data_dir);
+    if field_data.is_some() {
+        eprintln!("[splatsdb] serve: campo splat cargado (/field-search disponible)");
+    }
+
     let store = Arc::new(Mutex::new(store));
     let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
     let batches_served = Arc::new(AtomicUsize::new(0));
@@ -773,6 +1009,9 @@ pub async fn run_server(
         next_id: Arc::new(AtomicUsize::new(0)),
         batch_tx,
         batches_served,
+        #[cfg(feature = "cuda")]
+        gpu: gpu_index,
+        field: field_data.map(Arc::new),
     };
 
     let app = build_router(state);
@@ -825,6 +1064,7 @@ fn build_router(state: AppState) -> Router {
         .route("/status", post(status))
         .route("/store", post(store_memory))
         .route("/search", post(search_memories))
+        .route("/field-search", post(field_search_handler))
         .layer(cors)
         .layer(middleware::from_fn(api_key_auth))
         .with_state(state)
@@ -869,6 +1109,9 @@ mod tests {
             next_id: Arc::new(AtomicUsize::new(0)),
             batch_tx,
             batches_served: batches_served.clone(),
+            #[cfg(feature = "cuda")]
+            gpu: None,
+            field: None,
         };
         (build_router(state), batches_served)
     }
