@@ -83,8 +83,8 @@ pub fn persist_field(
     }
 
     // crudos como shard "raw" (reusa la persistence existente)
-    let persist = super::helpers::make_persistence(data_dir, backend, true)
-        .map_err(|e| e.to_string())?;
+    let persist =
+        super::helpers::make_persistence(data_dir, backend, true).map_err(|e| e.to_string())?;
     persist
         .save_vectors(raw, "raw")
         .map_err(|e| e.to_string())?;
@@ -93,8 +93,10 @@ pub fn persist_field(
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let mut f = fs::File::create(dir.join("members.idx")).map_err(|e| e.to_string())?;
-    f.write_all(&(n as u64).to_le_bytes()).map_err(|e| e.to_string())?;
-    f.write_all(&(k as u64).to_le_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(&(n as u64).to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    f.write_all(&(k as u64).to_le_bytes())
+        .map_err(|e| e.to_string())?;
     for o in &offsets {
         f.write_all(&o.to_le_bytes()).map_err(|e| e.to_string())?;
     }
@@ -103,7 +105,8 @@ pub fn persist_field(
     }
     drop(f);
     let mut f = fs::File::create(dir.join("radii.bin")).map_err(|e| e.to_string())?;
-    f.write_all(&(k as u64).to_le_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(&(k as u64).to_le_bytes())
+        .map_err(|e| e.to_string())?;
     for r in &rmax {
         f.write_all(&r.to_le_bytes()).map_err(|e| e.to_string())?;
     }
@@ -141,7 +144,8 @@ fn load_u64s(path: &Path, count: usize, skip: usize) -> Result<Vec<u64>, String>
 
 fn load_u32s(path: &Path, count: usize, skip_bytes: u64) -> Result<Vec<u32>, String> {
     let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
-    f.seek(SeekFrom::Start(skip_bytes)).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(skip_bytes))
+        .map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; count * 4];
     f.read_exact(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf
@@ -169,8 +173,8 @@ pub fn field_search(data_dir: &str, q: &[f32], kq: usize) -> Result<serde_json::
     }
     let t0 = std::time::Instant::now();
     let base = Path::new(data_dir);
-    let persist = super::helpers::make_persistence(data_dir, "sqlite", false)
-        .map_err(|e| e.to_string())?;
+    let persist =
+        super::helpers::make_persistence(data_dir, "sqlite", false).map_err(|e| e.to_string())?;
 
     let raw = persist
         .load_vectors("raw")
@@ -200,11 +204,14 @@ pub fn field_search(data_dir: &str, q: &[f32], kq: usize) -> Result<serde_json::
         let diff = r.to_owned() - &qv;
         diff.dot(&diff).max(0.0).sqrt()
     });
-    let lb: Array1<f32> =
-        Array1::from_iter((0..k).map(|c| (d_mu[c] - radii[c]).max(0.0)));
+    let lb: Array1<f32> = Array1::from_iter((0..k).map(|c| (d_mu[c] - radii[c]).max(0.0)));
 
     let mut order: Vec<usize> = (0..k).collect();
-    order.sort_by(|a, b| d_mu[*a].partial_cmp(&d_mu[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|a, b| {
+        d_mu[*a]
+            .partial_cmp(&d_mu[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut top: Vec<(f32, u32)> = Vec::with_capacity(kq + 8);
     let mut kth = f32::INFINITY;

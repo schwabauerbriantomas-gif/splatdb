@@ -65,3 +65,10 @@ logo.png
 logo.svg
 __pycache__/
 ptx/
+
+# Semantic-hub DATA (payloads privados, índices y artefactos — NUNCA al repo)
+semantic-hub/**/*.db
+semantic-hub/**/*.bin
+semantic-hub/**/*.npz
+semantic-hub/**/*.pid
+emb-test/**/*.db

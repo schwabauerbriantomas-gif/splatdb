@@ -866,11 +866,7 @@ fn simple_kmeans(
         )
         .expect("centroid shape");
         let dots = data.dot(&c_mat.t()); // (n, k)
-        let half_norms: Array1<f32> = c_mat
-            .rows()
-            .into_iter()
-            .map(|r| r.dot(&r) * 0.5)
-            .collect();
+        let half_norms: Array1<f32> = c_mat.rows().into_iter().map(|r| r.dot(&r) * 0.5).collect();
         let biased = dots - half_norms; // broadcast per row
         let mut changed = false;
         for (i, row) in biased.rows().into_iter().enumerate() {

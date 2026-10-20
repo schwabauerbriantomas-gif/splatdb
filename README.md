@@ -185,11 +185,12 @@ splatsdb mcp  # starts JSON-RPC on stdio
 ### Build
 
 ```bash
-# CPU-only (no GPU dependencies)
+# Default (v2.6.0): CUDA support included — compiles without nvcc,
+# uses the GPU at runtime when a driver is present
 cargo build --release
 
-# With CUDA GPU acceleration
-cargo build --release --features cuda
+# CPU-only build (no CUDA code at all)
+cargo build --release --no-default-features
 
 # Run tests
 cargo test --lib
@@ -268,6 +269,8 @@ where each stored item carries α (opacity / importance) and κ (concentration /
 
 Probabilistic scoring of candidates is not new as a technique — probabilistic cross-media embedding methods (e.g. PCME / PCME++) and mixture-model retrieval score candidates distributionally in the academic literature. SplatsDB's contribution is at the product level: per-item κ re-scoring, uncertainty flags, and confidence-aware results exposed as first-class database features (search results, MCP tools, energy/SOC commands), not as a research artifact.
 
+> **v2.6 empirical audit** (`bench-latent/`, 30 queries vs exact GT, 26k×768): energy re-scoring as a *ranking* signal collapses recall to ~0.00–0.05 in 768d — κ clamps low and α dominates, so the ranking becomes cluster popularity. Use it for uncertainty flagging and energy exploration only; rank with the embedding metric. Details in [`docs/A5_FINDINGS.md`](docs/A5_FINDINGS.md).
+
 ### SimCos Embeddings
 
 > ⚠️ **SimCos is for quick demos only.** For production, always use real embeddings (OpenAI, Cohere, MiniLM, etc). SimCos uses trigram hashing — it has no semantic understanding.
@@ -301,6 +304,12 @@ A high κ means the document is tightly focused — it matches few queries, but 
 - **HNSW** is the default for production. It indexes μ vectors directly and achieves 0.995+ recall. α and κ are used during re-ranking for confidence scoring.
 - **HRM2 splats** are useful when you need overlap-based similarity (capturing topic breadth), uncertainty estimation, or don't have enough data for a good HNSW graph.
 - **Rule of thumb**: Use HNSW for speed, use HRM2 when uncertainty matters.
+
+### Field Search: Splats as Cells with Radii (v2.6)
+
+The v2.6 field search treats each splat as a **cell with a radius** (R = max member→centroid distance) and uses the triangle inequality `d(q,x) ≥ d(q,μ) − R` as a **safe bound**: an entire cluster is skipped when its bound loses to the current k-th best. This makes `field-search` **exact by construction** (measured recall 0.99 vs brute-force GT on 26k×768 — the 2 misses are float32 ties), while HNSW remains approximate (0.997). A subtle implementation rule matters: the pruning threshold `kth` is only a valid bound once the top-k is complete.
+
+Honest envelope: at 26k×768d the radii (≈1.0) are the same order as query-to-centroid distances (≈0.6), so bound pruning is ~1% — the win appears at larger scale (≥500k vectors) or reduced dimensions (MRL 128/256). Every ingest persists `field/` (members CSR + radii) plus a `raw` shard, so both `field-search` (CLI) and `/field-search` (HTTP) work out of the box.
 
 ---
 
@@ -607,9 +616,10 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 
 | Command | Description |
 |---------|-------------|
-| `ingest --input data.bin --n-clusters 100` | KMeans splat centroids via DatasetTransformer |
+| `ingest --input data.bin --n-clusters 100` | KMeans splat centroids via DatasetTransformer (also persists `raw` shard + `field/`) |
 | `ingest-hierarchical --input data.bin --n-clusters 10` | Two-level hierarchical KMeans |
 | `ingest-leader --input data.bin --target-clusters 50` | O(n) single-pass leader clustering |
+| `field-search --query "0.1,..." -k 10` | Exact search over the splat field (cell radii + triangle bounds; requires `field/` from ingest) |
 
 ### Search Backend Commands
 
@@ -627,7 +637,7 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 | `quant-search --query "0.1,..." --top-k 10` | Search compressed codes |
 | `quant-status` | Show quantization statistics |
 
-### GPU Commands (requires `--features cuda`)
+### GPU Commands (CUDA enabled by default since v2.6.0; `--no-default-features` builds CPU-only)
 
 | Command | Description |
 |---------|-------------|
@@ -666,7 +676,7 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 
 | Command | Description |
 |---------|-------------|
-| `serve --host 0.0.0.0 --port 8199` | Start HTTP API server |
+| `serve --host 0.0.0.0 --port 8199` | Start HTTP API server (`--gpu` enables exact GPU search) |
 | `mcp` | Start MCP server (stdio JSON-RPC 2.0) |
 | `preset-info` | Show which subsystems each preset enables |
 
@@ -813,6 +823,7 @@ Start an HTTP server for integration with Python, Node.js, or any HTTP client:
 | `--dim` | `64` | Vector dimensionality |
 | `--max-splats` | `100000` | Max capacity |
 | `--backend` | `sqlite` | Metadata backend |
+| `--gpu` | off | Upload dataset to VRAM at boot; `/search` with an embedding runs the exact PTX `l2_topk_kernel` and responses carry `"backend": "gpu"`. Silent CPU fallback (no GPU, `rescore=gaussian`, or text-only query) |
 
 ### Endpoints
 
@@ -823,7 +834,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.5.0"}
+{"status": "ok", "version": "2.6.0"}
 ```
 
 #### `POST /status` — Store Statistics
@@ -886,9 +897,44 @@ Response:
   "results": [
     {"index": 0, "score": 0.023, "metadata": null},
     {"index": 5, "score": 0.145, "metadata": null}
-  ]
+  ],
+  "backend": "gpu"
 }
 ```
+
+`backend` is present only when the query ran on the exact GPU kernel (`serve --gpu`); it is omitted on the CPU path.
+
+#### `POST /field-search` — Exact Field Search (v2.6)
+
+```bash
+curl -X POST http://localhost:8199/field-search \
+  -H "Content-Type: application/json" \
+  -d '{"embedding": [0.1, 0.2, "..."], "top_k": 10}'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `embedding` | float[] | Yes | Query embedding (must match store dimension) |
+| `top_k` | int | No | Number of results (default: 10) |
+
+Response:
+
+```json
+{
+  "backend": "field_exact_bounds",
+  "k": 10,
+  "n_vectors": 26273,
+  "n_splats": 2620,
+  "clusters_visited": 2605,
+  "cluster_frac": 0.9943,
+  "vectors_scanned": 26273,
+  "scan_frac": 1.0,
+  "time_ms": 20,
+  "results": [{"index": 123, "score": 0.023}]
+}
+```
+
+Requires a data-dir with a persisted field (`field/members.idx`, `field/radii.bin` and the `raw` shard — produced by every `ingest` since v2.6.0). Results are exact (triangle-inequality bounds); the pruning stats show how much of the corpus was actually scanned.
 
 > **Note**: The default HTTP server uses SimCos hash-based pseudo-embeddings (trigram hashing — no semantic understanding). For production use, provide real embeddings from a model (e.g. OpenAI, Cohere, MiniLM, BGE) via the `embedding` field.
 
@@ -971,6 +1017,17 @@ cargo build --release --features cuda
 ### Performance
 
 **Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): batch L2 over 10K×640D × 100 queries — CPU 718ms vs GPU 18ms = **39.89×**; correctness test passes alongside.
+
+**Serve integration (v2.6.0, 2026-10-20)** — `splatsdb serve --gpu` uploads the dataset to VRAM at boot and routes `/search` (with embedding) through the PTX `l2_topk_kernel`. Measured on the semantic-hub dataset (26,273×768d, RTX 3090, WSL2), 30 queries against exact brute-force ground truth + 600-query soak:
+
+| Path | Latency | Recall@10 |
+|------|---------|-----------|
+| GPU kernel (dataset in VRAM) | **266 µs/query** | 1.0 (exact — verified identical to CPU) |
+| `/search` E2E HTTP p50 | **11.4 ms** (p95 13.4 / p99 14.5) | 1.0 (30/30 exact) |
+| CPU brute-force (rayon) | 2.5 ms | 1.0 (reference) |
+| Throughput | 84.5 QPS sequential; ~87 QPS at 10 threads | 0 errors in 600 queries |
+
+vs HNSW HTTP on the same data (~25 ms, recall 0.997): faster **and** exact. The E2E ceiling is HTTP/JSON, not the GPU (kernel is margin). Source: `bench-latent/` (ground truth + 4-agent swarm validation), commit `be3374c`.
 
 **End-to-end top-k** (SIFT-128 100K vectors, k=10, dataset resident in VRAM): source [`bench-data/benchmark_results_hardware.json`](bench-data/benchmark_results_hardware.json) (2026-04-10).
 
@@ -1238,7 +1295,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `energy` | `src/energy.rs` | Energy landscape computation |
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
-| `api_server` | `src/api_server.rs` | HTTP REST API (4 endpoints: health, status, store, search) |
+| `api_server` | `src/api_server.rs` | HTTP REST API (5 endpoints: health, status, store, search, field-search) |
 | `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (18 tools, production-hardened) |
 | `config` | `src/config/` | 7 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |

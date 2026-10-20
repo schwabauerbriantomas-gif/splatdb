@@ -401,6 +401,7 @@ mod api_smoke {
                     .join("splatsdb_smoke")
                     .to_str()
                     .unwrap(),
+                false, // smoke en CPU: sin índice GPU
             ));
         });
 
