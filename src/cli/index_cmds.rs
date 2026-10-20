@@ -203,6 +203,8 @@ pub fn cmd_ingest(
 }
 
 pub fn cmd_ingest_hierarchical(
+    data_dir: String,
+    backend: String,
     config: SplatsDBConfig,
     input: PathBuf,
     n_clusters: usize,
@@ -228,7 +230,32 @@ pub fn cmd_ingest_hierarchical(
     match store.ingest_hierarchical(&vectors, n_clusters, min_cluster_size, seed) {
         Ok((n_splats, compression, stats)) => {
             let elapsed = t0.elapsed();
-            store.build_index();
+            // Persist like `ingest` does: build the search index (auto-saving
+            // HNSW to data_dir) and write splat centroids + energy state,
+            // otherwise the ingest result is lost when the process exits and
+            // status/search see an empty store.
+            store.build_index_with_save(Some(&data_dir));
+
+            let persist = make_persistence(&data_dir, &backend, true).unwrap_or_else(|e| {
+                eprintln!("Storage error: {}", e);
+                std::process::exit(1);
+            });
+            match (store.get_mu(), store.get_alpha(), store.get_kappa()) {
+                (Some(mu), Some(alpha), Some(kappa)) => {
+                    if let Err(e) = persist.save_vectors(&mu, "default") {
+                        eprintln!("Save error: {}", e);
+                        std::process::exit(1);
+                    }
+                    if let Err(e) = persist.save_energy_state(&mu, &alpha.to_vec(), &kappa.to_vec())
+                    {
+                        eprintln!("Warning: energy save failed: {}", e);
+                    }
+                }
+                _ => {
+                    eprintln!("Ingest error: no splats to persist (store is empty)");
+                    std::process::exit(1);
+                }
+            }
             println!(
                 "{}",
                 serde_json::json!({
