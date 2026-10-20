@@ -3,6 +3,7 @@
 mod bench_longmemeval;
 mod cluster_cmds;
 mod data_cmds;
+mod field_cmds;
 mod graph_cmds;
 mod helpers;
 mod index_cmds;
@@ -169,6 +170,13 @@ pub enum Commands {
         query: Option<String>,
         #[arg(long)]
         query_file: Option<PathBuf>,
+        #[arg(short, long, default_value = "10")]
+        k: usize,
+    },
+    /// Exact search over the splat field (cell radii + triangle bounds)
+    FieldSearch {
+        #[arg(short, long)]
+        query: String,
         #[arg(short, long, default_value = "10")]
         k: usize,
     },
@@ -656,6 +664,23 @@ pub fn dispatch(cli: Cli) {
             query_file,
             k,
         } => search_cmds::cmd_fused_search(cli.data_dir, config, query, query_file, k),
+        Commands::FieldSearch { query, k } => {
+            let parsed: Result<Vec<f32>, _> =
+                query.split(',').map(|s| s.trim().parse::<f32>()).collect();
+            match parsed {
+                Ok(qv) => match field_cmds::field_search(&cli.data_dir, &qv, k) {
+                    Ok(out) => println!("{out}"),
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        std::process::exit(1);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error: query inválida: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::PresetInfo { preset } => data_cmds::cmd_preset_info(preset),
         Commands::HnswSearch {
             query,
