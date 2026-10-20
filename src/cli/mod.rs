@@ -628,7 +628,15 @@ pub fn dispatch(cli: Cli) {
             n_clusters,
             min_cluster_size,
             seed,
-        } => index_cmds::cmd_ingest_hierarchical(config, input, n_clusters, min_cluster_size, seed),
+        } => index_cmds::cmd_ingest_hierarchical(
+            cli.data_dir,
+            cli.backend,
+            config,
+            input,
+            n_clusters,
+            min_cluster_size,
+            seed,
+        ),
         Commands::IngestLeader {
             input,
             target_clusters,
