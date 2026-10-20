@@ -102,7 +102,7 @@ pub fn batch_search(
 #[cfg(feature = "cuda")]
 pub fn gpu_info() -> Option<String> {
     use cudarc::driver::CudaContext;
-    let ctx = CudaContext::new(0).ok()?;
+    let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
     let name = ctx.name().unwrap_or_else(|_| "Unknown".to_string());
     let (major, minor) = ctx.compute_capability().unwrap_or((0, 0));
     let total_mem = ctx.total_mem().unwrap_or(0);
