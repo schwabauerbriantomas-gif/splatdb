@@ -620,7 +620,7 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 | `ingest --input data.bin --n-clusters 100` | KMeans splat centroids via DatasetTransformer (also persists `raw` shard + `field/`) |
 | `ingest-hierarchical --input data.bin --n-clusters 10` | Two-level hierarchical KMeans |
 | `ingest-leader --input data.bin --target-clusters 50` | O(n) single-pass leader clustering |
-| `field-search --query "0.1,..." -k 10` | Exact search over the splat field (cell radii + triangle bounds; requires `field/` from ingest) |
+| `field-search --query "0.1,..." -k 10` | Search over the splat field — exact triangle-bounds mode by default; `--nprobe N` switches to two-phase IVF (approximate), `--gpu` runs phase 1 on the PTX kernel |
 
 ### Search Backend Commands
 
@@ -917,6 +917,8 @@ curl -X POST http://localhost:8199/field-search \
 |-------|------|----------|-------------|
 | `embedding` | float[] | Yes | Query embedding (must match store dimension) |
 | `top_k` | int | No | Number of results (default: 10) |
+| `mode` | string | No | `"two-phase"` = approximate IVF (phase 1: top-`nprobe` clusters by d(q,μ); phase 2: exact re-rank of their members). Default = exact triangle bounds |
+| `nprobe` | int | No | Clusters probed in two-phase mode (default: 32) — recall scales with it |
 
 Response:
 
@@ -936,6 +938,17 @@ Response:
 ```
 
 Requires a data-dir with a persisted field (`field/members.idx`, `field/radii.bin` and the `raw` shard — produced by every `ingest` since v2.6.0). Results are exact (triangle-inequality bounds); the pruning stats show how much of the corpus was actually scanned.
+
+**Two-phase mode** (`"mode": "two-phase"`) trades exactness for speed like an IVF index: with `nprobe` clusters probed it scans ~`nprobe/K` of the corpus. Measured on the validation store (25,611 vectors, 2,620 splats, 30 queries vs exact ground truth):
+
+| nprobe | recall@10 | vectors scanned | phase1 + phase2 (CPU) |
+|--------|-----------|-----------------|----------------------|
+| 16 | 0.59 | 1.3% | 1.7 + 1.7 ms |
+| 32 | 0.73 | 2.4% | 1.6 + 1.7 ms |
+| 128 | 0.86 | 7.8% | 1.8 + 2.5 ms |
+| exact | 1.00 | ~100% | — (single ordered sweep, 18 ms) |
+
+Phase 1 can run on the PTX kernel (`--gpu` in the CLI): cluster winners are identical to CPU (30/30), but per-invocation context+upload overhead (~330 ms) makes it only worthwhile as a **resident** index in a long-running server with large K. At this scale the exact mode is the right default; two-phase pays off when K grows and the raw vectors can't stay in fast memory.
 
 > **Note**: The default HTTP server uses SimCos hash-based pseudo-embeddings (trigram hashing — no semantic understanding). For production use, provide real embeddings from a model (e.g. OpenAI, Cohere, MiniLM, BGE) via the `embedding` field.
 

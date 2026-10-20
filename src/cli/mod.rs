@@ -173,12 +173,19 @@ pub enum Commands {
         #[arg(short, long, default_value = "10")]
         k: usize,
     },
-    /// Exact search over the splat field (cell radii + triangle bounds)
+    /// Search the splat field: default exact (triangle bounds); --nprobe N > 0
+    /// switches to two-phase IVF (approximate, recall depends on N)
     FieldSearch {
         #[arg(short, long)]
         query: String,
         #[arg(short, long, default_value = "10")]
         k: usize,
+        /// Two-phase IVF: number of clusters to probe (0 = exact bounds mode)
+        #[arg(long, default_value = "0")]
+        nprobe: usize,
+        /// Phase 1 on GPU (PTX kernel over splats; falls back to CPU)
+        #[arg(long, default_value = "false")]
+        gpu: bool,
     },
     /// Show which subsystems each preset enables
     PresetInfo {
@@ -667,17 +674,29 @@ pub fn dispatch(cli: Cli) {
             query_file,
             k,
         } => search_cmds::cmd_fused_search(cli.data_dir, config, query, query_file, k),
-        Commands::FieldSearch { query, k } => {
+        Commands::FieldSearch {
+            query,
+            k,
+            nprobe,
+            gpu,
+        } => {
             let parsed: Result<Vec<f32>, _> =
                 query.split(',').map(|s| s.trim().parse::<f32>()).collect();
             match parsed {
-                Ok(qv) => match field_cmds::field_search(&cli.data_dir, &qv, k) {
-                    Ok(out) => println!("{out}"),
-                    Err(e) => {
-                        eprintln!("Error: {e}");
-                        std::process::exit(1);
+                Ok(qv) => {
+                    let out = if nprobe > 0 {
+                        field_cmds::field_search_two_phase(&cli.data_dir, &qv, k, nprobe, gpu)
+                    } else {
+                        field_cmds::field_search(&cli.data_dir, &qv, k)
+                    };
+                    match out {
+                        Ok(out) => println!("{out}"),
+                        Err(e) => {
+                            eprintln!("Error: {e}");
+                            std::process::exit(1);
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("Error: query inválida: {e}");
                     std::process::exit(1);

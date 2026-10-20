@@ -513,10 +513,85 @@ fn field_sweep(field: &FieldData, q: &[f32], kq: usize) -> serde_json::Value {
     })
 }
 
+/// Two-phase IVF (aproximado): fase 1 = top-`nprobe` clusters por d(q, mu);
+/// fase 2 = re-rank exacto L2² (rayon) de los miembros vía CSR. El recall
+/// depende de nprobe — el exacto es field_sweep. Fase 1 CPU: a K moderado es
+/// sub-ms y evita un segundo índice en VRAM (el del server es sobre los crudos).
+fn field_two_phase(
+    field: &FieldData,
+    q: &[f32],
+    kq: usize,
+    nprobe_req: usize,
+) -> serde_json::Value {
+    use rayon::prelude::*;
+    let t0 = std::time::Instant::now();
+    let qv = ndarray::arr1(q);
+    let k = field.splats.nrows();
+    let n = field.raw.nrows();
+    let nprobe = nprobe_req.min(k).max(1);
+
+    let t1 = std::time::Instant::now();
+    let d_mu: ndarray::Array1<f32> = field.splats.map_axis(ndarray::Axis(1), |r| {
+        let d = r.to_owned() - &qv;
+        d.dot(&d).max(0.0).sqrt()
+    });
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by(|a, b| {
+        d_mu[*a]
+            .partial_cmp(&d_mu[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let winners = &order[..nprobe];
+    let phase1_us = t1.elapsed().as_micros() as u64;
+
+    let t2 = std::time::Instant::now();
+    let mut cand: Vec<u32> = Vec::new();
+    let mut scanned = 0usize;
+    for &c in winners {
+        let (lo, hi) = (field.offsets[c] as usize, field.offsets[c + 1] as usize);
+        scanned += hi - lo;
+        cand.extend_from_slice(&field.ids[lo..hi]);
+    }
+    let mut top: Vec<(f32, u32)> = cand
+        .par_iter()
+        .map(|&id| {
+            let row = field.raw.row(id as usize);
+            let diff = row.to_owned() - &qv;
+            (diff.dot(&diff), id)
+        })
+        .collect();
+    top.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    top.truncate(kq);
+    let phase2_us = t2.elapsed().as_micros() as u64;
+
+    let pct = |x: f64| (x * 10000.0).round() / 10000.0;
+    serde_json::json!({
+        "backend": "field_two_phase_ivf",
+        "k": kq,
+        "n_vectors": n,
+        "n_splats": k,
+        "nprobe": nprobe,
+        "clusters_probed": winners.len(),
+        "vectors_scanned": scanned,
+        "scan_frac": pct(scanned as f64 / n as f64),
+        "phase1_us": phase1_us,
+        "phase2_us": phase2_us,
+        "time_ms": t0.elapsed().as_millis() as u64,
+        "results": top.iter()
+            .map(|(d, i)| serde_json::json!({"index": *i as usize, "score": *d}))
+            .collect::<Vec<_>>(),
+    })
+}
+
 #[derive(Deserialize)]
 pub struct FieldSearchRequest {
     pub embedding: Vec<f32>,
     pub top_k: Option<usize>,
+    /// "two-phase" = IVF aproximado (recall depende de nprobe);
+    /// default = exacto por cotas
+    pub mode: Option<String>,
+    /// Clusters a sondear en modo two-phase (default 32)
+    pub nprobe: Option<usize>,
 }
 
 async fn field_search_handler(
@@ -540,6 +615,10 @@ async fn field_search_handler(
         ));
     }
     let k = req.top_k.unwrap_or(10).clamp(1, 1000);
+    if req.mode.as_deref() == Some("two-phase") {
+        let nprobe = req.nprobe.unwrap_or(32).clamp(1, field.splats.nrows());
+        return Ok(Json(field_two_phase(field, &req.embedding, k, nprobe)));
+    }
     Ok(Json(field_sweep(field, &req.embedding, k)))
 }
 
