@@ -24,7 +24,7 @@ pub struct GpuExtended {
 impl GpuExtended {
     /// Create a new extended GPU context. Returns None if CUDA unavailable.
     pub fn new() -> Option<Self> {
-        let ctx = CudaContext::new(0).ok()?;
+        let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
         let stream = ctx.default_stream();
         Some(GpuExtended { ctx, stream })
     }

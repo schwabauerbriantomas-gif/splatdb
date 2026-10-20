@@ -13,8 +13,23 @@ pub mod cuda_extended;
 /// Check if CUDA is available at runtime.
 #[cfg(feature = "cuda")]
 pub fn is_cuda_available() -> bool {
-    use cudarc::driver::CudaContext;
-    CudaContext::device_count().map(|c| c > 0).unwrap_or(false)
+    crate::gpu::with_silent_panic(|| {
+        use cudarc::driver::CudaContext;
+        CudaContext::device_count().map(|c| c > 0).unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+/// Run a cudarc initialization closure without letting its internal panic
+/// escape: cudarc panics when `libcuda` is absent (runner/machine without a
+/// GPU driver). Returns None on panic; the panic message is silenced.
+#[cfg(feature = "cuda")]
+pub fn with_silent_panic<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Option<T> {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(f).ok();
+    std::panic::set_hook(prev);
+    result
 }
 
 /// Check if CUDA is available at runtime.

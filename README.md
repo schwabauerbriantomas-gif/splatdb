@@ -8,7 +8,8 @@
 Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a single Rust binary.
 </p>
 
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatsdb)
+[![CI](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-406%20passing-brightgreen.svg)]()
@@ -135,7 +136,7 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 
 ### 30-Second Trial (No Rust Needed)
 
-Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatsdb/releases) and run:
+Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatdb/releases) and run:
 
 ```bash
 # Index pre-computed embeddings (any dimension, any provider)

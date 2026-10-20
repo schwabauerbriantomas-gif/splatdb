@@ -137,8 +137,10 @@ fn load_u64s(path: &Path, count: usize, skip: usize) -> Result<Vec<u64>, String>
     let mut buf = vec![0u8; count * 8];
     f.read_exact(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf
-        .chunks_exact(8)
-        .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|b| u64::from_le_bytes(*b))
         .collect())
 }
 
@@ -149,8 +151,10 @@ fn load_u32s(path: &Path, count: usize, skip_bytes: u64) -> Result<Vec<u32>, Str
     let mut buf = vec![0u8; count * 4];
     f.read_exact(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf
-        .chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_le_bytes(*b))
         .collect())
 }
 
@@ -161,8 +165,10 @@ fn load_f32s(path: &Path, count: usize, skip: usize) -> Result<Vec<f32>, String>
     let mut buf = vec![0u8; count * 4];
     f.read_exact(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect())
 }
 
