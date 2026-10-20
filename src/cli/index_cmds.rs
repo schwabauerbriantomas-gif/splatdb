@@ -327,8 +327,7 @@ pub fn cmd_ingest_leader(
                     if let Err(e) = p.save_vectors(&mu_owned, "default") {
                         eprintln!("Warning: save failed: {}", e);
                     }
-                    if let Err(e) =
-                        p.save_energy_state(&mu_owned, &alpha.to_vec(), &kappa.to_vec())
+                    if let Err(e) = p.save_energy_state(&mu_owned, &alpha.to_vec(), &kappa.to_vec())
                     {
                         eprintln!("Warning: energy save failed: {}", e);
                     }

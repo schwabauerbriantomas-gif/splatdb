@@ -293,11 +293,15 @@ async fn search_memories(
     }
 
     if n_active == 0 {
-        return Ok(Json(SearchResponse { results: vec![], backend: None }));
+        return Ok(Json(SearchResponse {
+            results: vec![],
+            backend: None,
+        }));
     }
 
     let k = req.top_k.unwrap_or(10).max(1).min(n_active).min(MAX_TOP_K);
 
+    #[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
     let had_embedding = req.embedding.is_some();
     let embedding = req
         .embedding
@@ -313,14 +317,16 @@ async fn search_memories(
         if had_embedding && !rescore_gaussian {
             if let Some(mut per_query) = gpu.topk_search(&embedding, 1, k, "l2") {
                 if let Some((idxs, dists)) = per_query.pop() {
-                    let mut pairs: Vec<(usize, f32)> =
-                        idxs.into_iter().zip(dists).collect();
-                    pairs.sort_by(|a, b| {
-                        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    let mut pairs: Vec<(usize, f32)> = idxs.into_iter().zip(dists).collect();
+                    pairs
+                        .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
                     let results = pairs
                         .into_iter()
-                        .map(|(i, d)| SearchResult { index: i, score: d, metadata: None })
+                        .map(|(i, d)| SearchResult {
+                            index: i,
+                            score: d,
+                            metadata: None,
+                        })
                         .collect();
                     return Ok(Json(SearchResponse {
                         results,
@@ -361,7 +367,10 @@ async fn search_memories(
         })?
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    Ok(Json(SearchResponse { results, backend: None }))
+    Ok(Json(SearchResponse {
+        results,
+        backend: None,
+    }))
 }
 
 // ─── Campo splat (celdas con radio): /field-search exacto ────────────────
@@ -424,7 +433,13 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
         eprintln!("[splatsdb] field/ desincronizado; /field-search deshabilitado");
         return None;
     }
-    Some(FieldData { raw, splats, offsets, ids, radii })
+    Some(FieldData {
+        raw,
+        splats,
+        offsets,
+        ids,
+        radii,
+    })
 }
 
 fn field_sweep(field: &FieldData, q: &[f32], kq: usize) -> serde_json::Value {
@@ -432,16 +447,20 @@ fn field_sweep(field: &FieldData, q: &[f32], kq: usize) -> serde_json::Value {
     let qv = ndarray::arr1(q);
     let k = field.splats.nrows();
     let n = field.raw.nrows();
-    let d_mu: ndarray::Array1<f32> = field
-        .splats
-        .map_axis(ndarray::Axis(1), |r| {
-            let d = r.to_owned() - &qv;
-            d.dot(&d).max(0.0).sqrt()
-        });
+    let d_mu: ndarray::Array1<f32> = field.splats.map_axis(ndarray::Axis(1), |r| {
+        let d = r.to_owned() - &qv;
+        d.dot(&d).max(0.0).sqrt()
+    });
     // cota por cluster: un cluster entero es podable si (d(q,mu)−R)² > kth
-    let lb: Vec<f32> = (0..k).map(|c| (d_mu[c] - field.radii[c]).max(0.0)).collect();
+    let lb: Vec<f32> = (0..k)
+        .map(|c| (d_mu[c] - field.radii[c]).max(0.0))
+        .collect();
     let mut order: Vec<usize> = (0..k).collect();
-    order.sort_by(|a, b| d_mu[*a].partial_cmp(&d_mu[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|a, b| {
+        d_mu[*a]
+            .partial_cmp(&d_mu[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut top: Vec<(f32, u32)> = Vec::with_capacity(kq + 8);
     let mut kth = f32::INFINITY;
@@ -469,7 +488,11 @@ fn field_sweep(field: &FieldData, q: &[f32], kq: usize) -> serde_json::Value {
                 if top.len() > kq {
                     top.truncate(kq);
                 }
-                kth = if top.len() >= kq { top[top.len() - 1].0 } else { f32::INFINITY };
+                kth = if top.len() >= kq {
+                    top[top.len() - 1].0
+                } else {
+                    f32::INFINITY
+                };
             }
         }
     }
@@ -516,7 +539,7 @@ async fn field_search_handler(
             ),
         ));
     }
-    let k = req.top_k.unwrap_or(10).max(1).min(1000);
+    let k = req.top_k.unwrap_or(10).clamp(1, 1000);
     Ok(Json(field_sweep(field, &req.embedding, k)))
 }
 
@@ -967,7 +990,9 @@ pub async fn run_server(
                         .map(<[f32]>::to_vec)
                         .unwrap_or_else(|| mu.iter().copied().collect());
                     if g.upload_dataset(&slice, n, d) {
-                        eprintln!("[splatsdb] serve: GPU exact index listo ({n} vectores, dim {d})");
+                        eprintln!(
+                            "[splatsdb] serve: GPU exact index listo ({n} vectores, dim {d})"
+                        );
                         Some(Arc::new(g))
                     } else {
                         eprintln!("[splatsdb] serve: upload GPU falló; búsqueda en CPU");

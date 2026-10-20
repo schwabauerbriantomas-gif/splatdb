@@ -12,7 +12,16 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # build sin CUDA: el camino garantizado para consumidores sin nvcc/driver
+          - label: cpu-only
+            features: --no-default-features
+          # default desde v2.6.0: feature cuda ON (compila sin nvcc; degrada en runtime)
+          - label: default-cuda
+            features: ""
     steps:
       - uses: actions/checkout@v5
 
@@ -25,11 +34,15 @@ jobs:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build (${{ matrix.label }})
+        run: cargo build --verbose ${{ matrix.features }}
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Runtime smoke sin GPU (${{ matrix.label }})
+        if: matrix.label == 'default-cuda'
+        run: cargo run --quiet -- gpu-info
+
+      - name: Run tests (${{ matrix.label }})
+        run: cargo test --verbose ${{ matrix.features }}
 
   lint:
     runs-on: ubuntu-latest
@@ -44,5 +57,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Clippy
+      - name: Clippy (default)
         run: cargo clippy -- -D warnings
+
+      - name: Clippy (cpu-only)
+        run: cargo clippy --no-default-features -- -D warnings
