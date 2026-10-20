@@ -856,26 +856,30 @@ fn simple_kmeans(
     let mut labels = vec![0usize; n];
 
     for _ in 0..max_iter {
+        // Assignment via GEMM: d²(i,c) = |x|² − 2·x·c + |c|². |x|² is constant
+        // per row, so argmin_c d² == argmax_c (x·c − |c|²/2). The dot products
+        // run through ndarray's gemm (multithreaded) instead of scalar loops —
+        // orders of magnitude faster at k≥1000.
+        let c_mat = Array2::from_shape_vec(
+            (k, dim),
+            centroids.iter().flat_map(|r| r.iter().copied()).collect(),
+        )
+        .expect("centroid shape");
+        let dots = data.dot(&c_mat.t()); // (n, k)
+        let half_norms: Array1<f32> = c_mat
+            .rows()
+            .into_iter()
+            .map(|r| r.dot(&r) * 0.5)
+            .collect();
+        let biased = dots - half_norms; // broadcast per row
         let mut changed = false;
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..n {
-            let row = data.row(i);
-            let mut best_c = 0;
-            let mut best_dist = f64::MAX;
-            for (c, center) in centroids.iter().enumerate() {
-                let dist: f64 = row
-                    .iter()
-                    .zip(center.iter())
-                    .map(|(&x, &y)| {
-                        let d = x as f64 - y as f64;
-                        d * d
-                    })
-                    .sum();
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_c = c;
-                }
-            }
+        for (i, row) in biased.rows().into_iter().enumerate() {
+            let best_c = row
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(c, _)| c)
+                .unwrap_or(0);
             if labels[i] != best_c {
                 labels[i] = best_c;
                 changed = true;
