@@ -172,6 +172,135 @@ fn load_f32s(path: &Path, count: usize, skip: usize) -> Result<Vec<f32>, String>
         .collect())
 }
 
+/// Búsqueda two-phase (estilo IVF). Fase 1: top-`nprobe` clusters por d(q, mu)
+/// — kernel PTX si use_gpu y hay driver, sino ndarray. Fase 2: re-rank exacto
+/// L2² (rayon) de los miembros de esos clusters vía CSR.
+///
+/// APROXIMADO: el recall depende de nprobe (medir contra field_search, exacto).
+/// A 26k×768d el exacto directo gana; two-phase paga cuando K crece y los
+/// crudos no caben en memoria rápida (a escala, raw.bin se streamería por
+/// clusters en vez de cargarse entero).
+#[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
+pub fn field_search_two_phase(
+    data_dir: &str,
+    q: &[f32],
+    kq: usize,
+    nprobe: usize,
+    use_gpu: bool,
+) -> Result<serde_json::Value, String> {
+    if q.len() < 8 {
+        return Err("query demasiado corta".to_string());
+    }
+    let t0 = std::time::Instant::now();
+    let base = Path::new(data_dir);
+    let persist =
+        super::helpers::make_persistence(data_dir, "sqlite", false).map_err(|e| e.to_string())?;
+
+    let raw = persist
+        .load_vectors("raw")
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no hay shard raw (correr ingest con field)".to_string())?;
+    let splats = persist
+        .load_vectors("default")
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no hay shard default (splats)".to_string())?;
+
+    let mpath = base.join("field").join("members.idx");
+    let hdr = load_u64s(&mpath, 2, 0)?;
+    let (n, k) = (hdr[0] as usize, hdr[1] as usize);
+    if n != raw.nrows() || k != splats.nrows() {
+        return Err(format!(
+            "field desincronizado: members n={n} k={k} vs raw={} splats={}",
+            raw.nrows(),
+            splats.nrows()
+        ));
+    }
+    let offsets_vec = load_u64s(&mpath, k + 1, 2)?;
+    let ids = load_u32s(&mpath, n, ((2 + k + 1) * 8) as u64)?;
+
+    // ── Fase 1: top-nprobe clusters por d(q, mu)
+    let nprobe = nprobe.min(k).max(1);
+    let t1 = std::time::Instant::now();
+    let mut winners: Vec<usize> = Vec::with_capacity(nprobe);
+
+    #[cfg(feature = "cuda")]
+    let mut gpu_used = false;
+    #[cfg(not(feature = "cuda"))]
+    let gpu_used = false;
+
+    #[cfg(feature = "cuda")]
+    if use_gpu {
+        if let Some(mut gpu) = splatsdb::gpu::cuda_kernel::GpuIndex::new() {
+            let flat: Vec<f32> = splats.iter().copied().collect();
+            if gpu.upload_dataset(&flat, k, splats.ncols()) {
+                if let Some(res) = gpu.topk_search(q, 1, nprobe, "l2") {
+                    winners = res[0].0.clone();
+                    gpu_used = true;
+                }
+            }
+        }
+    }
+    if !gpu_used {
+        let qv = ndarray::arr1(q);
+        let d_mu: Array1<f32> = splats.map_axis(Axis(1), |r| {
+            let diff = r.to_owned() - &qv;
+            diff.dot(&diff).max(0.0).sqrt()
+        });
+        let mut order: Vec<usize> = (0..k).collect();
+        order.sort_by(|a, b| {
+            d_mu[*a]
+                .partial_cmp(&d_mu[*b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        winners = order.into_iter().take(nprobe).collect();
+    }
+    let phase1_us = t1.elapsed().as_micros() as u64;
+
+    // ── Fase 2: gather de miembros + re-rank exacto L2² (rayon)
+    let t2 = std::time::Instant::now();
+    let mut cand: Vec<u32> = Vec::new();
+    let mut scanned = 0usize;
+    for &c in &winners {
+        let lo = offsets_vec[c] as usize;
+        let hi = offsets_vec[c + 1] as usize;
+        scanned += hi - lo;
+        cand.extend_from_slice(&ids[lo..hi]);
+    }
+    use rayon::prelude::*;
+    let mut top: Vec<(f32, u32)> = cand
+        .par_iter()
+        .map(|&id| {
+            let row = raw.row(id as usize);
+            let diff = row.to_owned() - ndarray::arr1(q);
+            (diff.dot(&diff), id)
+        })
+        .collect();
+    top.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    top.truncate(kq);
+    let phase2_us = t2.elapsed().as_micros() as u64;
+
+    let results: Vec<serde_json::Value> = top
+        .iter()
+        .map(|(d, id)| serde_json::json!({ "id": *id as u64, "dist2": *d }))
+        .collect();
+    let pct = |x: f64| (x * 10000.0).round() / 10000.0;
+    Ok(serde_json::json!({
+        "method": "field_two_phase_ivf",
+        "k": kq,
+        "n_vectors": n,
+        "n_splats": k,
+        "nprobe": nprobe,
+        "gpu_phase1": gpu_used,
+        "clusters_probed": winners.len(),
+        "vectors_scanned": scanned,
+        "scan_frac": pct(scanned as f64 / n as f64),
+        "phase1_us": phase1_us,
+        "phase2_us": phase2_us,
+        "time_ms": t0.elapsed().as_millis() as u64,
+        "results": results,
+    }))
+}
+
 /// Búsqueda exacta por cotas. q = query float; resultado JSON con métricas.
 pub fn field_search(data_dir: &str, q: &[f32], kq: usize) -> Result<serde_json::Value, String> {
     if q.len() < 8 {
