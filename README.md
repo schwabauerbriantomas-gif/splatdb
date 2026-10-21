@@ -707,13 +707,6 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 | `extract-entities --text "content" --min-score 0.3` | Extract entities via structural patterns and n-grams |
 | `eval-embeddings --dim 64 --n-queries 10` | Evaluate embedding quality with synthetic benchmark |
 
-### Data Lake Commands
-
-| Command | Description |
-|---------|-------------|
-| `lake-list` | List datasets in the data lake |
-| `lake-register --id ds1 --name "My Dataset" --n-vectors 10000 --dim 640` | Register a dataset in the data lake |
-
 ### Benchmark Commands
 
 | Command | Description |
@@ -925,6 +918,8 @@ Response:
 `backend` is present only when the query ran on the exact GPU kernel (`serve --gpu`); it is omitted on the CPU path.
 
 **`topic` and `confidence`** appear when the data-dir has a persisted `field/` and the query carried a real embedding (never for text-hash queries or `rescore=gaussian`): `topic` is the splat the result belongs to, and `confidence` measures how close to that splat's center the result fell — `1 − d(x, μ_topic)/R_topic`, clamped to [0,1]. A confidence near 1.0 means the result is a prototype of its topic; near 0.0 it sits on the topic's boundary.
+
+With `--gpu` and a `field/` present, the exact index searches the **full chunk corpus** (`field.raw`) — so `topic`/`confidence` always refer to real chunks. On the CPU path (or stores without `field/`), `/search` searches the loaded shard: in flat stores those ids are the vectors themselves; in ingested stores they are the splats, and then `topic` equals the result id and `confidence` measures how close the *query* fell to that splat's center.
 
 #### `POST /field-search` — Exact Field Search (v2.6)
 
@@ -1332,7 +1327,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (5 endpoints: health, status, store, search, field-search) |
 | `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (18 tools, production-hardened) |
-| `config` | `src/config/` | 7 presets, device auto-detection |
+| `config` | `src/config/` | 6 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
 ---

@@ -75,6 +75,9 @@ pub struct AppState {
     /// Campo splat (celdas con radio) para /field-search exacto. None si no
     /// hay field/ persistido en el data-dir.
     pub field: Option<Arc<FieldData>>,
+    /// Tamaño del corpus que atiende /search: field.raw si hay field/ (los
+    /// ids de resultados son chunks), o el shard cargado (los ids son splats).
+    pub corpus_n: usize,
 }
 
 /// A single search request queued for batch execution. The reply is delivered
@@ -395,9 +398,18 @@ fn enrich_topics(state: &AppState, results: &mut [SearchResult], squared: bool) 
     let Some(field) = &state.field else {
         return;
     };
+    // Si el corpus activo ES field.raw, los ids del índice son chunks:
+    // topic = splat al que pertenece el chunk. Si el corpus son los splats
+    // (μ), el id ya es un tópico y la confianza mide qué tan cerca del
+    // centro de ese tópico cayó la query.
+    let ids_are_chunks = field.raw.nrows() == state.corpus_n;
     for r in results.iter_mut() {
-        let c = field.chunk_cluster[r.index] as usize;
-        let radius = field.radii[c];
+        let (c, radius) = if ids_are_chunks && r.index < field.chunk_cluster.len() {
+            let c = field.chunk_cluster[r.index] as usize;
+            (c, field.radii[c])
+        } else {
+            (r.index, field.radii.get(r.index).copied().unwrap_or(0.0))
+        };
         r.topic = Some(c as u32);
         if radius > 0.0 {
             let dist = if squared {
@@ -1110,18 +1122,43 @@ pub async fn run_server(
         Err(e) => eprintln!("[splatsdb] serve: failed to load {data_dir}: {e}"),
     }
 
+    // ── Corpus para /search: si hay field/, el índice busca el corpus
+    // completo (field.raw — exacto sobre TODOS los chunks); si no, el shard
+    // cargado (splats/μ — en stores planos son los propios vectores).
+    let field_data = load_field(data_dir);
+    if field_data.is_some() {
+        eprintln!("[splatsdb] serve: campo splat cargado (/field-search disponible)");
+    }
+    let corpus: Option<(Vec<f32>, usize, usize)> = if let Some(f) = &field_data {
+        let (n, d) = f.raw.dim();
+        let slice = f
+            .raw
+            .as_slice()
+            .map(<[f32]>::to_vec)
+            .unwrap_or_else(|| f.raw.iter().copied().collect());
+        Some((slice, n, d))
+    } else {
+        store.get_mu().and_then(|mu| {
+            if mu.nrows() == 0 || mu.ncols() == 0 {
+                return None;
+            }
+            let (n, d) = (mu.nrows(), mu.ncols());
+            let slice = mu
+                .as_slice()
+                .map(<[f32]>::to_vec)
+                .unwrap_or_else(|| mu.iter().copied().collect());
+            Some((slice, n, d))
+        })
+    };
+    let corpus_n = corpus.as_ref().map(|c| c.1).unwrap_or(0);
+
     // ── Índice exacto en GPU (--gpu, feature cuda): kernel PTX l2+topk sobre
-    // los vectores cargados. Fallback silencioso a CPU si no hay GPU.
+    // el corpus. Fallback silencioso a CPU si no hay GPU.
     #[cfg(feature = "cuda")]
     let gpu_index: Option<Arc<crate::gpu::cuda_kernel::GpuIndex>> = if gpu_enabled {
         match crate::gpu::cuda_kernel::GpuIndex::new() {
-            Some(mut g) => match store.get_mu() {
-                Some(mu) if mu.nrows() > 0 && mu.ncols() > 0 => {
-                    let (n, d) = (mu.nrows(), mu.ncols());
-                    let slice = mu
-                        .as_slice()
-                        .map(<[f32]>::to_vec)
-                        .unwrap_or_else(|| mu.iter().copied().collect());
+            Some(mut g) => match corpus {
+                Some((slice, n, d)) => {
                     if g.upload_dataset(&slice, n, d) {
                         eprintln!(
                             "[splatsdb] serve: GPU exact index listo ({n} vectores, dim {d})"
@@ -1132,7 +1169,7 @@ pub async fn run_server(
                         None
                     }
                 }
-                _ => {
+                None => {
                     eprintln!("[splatsdb] serve: store vacío, GPU sin dataset");
                     None
                 }
@@ -1147,11 +1184,8 @@ pub async fn run_server(
     };
     #[cfg(not(feature = "cuda"))]
     let _ = gpu_enabled;
-
-    let field_data = load_field(data_dir);
-    if field_data.is_some() {
-        eprintln!("[splatsdb] serve: campo splat cargado (/field-search disponible)");
-    }
+    #[cfg(not(feature = "cuda"))]
+    drop(corpus);
 
     let store = Arc::new(Mutex::new(store));
     let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
@@ -1170,6 +1204,7 @@ pub async fn run_server(
         #[cfg(feature = "cuda")]
         gpu: gpu_index,
         field: field_data.map(Arc::new),
+        corpus_n,
     };
 
     let app = build_router(state);
@@ -1270,6 +1305,7 @@ mod tests {
             #[cfg(feature = "cuda")]
             gpu: None,
             field: None,
+            corpus_n: 0,
         };
         (build_router(state), batches_served)
     }
