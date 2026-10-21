@@ -423,19 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn test_training_config() {
-        let config = SplatsDBConfig::training(None);
-        assert!(config.enable_training);
-        assert!(config.enable_data_lake);
-        assert!(config.training_distillation);
-        assert!(config.training_noise_augmentation);
-        assert!(!config.enable_quantization); // No compression during training
-        assert_eq!(config.batch_size, 128);
-        assert_eq!(config.training_epochs, 50);
-        assert!(config.training_matryoshka_dims.contains(&1024));
-    }
-
-    #[test]
     fn test_distributed_config() {
         let config = SplatsDBConfig::distributed(None);
         assert!(config.enable_auto_scaling);
@@ -475,7 +462,6 @@ mod tests {
             ("default", SplatsDBConfig::default()),
             ("simple", SplatsDBConfig::simple(None)),
             ("advanced", SplatsDBConfig::advanced(None)),
-            ("training", SplatsDBConfig::training(None)),
             ("distributed", SplatsDBConfig::distributed(None)),
             ("gpu", SplatsDBConfig::gpu(None)),
         ];
@@ -566,46 +552,6 @@ mod tests {
         // Large capacity
         assert_eq!(c.max_splats, 1_000_000);
         assert_eq!(c.knn_k, 128);
-    }
-
-    #[test]
-    fn test_training_preset_features() {
-        let c = SplatsDBConfig::training(None);
-        // Training-specific features
-        assert!(c.enable_training, "training: training should be on");
-        assert!(
-            c.training_noise_augmentation,
-            "training: noise augmentation should be on"
-        );
-        assert!(
-            c.training_distillation,
-            "training: distillation should be on"
-        );
-        assert!(c.enable_data_lake, "training: data lake should be on");
-        assert!(
-            c.enable_entity_extraction,
-            "training: entity extraction should be on"
-        );
-        // Search features off during training
-        assert!(
-            !c.enable_quantization,
-            "training: quantization should be off"
-        );
-        assert!(!c.enable_graph, "training: graph should be off");
-        assert!(
-            !c.enable_semantic_memory,
-            "training: semantic memory should be off"
-        );
-        // Matryoshka dims
-        assert_eq!(
-            c.training_matryoshka_dims,
-            vec![32, 64, 128, 256, 512, 1024]
-        );
-        // Noise levels for augmentation
-        assert!(
-            !c.noise_levels.is_empty(),
-            "training: should have noise levels"
-        );
     }
 
     #[test]
@@ -825,15 +771,6 @@ mod tests {
             store.has_semantic_memory(),
             "advanced: should have semantic memory"
         );
-    }
-
-    #[test]
-    fn test_training_preset_subsystems() {
-        let store = store_from_preset(SplatsDBConfig::training(None));
-        assert!(!store.has_quantization(), "training: no quantization");
-        assert!(!store.has_hnsw(), "training: no HNSW");
-        assert!(!store.has_lsh(), "training: no LSH");
-        assert!(!store.has_semantic_memory(), "training: no semantic memory");
     }
 
     #[test]

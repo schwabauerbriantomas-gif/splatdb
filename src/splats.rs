@@ -1155,67 +1155,8 @@ impl SplatStore {
         self.load_splats(&mu_arr, &alpha_arr, &kappa_arr)?;
         Ok((n, stats.compression_ratio, stats))
     }
-
-    /// Ingest raw vectors via Leader Clustering pipeline.
-    ///
-    /// O(n) single-pass — no KMeans iterations.
-    /// Normalizes data, then uses Leader Clustering to create splats.
-    /// `threshold` controls cluster radius (None = auto-compute).
-    /// Returns (splat count, compression ratio, transform stats).
-    pub fn ingest_leader(
-        &mut self,
-        data: &Array2<f32>,
-        target_clusters: usize,
-        seed: u64,
-        threshold: Option<f64>,
-    ) -> Result<(usize, f64, dataset_transformer::TransformStats), String> {
-        let (_, dim) = data.dim();
-        if dim != self.config.latent_dim {
-            return Err(format!(
-                "Data dimension {} != config latent_dim {}",
-                dim, self.config.latent_dim
-            ));
-        }
-
-        let tconfig = dataset_transformer::TransformConfig {
-            normalize: true,
-            center: true,
-            unit_sphere: true,
-            augment_noise: 0.0,
-            augment_flip: false,
-            ..Default::default()
-        };
-        let mut transformer = dataset_transformer::DatasetTransformer::new(tconfig);
-        let transformed = transformer.fit_transform(data);
-
-        let (splats, _hierarchy, _partition, stats) =
-            transformer.to_splats_leader(&transformed, target_clusters, 1, seed, threshold);
-
-        if splats.is_empty() {
-            return Err("Leader clustering produced 0 splats".into());
-        }
-        if splats.len() > self.max_splats {
-            return Err(format!(
-                "Too many splats: {} > max {}",
-                splats.len(),
-                self.max_splats
-            ));
-        }
-
-        let n = splats.len();
-        let mu_arr =
-            Array2::from_shape_vec((n, dim), splats.iter().flat_map(|s| s.mu.clone()).collect())
-                .expect("mu shape should match (n, dim)");
-        let alpha_arr: Vec<f32> = splats.iter().map(|s| s.alpha as f32).collect();
-        let kappa_arr: Vec<f32> = splats.iter().map(|s| s.kappa as f32).collect();
-
-        self.load_splats(&mu_arr, &alpha_arr, &kappa_arr)?;
-        Ok((n, stats.compression_ratio, stats))
-    }
 }
 
-/// Statistics about a SplatStore.
-#[derive(Debug, Clone)]
 pub struct SplatStoreStats {
     pub n_active: usize,
     pub max_splats: usize,
@@ -1224,7 +1165,6 @@ pub struct SplatStoreStats {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

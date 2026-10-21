@@ -153,17 +153,6 @@ pub enum Commands {
         #[arg(short, long, default_value = "42")]
         seed: u64,
     },
-    /// Ingest via Leader Clustering — O(n) single-pass
-    IngestLeader {
-        #[arg(short, long)]
-        input: PathBuf,
-        #[arg(short = 'n', long, default_value = "100")]
-        target_clusters: usize,
-        #[arg(short = 't', long)]
-        threshold: Option<f64>,
-        #[arg(short, long, default_value = "42")]
-        seed: u64,
-    },
     /// Search using all enabled backends fused
     FusedSearch {
         #[arg(short, long)]
@@ -352,21 +341,6 @@ pub enum Commands {
         text: String,
         #[arg(short, long, default_value = "0.3")]
         min_score: f64,
-    },
-    /// List datasets in the data lake
-    LakeList,
-    /// Register a dataset in the data lake
-    LakeRegister {
-        #[arg(long)]
-        id: String,
-        #[arg(long)]
-        name: String,
-        #[arg(long, default_value = "0")]
-        n_vectors: usize,
-        #[arg(long, default_value = "640")]
-        dim: usize,
-        #[arg(short, long)]
-        description: Option<String>,
     },
     /// Evaluate embedding quality with synthetic benchmark
     EvalEmbeddings {
@@ -655,20 +629,6 @@ pub fn dispatch(cli: Cli) {
             min_cluster_size,
             seed,
         ),
-        Commands::IngestLeader {
-            input,
-            target_clusters,
-            threshold,
-            seed,
-        } => index_cmds::cmd_ingest_leader(
-            cli.data_dir,
-            cli.backend,
-            config,
-            input,
-            target_clusters,
-            threshold,
-            seed,
-        ),
         Commands::FusedSearch {
             query,
             query_file,
@@ -790,14 +750,6 @@ pub fn dispatch(cli: Cli) {
         Commands::ExtractEntities { text, min_score } => {
             ml_cmds::cmd_extract_entities(text, min_score)
         }
-        Commands::LakeList => ml_cmds::cmd_lake_list(cli.data_dir),
-        Commands::LakeRegister {
-            id,
-            name,
-            n_vectors,
-            dim,
-            description,
-        } => ml_cmds::cmd_lake_register(cli.data_dir, id, name, n_vectors, dim, description),
         Commands::EvalEmbeddings { dim, n_queries } => ml_cmds::cmd_eval_embeddings(dim, n_queries),
         Commands::BenchHnsw {
             train,

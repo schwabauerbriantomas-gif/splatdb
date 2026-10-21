@@ -134,6 +134,14 @@ pub struct SearchResult {
     pub index: usize,
     pub score: f32,
     pub metadata: Option<String>,
+    /// Qué tan cerca del centro de su tópico cayó el resultado:
+    /// 1 − d(q,x)/R_topic, clampeado a [0,1] (1 = prototipo del cluster).
+    /// Solo con embedding real (los scores de texto-hash no son distancia).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// Splat (tópico) al que pertenece el resultado, si hay field/ cargado.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -320,14 +328,17 @@ async fn search_memories(
                     let mut pairs: Vec<(usize, f32)> = idxs.into_iter().zip(dists).collect();
                     pairs
                         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-                    let results = pairs
+                    let mut results = pairs
                         .into_iter()
                         .map(|(i, d)| SearchResult {
                             index: i,
                             score: d,
                             metadata: None,
+                            confidence: None,
+                            topic: None,
                         })
-                        .collect();
+                        .collect::<Vec<_>>();
+                    enrich_topics(&state, &mut results, true);
                     return Ok(Json(SearchResponse {
                         results,
                         backend: Some("gpu".into()),
@@ -357,7 +368,7 @@ async fn search_memories(
             )
         })?;
 
-    let results = rx
+    let mut results = rx
         .await
         .map_err(|_| {
             (
@@ -366,11 +377,38 @@ async fn search_memories(
             )
         })?
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if had_embedding {
+        // scores L2 reales (no gaussian, no hash) → confidence espacial
+        enrich_topics(&state, &mut results, false);
+    }
 
     Ok(Json(SearchResponse {
         results,
         backend: None,
     }))
+}
+
+/// Enriquece resultados con tópico (splat) y confianza espacial
+/// (1 − d/R del tópico). Solo llamado con scores de distancia L2 reales
+/// (no con gaussian rescore ni texto-hash). `squared` = score es d² (GPU).
+fn enrich_topics(state: &AppState, results: &mut [SearchResult], squared: bool) {
+    let Some(field) = &state.field else {
+        return;
+    };
+    for r in results.iter_mut() {
+        let c = field.chunk_cluster[r.index] as usize;
+        let radius = field.radii[c];
+        r.topic = Some(c as u32);
+        if radius > 0.0 {
+            let dist = if squared {
+                r.score.max(0.0).sqrt()
+            } else {
+                r.score.max(0.0)
+            };
+            let conf = (1.0 - dist / radius).clamp(0.0, 1.0);
+            r.confidence = Some((conf * 1000.0).round() / 1000.0);
+        }
+    }
 }
 
 // ─── Campo splat (celdas con radio): /field-search exacto ────────────────
@@ -386,6 +424,8 @@ pub struct FieldData {
     pub offsets: Vec<u64>,
     pub ids: Vec<u32>,
     pub radii: Vec<f32>,
+    /// Inverso del CSR: chunk index → splat (tópico) al que pertenece.
+    pub chunk_cluster: Vec<u32>,
 }
 
 fn load_field(data_dir: &str) -> Option<FieldData> {
@@ -433,12 +473,20 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
         eprintln!("[splatsdb] field/ desincronizado; /field-search deshabilitado");
         return None;
     }
+    let mut chunk_cluster = vec![0u32; n];
+    for c in 0..k {
+        let (lo, hi) = (offsets[c] as usize, offsets[c + 1] as usize);
+        for &id in &ids[lo..hi] {
+            chunk_cluster[id as usize] = c as u32;
+        }
+    }
     Some(FieldData {
         raw,
         splats,
         offsets,
-        ids,
         radii,
+        chunk_cluster,
+        ids,
     })
 }
 
@@ -759,6 +807,8 @@ fn cpu_fused_batch(
                     // distance (lower is better).
                     score: if want_rescore { n.score } else { n.distance },
                     metadata: None,
+                    confidence: None,
+                    topic: None,
                 })
                 .collect::<Vec<_>>()
         })
@@ -897,6 +947,8 @@ fn gpu_batch_path(
                     // Gaussian score: higher is better.
                     score,
                     metadata: None,
+                    confidence: None,
+                    topic: None,
                 })
                 .collect()
         } else {
@@ -912,6 +964,8 @@ fn gpu_batch_path(
                     // match the CPU path (find_neighbors sqrt'd distances).
                     score: d.sqrt(),
                     metadata: None,
+                    confidence: None,
+                    topic: None,
                 })
                 .collect()
         };

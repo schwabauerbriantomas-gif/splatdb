@@ -136,55 +136,6 @@ impl SplatsDBConfig {
         config
     }
 
-    /// Creates a 'Training' configuration for embedding model research.
-    ///
-    /// Enables training loops, evaluation, data lake ingestion, noise augmentation,
-    /// and Matryoshka representation learning. Search features are secondary.
-    pub fn training(device: Option<&str>) -> Self {
-        let mut config = Self::default();
-
-        if let Some(d) = device {
-            config.device = d.to_string();
-        }
-
-        // Training enabled
-        config.enable_training = true;
-        config.training_epochs = 50;
-        config.training_eval_interval = 50;
-        config.training_save_interval = 500;
-        config.training_noise_augmentation = true;
-        config.training_matryoshka_dims = vec![32, 64, 128, 256, 512, 1024];
-        config.training_distillation = true;
-
-        // Data Lake for training data management
-        config.enable_data_lake = true;
-        config.data_lake_max_entries = 10_000_000;
-        config.data_lake_compress = true;
-
-        // Entity extraction for metadata enrichment
-        config.enable_entity_extraction = true;
-        config.entity_ngram_sizes = vec![2, 3, 4, 5];
-        config.entity_min_confidence = 0.3;
-
-        // Search features at moderate capacity for evaluation
-        config.enable_quantization = false; // No compression during training
-        config.enable_graph = false;
-        config.enable_semantic_memory = false;
-        config.max_splats = 500_000;
-        config.n_splats_init = 50_000;
-        config.knn_k = 32;
-        config.hrm2_n_coarse = 16;
-        config.hrm2_n_fine = 64;
-
-        // Larger training batches and sequences
-        config.batch_size = 128;
-        config.seq_length = 64;
-        config.learning_rate = 3e-4;
-        config.noise_levels = vec![0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5];
-
-        config
-    }
-
     /// Creates a 'Distributed' configuration for multi-node cluster deployments.
     ///
     /// Enables cluster modules (router, balancer, sharding), auto-scaling,

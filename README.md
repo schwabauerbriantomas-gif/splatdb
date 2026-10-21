@@ -134,6 +134,27 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 
 ## Quick Start
 
+### Fast Start: full pipeline with embeddinggemma-2 (one command)
+
+```bash
+bash semantic-hub/faststart.sh
+```
+
+Brings up the local embedding server (`google/embeddinggemma-2`, 768-d, :8860), the splatDB hub with exact GPU search (:8871), and runs an end-to-end smoke. Then:
+
+```bash
+# 1) embed a query
+EMB=$(curl -s -X POST http://127.0.0.1:8860/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"input": "tu consulta", "model": "embeddinggemma-2"}' \
+  | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['data'][0]['embedding']))")
+
+# 2) exact search on the GPU hub — results carry "topic" + "confidence"
+curl -s -X POST http://127.0.0.1:8871/search \
+  -H 'Content-Type: application/json' \
+  -d "{\"query\": \"tu consulta\", \"embedding\": $EMB, \"top_k\": 10}"
+```
+
 ### 30-Second Trial (No Rust Needed)
 
 Download the [latest release binary](https://github.com/schwabauerbriantomas-gif/splatdb/releases) and run:
@@ -549,7 +570,7 @@ An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 1
 
 ## Configuration Presets
 
-Seven presets cover edge devices to GPU clusters. Each preset configures all subsystems at once — no manual flag toggling required.
+Six presets cover edge devices to GPU clusters. Each preset configures all subsystems at once — no manual flag toggling required. (The `training` preset and its subsystems — data lake, distillation, leader clustering — were removed in v2.6.1 as unvalidated dead weight.)
 
 | Preset | Use Case | Capacity | Quantization | Graph | Semantic | GPU | HNSW | LSH |
 |--------|----------|----------|-------------|-------|----------|-----|------|-----|
@@ -557,7 +578,6 @@ Seven presets cover edge devices to GPU clusters. Each preset configures all sub
 | `simple` | Edge / IoT | 10K | — | — | — | — | — | — |
 | `mcp` | AI agent memory | 100K | 8-bit TurboQuant | ✅ | ✅ RRF | Auto | — | — |
 | `advanced` | AI agents | 1M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | ✅ M=32 | — |
-| `training` | Model research | 500K | — | — | — | Optional | — | — |
 | `distributed` | Multi-node | 10M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | — | — |
 | `gpu` | CUDA servers | 5M | 4-bit TurboQuant | ✅ | ✅ | ✅ | ✅ M=48 | — |
 
@@ -619,7 +639,6 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 |---------|-------------|
 | `ingest --input data.bin --n-clusters 100` | KMeans splat centroids via DatasetTransformer (also persists `raw` shard + `field/`) |
 | `ingest-hierarchical --input data.bin --n-clusters 10` | Two-level hierarchical KMeans |
-| `ingest-leader --input data.bin --target-clusters 50` | O(n) single-pass leader clustering |
 | `field-search --query "0.1,..." -k 10` | Search over the splat field — exact triangle-bounds mode by default; `--nprobe N` switches to two-phase IVF (approximate), `--gpu` runs phase 1 on the PTX kernel |
 
 ### Search Backend Commands
@@ -896,14 +915,16 @@ Response:
 ```json
 {
   "results": [
-    {"index": 0, "score": 0.023, "metadata": null},
-    {"index": 5, "score": 0.145, "metadata": null}
+    {"index": 0, "score": 0.023, "metadata": null, "confidence": 0.812, "topic": 14},
+    {"index": 5, "score": 0.145, "metadata": null, "confidence": 0.534, "topic": 14}
   ],
   "backend": "gpu"
 }
 ```
 
 `backend` is present only when the query ran on the exact GPU kernel (`serve --gpu`); it is omitted on the CPU path.
+
+**`topic` and `confidence`** appear when the data-dir has a persisted `field/` and the query carried a real embedding (never for text-hash queries or `rescore=gaussian`): `topic` is the splat the result belongs to, and `confidence` measures how close to that splat's center the result fell — `1 − d(x, μ_topic)/R_topic`, clamped to [0,1]. A confidence near 1.0 means the result is a prototype of its topic; near 0.0 it sits on the topic's boundary.
 
 #### `POST /field-search` — Exact Field Search (v2.6)
 
