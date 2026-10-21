@@ -39,69 +39,6 @@ pub fn cmd_extract_entities(text: String, min_score: f64) {
 
 // ── Data Lake ──────────────────────────────────────────────────────────────
 
-pub fn cmd_lake_list(data_dir: String) {
-    use splatsdb::data_lake::DataLake;
-
-    let path = format!("{}/data_lake", data_dir);
-    let mut lake = DataLake::new(&path);
-    if let Err(e) = lake.load() {
-        eprintln!("Warning: could not load lake: {}", e);
-    }
-    let entries: Vec<serde_json::Value> = lake
-        .list()
-        .iter()
-        .map(|e| {
-            serde_json::json!({
-                "id": e.id,
-                "name": e.name,
-                "n_vectors": e.n_vectors,
-                "dim": e.dim,
-                "description": e.description,
-            })
-        })
-        .collect();
-
-    println!(
-        "{}",
-        serde_json::json!({
-            "n_entries": entries.len(),
-            "datasets": entries,
-        })
-    );
-}
-
-pub fn cmd_lake_register(
-    data_dir: String,
-    id: String,
-    name: String,
-    n_vectors: usize,
-    dim: usize,
-    description: Option<String>,
-) {
-    use splatsdb::data_lake::DataLake;
-
-    let path = format!("{}/data_lake", data_dir);
-    let mut lake = DataLake::new(&path);
-    if let Err(e) = lake.load() {
-        eprintln!("Warning: could not load lake: {}", e);
-    }
-    lake.register(&id, &name, n_vectors, dim, description.as_deref());
-    if let Err(e) = lake.save() {
-        eprintln!("Error saving lake: {}", e);
-        std::process::exit(1);
-    }
-    println!(
-        "{}",
-        serde_json::json!({
-            "status": "registered",
-            "id": id,
-            "name": name,
-        })
-    );
-}
-
-// ── Embedding Evaluation ───────────────────────────────────────────────────
-
 pub fn cmd_eval_embeddings(dim: usize, n_queries: usize) {
     use ndarray::Array2;
     use splatsdb::evaluate_embeddings::EmbeddingEvaluator;

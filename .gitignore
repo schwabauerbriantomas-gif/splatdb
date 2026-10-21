@@ -72,3 +72,7 @@ semantic-hub/**/*.bin
 semantic-hub/**/*.npz
 semantic-hub/**/*.pid
 emb-test/**/*.db
+
+# local run artifacts
+splatsdb_data/
+emb-test/*.png
