@@ -64,10 +64,20 @@ pub struct GpuExtended {
 impl GpuExtended {
     /// Create a new extended GPU context. Returns None if CUDA unavailable.
     pub fn new() -> Option<Self> {
-        let ctx = match CudaContext::new(0) {
-            Ok(ctx) => ctx,
-            Err(e) => {
+        // Same dlopen panic boundary as GpuIndex::new (cudarc 0.19 panics
+        // when libcuda is missing — never let it escape a constructor).
+        let ctx = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            CudaContext::new(0)
+        })) {
+            Ok(Ok(ctx)) => ctx,
+            Ok(Err(e)) => {
                 crate::gpu::log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+                return None;
+            }
+            Err(_) => {
+                crate::gpu::log_cuda_unavailable_once(
+                    "CudaContext::new(0) panicked (no libcuda / broken driver)".into(),
+                );
                 return None;
             }
         };

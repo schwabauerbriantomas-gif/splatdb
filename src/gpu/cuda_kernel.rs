@@ -59,10 +59,21 @@ impl GpuIndex {
         // Log once per process, not once per index creation (this fires per
         // request in server paths).
         static CTX_CREATED: OnceLock<()> = OnceLock::new();
-        let ctx = match CudaContext::new(0) {
-            Ok(ctx) => ctx,
-            Err(e) => {
+        // cudarc 0.19 panics (not Err) when the driver library itself is
+        // missing — same dlopen boundary as is_cuda_available(). `serve
+        // --gpu` on a driver-less host must degrade to CPU, not die at boot.
+        let ctx = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            CudaContext::new(0)
+        })) {
+            Ok(Ok(ctx)) => ctx,
+            Ok(Err(e)) => {
                 crate::gpu::log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+                return None;
+            }
+            Err(_) => {
+                crate::gpu::log_cuda_unavailable_once(
+                    "CudaContext::new(0) panicked (no libcuda / broken driver)".into(),
+                );
                 return None;
             }
         };
