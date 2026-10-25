@@ -183,6 +183,10 @@ impl DatasetTransformer {
         let n = data.nrows();
         let train_n = (n as f64 * self.config.train_ratio) as usize;
         let val_n = (n as f64 * self.config.val_ratio) as usize;
+        // Clamp so train+val can never exceed n: ratios summing to > 1.0
+        // used to underflow `n - train_n - val_n` (usize wrap → huge slices).
+        let train_n = train_n.min(n);
+        let val_n = val_n.min(n - train_n);
         let test_n = n - train_n - val_n;
 
         let train = data.slice(ndarray::s![..train_n, ..]).to_owned();
@@ -254,6 +258,12 @@ impl DatasetTransformer {
     ) {
         let t0 = std::time::Instant::now();
         let (n, dim) = data.dim();
+
+        // Empty dataset: nothing to splat — return empty structures instead of
+        // panicking in mean_axis (which returns None when n == 0).
+        if n == 0 {
+            return empty_splat_result(t0);
+        }
 
         let mut splats = if n_clusters <= 1 || n <= 1 {
             let mu = data
@@ -349,6 +359,13 @@ impl DatasetTransformer {
     ) {
         let t0 = std::time::Instant::now();
         let (n, dim) = data.dim();
+
+        // Empty dataset: nothing to splat — return empty structures instead of
+        // panicking in mean_axis below (or in simple_kmeans with k=0).
+        if n == 0 {
+            return empty_splat_result(t0);
+        }
+
         let n_coarse = ((n_clusters as f64).sqrt() as usize).max(10).min(n);
         let n_fine = (n_clusters / n_coarse.max(1)).max(2);
 
@@ -588,6 +605,46 @@ impl DatasetTransformer {
     }
 }
 
+/// Shared empty result for the to_splats* family when the dataset is empty
+/// (avoids the mean_axis → expect panic on n == 0).
+fn empty_splat_result(
+    t0: std::time::Instant,
+) -> (
+    Vec<GaussianSplat>,
+    Hrm2Node,
+    MemoryPartition,
+    TransformStats,
+) {
+    (
+        Vec::new(),
+        Hrm2Node {
+            splat: GaussianSplat {
+                mu: Vec::new(),
+                alpha: 0.0,
+                kappa: 0.0,
+                n_vectors: 0,
+                indices: Vec::new(),
+            },
+            children: Vec::new(),
+            level: 0,
+        },
+        MemoryPartition {
+            hot: Vec::new(),
+            warm: Vec::new(),
+            cold: Vec::new(),
+        },
+        TransformStats {
+            original_count: 0,
+            splat_count: 0,
+            compression_ratio: 0.0,
+            original_size_mb: 0.0,
+            compressed_size_mb: 0.0,
+            memory_savings_pct: 0.0,
+            transform_time_s: t0.elapsed().as_secs_f64(),
+        },
+    )
+}
+
 fn simple_kmeans(
     data: &Array2<f32>,
     k: usize,
@@ -802,5 +859,43 @@ mod tests {
             transformer.to_splats_hierarchical(&data, 16, 2, 42);
         assert!(!splats.is_empty());
         assert!(stats.splat_count > 0);
+    }
+
+    #[test]
+    fn test_to_splats_empty_dataset() {
+        // Regression: empty input used to panic in mean_axis().expect().
+        let transformer = DatasetTransformer::new(TransformConfig::default());
+        let data = Array2::from_shape_vec((0, 3), Vec::<f32>::new()).unwrap();
+
+        let (splats, hierarchy, partition, stats) = transformer.to_splats(&data, 4, 1, 42);
+        assert!(splats.is_empty());
+        assert!(hierarchy.children.is_empty());
+        assert!(partition.hot.is_empty() && partition.warm.is_empty() && partition.cold.is_empty());
+        assert_eq!(stats.original_count, 0);
+        assert_eq!(stats.splat_count, 0);
+
+        let (splats_h, _, _, _) = transformer.to_splats_hierarchical(&data, 4, 1, 42);
+        assert!(splats_h.is_empty());
+    }
+
+    #[test]
+    fn test_split_ratio_overflow_does_not_underflow() {
+        // Regression: train_ratio + val_ratio > 1.0 underflowed
+        // `n - train_n - val_n` (usize wrap).
+        let config = TransformConfig {
+            train_ratio: 0.9,
+            val_ratio: 0.9,
+            ..Default::default()
+        };
+        let transformer = DatasetTransformer::new(config);
+        let data = make_data(); // 4 rows
+        let labels: Vec<String> = (0..4).map(|i| i.to_string()).collect();
+        let split = transformer.split(&data, Some(&labels));
+
+        assert_eq!(split.train.nrows(), 3);
+        assert_eq!(split.train_labels.as_ref().unwrap().len(), 3);
+        assert!(split.val.is_some());
+        assert_eq!(split.val.as_ref().unwrap().nrows(), 1);
+        assert!(split.test.is_none());
     }
 }

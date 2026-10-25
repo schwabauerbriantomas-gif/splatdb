@@ -61,6 +61,15 @@ impl StoredRotation {
             return Ok(());
         }
 
+        // GPU kernel unavailable — warn once per process (this runs inside
+        // training loops; per-call spam hides real signal).
+        static GPU_FALLBACK: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if GPU_FALLBACK.set(()).is_ok() {
+            eprintln!(
+                "[splatsdb] warning: GPU rotation_gemv kernel unavailable — CPU batch rotation fallback (logged once)"
+            );
+        }
+
         // CPU fallback
         for (inp, out) in inputs.iter().zip(outputs.iter_mut()) {
             self.apply(inp, out)?;

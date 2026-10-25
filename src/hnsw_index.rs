@@ -545,24 +545,26 @@ impl HNSWIndex {
             // Set bidirectional connections
             self.nodes[idx].neighbors[lev] = selected.clone();
             for &neighbor_idx in &selected {
-                let n_vec = self.vectors[neighbor_idx].clone();
-                let neighbor_ids: Vec<(f32, usize)> = self.nodes[neighbor_idx].neighbors[lev]
-                    .iter()
-                    .map(|&ni| (self.distance(&n_vec, &self.vectors[ni]), ni))
-                    .collect();
-
-                let node = &mut self.nodes[neighbor_idx];
-                if lev >= node.neighbors.len() {
+                if lev >= self.nodes[neighbor_idx].neighbors.len() {
                     continue;
                 }
-                if !node.neighbors[lev].contains(&idx) {
-                    node.neighbors[lev].push(idx);
+                if !self.nodes[neighbor_idx].neighbors[lev].contains(&idx) {
+                    self.nodes[neighbor_idx].neighbors[lev].push(idx);
                 }
-                if node.neighbors[lev].len() > m_max {
-                    let mut scored = neighbor_ids;
+                // Prune by re-scoring the FULL neighbor list AFTER the push.
+                // The previous version scored the pre-push list, so the
+                // brand-new edge to `idx` was silently discarded whenever the
+                // neighbor was already at capacity (m_max).
+                if self.nodes[neighbor_idx].neighbors[lev].len() > m_max {
+                    let n_vec = self.vectors[neighbor_idx].clone();
+                    let mut scored: Vec<(f32, usize)> = self.nodes[neighbor_idx].neighbors[lev]
+                        .iter()
+                        .map(|&ni| (self.distance(&n_vec, &self.vectors[ni]), ni))
+                        .collect();
                     scored
                         .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    node.neighbors[lev] = scored.into_iter().take(m_max).map(|(_, i)| i).collect();
+                    self.nodes[neighbor_idx].neighbors[lev] =
+                        scored.into_iter().take(m_max).map(|(_, i)| i).collect();
                 }
             }
 
@@ -757,5 +759,30 @@ mod tests {
         let data = small_random_vectors(5, 4, 999);
         idx.build(data);
         assert!(idx.is_built());
+    }
+
+    #[test]
+    fn test_insert_prune_keeps_newest_closest_edge() {
+        // Regression: when a neighbor is already at capacity (m_max0 = 2*m = 2
+        // here), pruning scored the PRE-push list, so the brand-new edge to
+        // the freshly inserted node was always discarded. The new closest
+        // edge must survive the prune.
+        let mut idx = HNSWIndex::new(1, 1, 100, 50, "l2", 42);
+        idx.insert(&[0.0]); // node 0
+        idx.insert(&[10.0]); // node 1 → node 0: {1}
+        idx.insert(&[-1.0]); // node 2 → node 0: {1, 2} (at capacity)
+        idx.insert(&[0.5]); // node 3 → node 0 pushed to 3 > m_max0 → prune
+        let n0 = &idx.nodes[0].neighbors[0];
+        assert!(
+            n0.contains(&3),
+            "new closest edge (d=0.5) must survive pruning, got {:?}",
+            n0
+        );
+        assert!(n0.contains(&2), "second closest (d=1.0) must survive");
+        assert!(
+            !n0.contains(&1),
+            "farthest edge (d=10.0) should be pruned, got {:?}",
+            n0
+        );
     }
 }

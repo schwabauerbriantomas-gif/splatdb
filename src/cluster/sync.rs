@@ -70,22 +70,40 @@ impl SyncQueue {
     }
 
     /// Re-queue actions that failed to dispatch.
+    ///
+    /// An action keeps being retried while it has seen fewer than
+    /// `max_retries` attempts (the previous `<=` filter allowed one extra
+    /// attempt — max_retries=5 gave 6 dispatches).
     pub fn requeue_failed(&mut self, mut actions: Vec<SyncAction>) {
         for action in &mut actions {
             action.retries += 1;
         }
         // Only re-queue actions that haven't exceeded max retries
-        self.queue.extend(
-            actions
-                .into_iter()
-                .filter(|a| a.retries <= self.max_retries),
-        );
+        self.queue
+            .extend(actions.into_iter().filter(|a| a.retries < self.max_retries));
     }
 
-    /// Remove actions that have been successfully dispatched.
-    pub fn mark_flushed(&mut self, count: usize) {
+    /// Remove successfully dispatched actions, matched by identity.
+    ///
+    /// The previous count-based version drained from the FRONT of the queue,
+    /// so actions re-queued by `requeue_failed` were silently dropped when
+    /// they happened to sit at the front. Identity matching keeps them alive.
+    /// Returns the number of actions actually removed.
+    pub fn mark_flushed(&mut self, confirmed: &[SyncAction]) -> usize {
         self.last_flush = Some(Instant::now());
-        self.queue.drain(..count.min(self.queue.len()));
+        // f64 is not Hash/Eq, so identity matching uses a Vec + PartialEq scan
+        // (sync queues are small; O(n*m) is fine and keeps the f64 timestamp).
+        let confirmed_keys: Vec<(String, String, f64)> = confirmed
+            .iter()
+            .map(|a| (a.action_type.clone(), a.payload.clone(), a.queued_at))
+            .collect();
+        let before = self.queue.len();
+        self.queue.retain(|a| {
+            !confirmed_keys
+                .iter()
+                .any(|(t, p, q)| *t == a.action_type && *p == a.payload && *q == a.queued_at)
+        });
+        before - self.queue.len()
     }
 }
 
@@ -123,5 +141,59 @@ mod tests {
         }
         q.requeue_failed(failed);
         assert_eq!(q.pending_count(), 0); // exceeded max_retries=5
+    }
+
+    #[test]
+    fn test_requeue_retry_budget_is_exactly_max_retries() {
+        // max_retries = 5 → exactly 5 dispatch attempts in total.
+        // The old `<=` filter allowed a 6th attempt.
+        let mut q = SyncQueue::new(10.0);
+        q.add_action("register", "{}");
+        let mut dispatches = 0;
+        while q.pending_count() > 0 {
+            let batch = q.take_pending();
+            dispatches += 1;
+            q.requeue_failed(batch);
+        }
+        assert_eq!(
+            dispatches, 5,
+            "total dispatch attempts must equal max_retries"
+        );
+        assert_eq!(q.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_partial_flush_requeued_actions_survive() {
+        // Regression: the old count-based mark_flushed drained from the FRONT,
+        // so actions re-queued by requeue_failed were silently dropped when
+        // they sat at the front of the queue.
+        let mut q = SyncQueue::new(10.0);
+        q.add_action("register", r#"{"doc":"a"}"#);
+        q.add_action("register", r#"{"doc":"b"}"#);
+        q.add_action("register", r#"{"doc":"c"}"#);
+        assert_eq!(q.pending_count(), 3);
+
+        let batch = q.take_pending();
+        let confirmed: Vec<SyncAction> = batch
+            .iter()
+            .filter(|a| a.payload.contains(r#""a""#) || a.payload.contains(r#""c""#))
+            .cloned()
+            .collect();
+        let failed: Vec<SyncAction> = batch
+            .iter()
+            .filter(|a| a.payload.contains(r#""b""#))
+            .cloned()
+            .collect();
+
+        q.requeue_failed(failed);
+        assert_eq!(q.pending_count(), 1);
+
+        // Confirming the two successes must NOT remove the re-queued failure.
+        let removed = q.mark_flushed(&confirmed);
+        assert_eq!(removed, 0, "confirmed actions are no longer queued");
+        assert_eq!(q.pending_count(), 1, "re-queued 'b' must survive");
+        let pending = q.get_pending();
+        assert!(pending[0].payload.contains(r#""b""#));
+        assert_eq!(pending[0].retries, 1);
     }
 }

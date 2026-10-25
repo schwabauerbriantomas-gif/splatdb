@@ -127,7 +127,14 @@ impl BM25Index {
             return vec![];
         }
 
-        let query_tokens = (self.tokenizer)(query);
+        let tokens = (self.tokenizer)(query);
+        // Dedupe query terms (first-seen order): duplicate tokens used to
+        // multiply the BM25 score of every matching document.
+        let mut seen = HashSet::new();
+        let query_tokens: Vec<String> = tokens
+            .into_iter()
+            .filter(|t| seen.insert(t.clone()))
+            .collect();
         let mut scores: HashMap<String, f64> = HashMap::new();
 
         let n = self.n_docs as f64;
@@ -268,6 +275,26 @@ mod tests {
         bm25.add("doc_1", "hello");
         bm25.clear();
         assert_eq!(bm25.n_docs(), 0);
+    }
+
+    #[test]
+    fn test_duplicate_query_terms_do_not_double_score() {
+        let mut bm25 = BM25Index::new();
+        bm25.add("a", "rust performance guide");
+        bm25.add("b", "python performance guide");
+
+        let single = bm25.search("rust", 5);
+        let repeated = bm25.search("rust rust rust", 5);
+        assert_eq!(single.len(), 1);
+        assert_eq!(repeated.len(), 1);
+        assert_eq!(single[0].0, "a");
+        // Repeating a term must not multiply the score.
+        assert!(
+            (single[0].1 - repeated[0].1).abs() < 1e-9,
+            "single={} repeated={}",
+            single[0].1,
+            repeated[0].1
+        );
     }
 
     #[test]

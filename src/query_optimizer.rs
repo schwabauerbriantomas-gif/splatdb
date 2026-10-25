@@ -153,19 +153,20 @@ impl QueryCache {
             }
         }
 
-        // Remove old entry if exists
-        self.entries.remove(&key);
-
-        let mut old_results = results_json;
-        if let Some(old) = self.entries.get(&key) {
-            old_results = old.results_json.clone();
+        // Replace old entry if present: discount its size and drop its stale
+        // access_order slot so re-putting a key can't corrupt the LRU/memory
+        // accounting (previously remove() leaked size_bytes and duplicated
+        // the key in access_order).
+        if let Some(old) = self.entries.remove(&key) {
+            self.current_memory_bytes = self.current_memory_bytes.saturating_sub(old.size_bytes);
+            self.access_order.retain(|k| k != &key);
         }
 
         self.entries.insert(
             key.clone(),
             CacheEntry {
                 query_hash: key.clone(),
-                results_json: old_results,
+                results_json,
                 timestamp: now,
                 access_count: 0,
                 last_access: now,
@@ -486,6 +487,33 @@ mod tests {
         let r2 = opt.execute_with_cache(&q, 5, None, |_, _| "result2".to_string());
         assert_eq!(r2, "result1"); // cached
         assert_eq!(opt.cache_hits, 1);
+    }
+
+    #[test]
+    fn test_cache_reput_replaces_size_and_value() {
+        // Regression: re-putting an existing key removed the entry without
+        // discounting its size_bytes or cleaning access_order, corrupting the
+        // LRU/memory accounting (and a dead branch could resurrect old data).
+        let mut cache = QueryCache::new(100, 10, 300.0);
+        let q = Array1::from_vec(vec![1.0, 2.0]);
+        cache.put(&q, "x".repeat(1_000_000), 10, None, None);
+        cache.put(&q, "y".repeat(2_000_000), 10, None, None);
+
+        // Exactly one entry, and the NEW payload is served.
+        assert_eq!(cache.get_stats()["entries"].as_u64().unwrap(), 1);
+        let got = cache.get(&q, 10, None).unwrap();
+        assert!(got.starts_with('y'), "re-put must serve the new value");
+
+        // Memory accounting must reflect only the new payload (~1.9 MB),
+        // not old + new (~2.9 MB).
+        let mb = cache.get_stats()["memory_mb"].as_f64().unwrap();
+        let expected = 2_000_000.0 / (1024.0 * 1024.0);
+        assert!(
+            (mb - expected).abs() < 0.01,
+            "memory_mb = {}, expected ~{}",
+            mb,
+            expected
+        );
     }
 
     #[test]

@@ -87,6 +87,10 @@ pub struct SemanticMemoryDB {
     fusion_method: FusionMethod,
     do_auto_categorize: bool,
     store: SplatStore,
+    /// Reverse map: splat-store vector index → document id.
+    /// Vector search returns store indices; this translates them back to the
+    /// hex doc ids used everywhere else (documents, bm25, timestamps).
+    doc_index: HashMap<usize, String>,
     bm25: BM25Index,
     documents: HashMap<String, String>,
     doc_metadata: HashMap<String, serde_json::Value>,
@@ -110,6 +114,7 @@ impl SemanticMemoryDB {
             fusion_method: FusionMethod::Rrf,
             do_auto_categorize: false,
             store: SplatStore::new(config),
+            doc_index: HashMap::new(),
             bm25: BM25Index::new(),
             documents: HashMap::new(),
             doc_metadata: HashMap::new(),
@@ -123,6 +128,14 @@ impl SemanticMemoryDB {
     /// Set the text encoder used for automatic embedding generation.
     pub fn with_encoder(mut self, encoder: Box<dyn Encoder>) -> Self {
         self.latent_dim = encoder.dim();
+        // The internal SplatStore was built with the OLD latent_dim — rebuild
+        // it, or the first store() panics on a shape mismatch.
+        let config = SplatsDBConfig {
+            latent_dim: self.latent_dim,
+            ..Default::default()
+        };
+        self.store = SplatStore::new(config);
+        self.doc_index.clear();
         self.encoder = Some(encoder);
         self
     }
@@ -184,8 +197,19 @@ impl SemanticMemoryDB {
             None => format!("{:016x}", rand::random::<u64>()),
         };
 
-        let vec2d = vector.view().insert_axis(ndarray::Axis(0)).to_owned();
-        self.store.add_splat(&vec2d);
+        // insert() returns None on dimension mismatch or full capacity — fail
+        // honestly instead of silently skipping the vector. The old code
+        // ignored add_splat()'s bool, so docs silently lost vector search.
+        let splat_idx = match self.store.insert(vector.as_slice().unwrap_or(&[])) {
+            Some(idx) => idx,
+            None => {
+                return Err(format!(
+                    "failed to store vector for doc {}: dimension mismatch (expected {}) or splat capacity exceeded",
+                    id, self.latent_dim
+                ))
+            }
+        };
+        self.doc_index.insert(splat_idx, id.clone());
 
         self.documents.insert(id.clone(), text.to_string());
         self.doc_metadata
@@ -212,7 +236,14 @@ impl SemanticMemoryDB {
             let query_vec = self.encode_text(query)?;
             let results = self.store.find_neighbors(&query_vec.view(), k * 3);
             for r in results.iter() {
-                let doc_id = format!("vec_{}", r.index);
+                // Vector search returns store indices; translate them to real
+                // document ids. The previous fabricated "vec_{n}" ids never
+                // matched the hex ids in `documents`, so hybrid fusion could
+                // never join the vector and BM25 result sets.
+                let doc_id = match self.doc_index.get(&r.index) {
+                    Some(id) => id.clone(),
+                    None => continue,
+                };
                 if self.deleted.contains(&doc_id) {
                     continue;
                 }
@@ -330,6 +361,9 @@ impl SemanticMemoryDB {
             self.timestamps.remove(id);
             self.doc_metadata.remove(id);
             self.documents.remove(id);
+            // Drop the doc's reverse mapping (splat index → id) so future
+            // vector searches can't resurrect it.
+            self.doc_index.retain(|_, v| v != id);
             true
         } else {
             false
@@ -353,7 +387,7 @@ impl SemanticMemoryDB {
     /// Get memory statistics.
     pub fn stats(&self) -> serde_json::Value {
         serde_json::json!({
-            "total_memories": self.documents.len() - self.deleted.len(),
+            "total_memories": self.documents.len().saturating_sub(self.deleted.len()),
             "total_queries": self.query_count,
             "total_adds": self.add_count,
             "bm25_indexed": self.bm25.n_docs(),
@@ -368,6 +402,7 @@ impl SemanticMemoryDB {
         self.doc_metadata.clear();
         self.timestamps.clear();
         self.deleted.clear();
+        self.doc_index.clear();
         self.bm25.clear();
         let config = SplatsDBConfig {
             latent_dim: self.latent_dim,
@@ -576,5 +611,59 @@ mod tests {
         let counts = db.count_by_category();
         assert_eq!(*counts.get("decision").unwrap(), 2);
         assert_eq!(*counts.get("error").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_hybrid_search_returns_real_doc_ids_and_documents() {
+        // Regression: search() fabricated "vec_{n}" ids for vector hits, which
+        // never matched the hex doc ids — hybrid fusion could never join the
+        // two result sets and vector hits came back with document: None.
+        let mut db = make_test_db();
+        let id1 = db.store("rust performance benchmarks", None).unwrap();
+        let id2 = db.store("python scripting basics", None).unwrap();
+        let id3 = db.store("rust memory safety guarantees", None).unwrap();
+        let known = [&id1, &id2, &id3];
+
+        let results = db.search("rust safety benchmarks", 3).unwrap();
+        assert!(!results.is_empty());
+        for r in &results {
+            assert!(
+                known.contains(&&r.id),
+                "result id {} is not a stored doc id",
+                r.id
+            );
+            assert!(
+                !r.id.starts_with("vec_"),
+                "fabricated vec_ id leaked: {}",
+                r.id
+            );
+            assert!(
+                r.document.is_some(),
+                "document must resolve for real id {} (got None)",
+                r.id
+            );
+        }
+
+        // Deleting a doc must remove it from both result sources.
+        assert!(db.delete(&id3));
+        let after = db.search("rust safety guarantees", 3).unwrap();
+        assert!(
+            after.iter().all(|r| r.id != id3),
+            "deleted doc {} must not appear in results",
+            id3
+        );
+    }
+
+    #[test]
+    fn test_with_encoder_rebuilds_store_for_new_dim() {
+        // Regression: with_encoder() changed latent_dim without rebuilding the
+        // internal SplatStore, so the first store() panicked on shape mismatch.
+        let mut db = SemanticMemoryDB::new(32).with_encoder(Box::new(HashEncoder::new(64)));
+        let id = db
+            .store("dimension mismatch used to panic here", None)
+            .unwrap();
+        assert!(!id.is_empty());
+        let stats = db.stats();
+        assert_eq!(stats["total_memories"], 1);
     }
 }

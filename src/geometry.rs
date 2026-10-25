@@ -88,6 +88,12 @@ pub fn geodesic_distance_batch(x: &Array2<f32>, y: &Array2<f32>) -> Array1<f32> 
     if let Some(gpu_result) = crate::gpu::batch_geodesic(&x_flat, &y_flat, n, dim) {
         return Array1::from_vec(gpu_result);
     }
+    static GPU_FALLBACK: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if GPU_FALLBACK.set(()).is_ok() {
+        eprintln!(
+            "[splatsdb] warning: GPU batch_geodesic kernel unavailable — CPU fallback (logged once)"
+        );
+    }
 
     // CPU fallback
     x.axis_iter(Axis(0))
@@ -156,6 +162,12 @@ pub fn cosine_similarity_matrix(x: &Array2<f32>) -> Array2<f32> {
             cpu_cosine_similarity_matrix(x)
         });
     }
+    static GPU_FALLBACK: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if GPU_FALLBACK.set(()).is_ok() {
+        eprintln!(
+            "[splatsdb] warning: GPU cosine_similarity_matrix kernel unavailable — CPU fallback (logged once)"
+        );
+    }
 
     cpu_cosine_similarity_matrix(x)
 }
@@ -204,11 +216,15 @@ pub fn knn_geodesic(
         .map(|(idx, row)| (idx, geodesic_distance(query, &row)))
         .collect();
 
-    // Partial sort to get top k
+    // Partial sort to get top k. Guard: select_nth_unstable_by panics when
+    // k == len — only partition when the index is strictly inside the slice
+    // (same convention as splats.rs / engine.rs).
     let k = k.min(distances.len());
-    distances.select_nth_unstable_by(k, |a, b| {
-        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    if k < distances.len() {
+        distances.select_nth_unstable_by(k, |a, b| {
+            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
     distances.truncate(k);
     distances
 }
@@ -275,6 +291,19 @@ mod tests {
         // log_x(y) should be perpendicular to x
         let dot = result.dot(&x);
         assert_relative_eq!(dot, 0.0_f32, epsilon = 1e-4);
+    }
+
+    /// k >= N must not panic in the partial sort (regression: k == len made
+    /// select_nth_unstable_by panic). CPU-only, no GPU needed.
+    #[test]
+    fn test_knn_geodesic_k_ge_len_no_panic() {
+        let db = array![[1.0_f32, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let q = array![1.0_f32, 0.0, 0.0];
+        let out = knn_geodesic(&q.view(), &db, 10);
+        assert_eq!(out.len(), 2, "k clamped to N");
+        // k == N boundary
+        let out_exact = knn_geodesic(&q.view(), &db, 2);
+        assert_eq!(out_exact.len(), 2);
     }
 
     #[test]

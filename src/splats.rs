@@ -548,6 +548,10 @@ impl SplatStore {
 
                 ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
+                // The backend may return fewer than `fetch_k` candidates
+                // (early termination, removals); clamp so the slice below
+                // cannot panic.
+                let k = k.min(ranked.len());
                 return ranked[..k]
                     .iter()
                     .map(|&(idx, dist)| NeighborResult {
@@ -700,6 +704,9 @@ impl SplatStore {
             .collect();
 
         // Top-k by score, descending (partial sort + stable order for ties).
+        // The candidate pipeline can return fewer than k results (backend
+        // under-delivery), so clamp before slicing.
+        let k = k.min(scored.len());
         if k < scored.len() {
             scored.select_nth_unstable_by(k, |a, b| {
                 b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
@@ -994,7 +1001,10 @@ impl SplatStore {
             })
             .collect();
 
-        // Partial sort top-k
+        // Partial sort top-k. The candidate filter above may drop indices
+        // >= n_active, so the scored set can be smaller than the requested k —
+        // clamp before slicing or [..k] panics.
+        let k = k.min(scored.len());
         if k < scored.len() {
             scored.select_nth_unstable_by(k, |a, b| {
                 a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
@@ -1168,22 +1178,46 @@ pub struct SplatStoreStats {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_find_neighbors_filtered_with_out_of_range_candidates() {
+        // Regression: candidate indices >= n_active are filtered out, so the
+        // scored set can end up smaller than k — the [..k] slice used to panic.
+        let config = SplatsDBConfig {
+            latent_dim: 2,
+            ..Default::default()
+        };
+        let mut store = SplatStore::new(config);
+        let data = Array2::from_shape_vec((3, 2), vec![0.0, 0.0, 1.0, 1.0, 5.0, 5.0]).unwrap();
+        assert!(store.add_splat(&data));
+
+        let query = Array1::from_vec(vec![0.1, 0.1]);
+        let results = store.find_neighbors_filtered(&query.view(), &[0, 2, 999_999], 3);
+        assert_eq!(
+            results.len(),
+            2,
+            "out-of-range candidate must be dropped, not panic"
+        );
+        assert_eq!(results[0].index, 0);
+    }
+
     fn test_config() -> SplatsDBConfig {
-        let mut c = SplatsDBConfig::default();
-        c.max_splats = 1000;
-        c.latent_dim = 64;
-        c
+        SplatsDBConfig {
+            max_splats: 1000,
+            latent_dim: 64,
+            ..Default::default()
+        }
     }
 
     fn test_config_with_hnsw() -> SplatsDBConfig {
-        let mut c = SplatsDBConfig::default();
-        c.max_splats = 2000;
-        c.latent_dim = 32;
-        c.enable_hnsw = true;
-        c.hnsw_m = 16;
-        c.hnsw_ef_construction = 100;
-        c.hnsw_ef_search = 50;
-        c
+        SplatsDBConfig {
+            max_splats: 2000,
+            latent_dim: 32,
+            enable_hnsw: true,
+            hnsw_m: 16,
+            hnsw_ef_construction: 100,
+            hnsw_ef_search: 50,
+            ..Default::default()
+        }
     }
 
     fn random_vectors(n: usize, dim: usize, seed: u64) -> Array2<f32> {
@@ -1856,7 +1890,7 @@ mod tests {
             let results = store.find_neighbors_gaussian(&q.view(), 3);
             let path = dir.join("expected_scores.bin");
             let bytes = std::fs::read(&path).unwrap();
-            for (chunk, r) in bytes.chunks_exact(16).zip(results.iter()) {
+            for (chunk, r) in bytes.as_chunks::<16>().0.iter().zip(results.iter()) {
                 let idx = u64::from_le_bytes(chunk[0..8].try_into().unwrap()) as usize;
                 let score = f32::from_le_bytes(chunk[8..12].try_into().unwrap());
                 let dist = f32::from_le_bytes(chunk[12..16].try_into().unwrap());

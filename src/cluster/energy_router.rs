@@ -140,7 +140,7 @@ impl EnergyRouter {
         let node_energies: Vec<(String, f64)> = nodes
             .iter()
             .map(|nid| {
-                let energy = self.get_cached_energy(query_hash, nid);
+                let energy = self.get_cached_energy(nid);
                 let weight = self
                     .node_energies
                     .get(nid)
@@ -265,7 +265,7 @@ impl EnergyRouter {
         vec![selected]
     }
 
-    fn get_cached_energy(&mut self, query_hash: u64, node_id: &str) -> f64 {
+    fn get_cached_energy(&mut self, node_id: &str) -> f64 {
         if !self.config.cache_energy {
             return self
                 .node_energies
@@ -274,7 +274,11 @@ impl EnergyRouter {
                 .unwrap_or(1.0);
         }
 
-        let cache_key = format!("{}_{}", query_hash, node_id);
+        // Cache per node only: the previous key included query_hash, so the
+        // cache grew without bound (one entry per (query, node) pair). The
+        // energy is a property of the node — one entry per node plus the
+        // existing TTL is enough.
+        let cache_key = node_id.to_string();
         let now = now_secs();
 
         if let Some(&ts) = self.cache_timestamps.get(&cache_key) {

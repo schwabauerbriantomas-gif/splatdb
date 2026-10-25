@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use crate::cluster::aggregator::ResultAggregator;
 use crate::cluster::router::ClusterRouter;
-use crate::cluster::sharding::shard_by_hash;
+use crate::cluster::sharding::shard_by_rendezvous;
 
 /// Error type for cluster client operations.
 #[derive(Debug)]
@@ -93,9 +93,11 @@ impl SplatsDBClusterClient {
 
         // Collect results from each edge node
         let mut all_results: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
+        let mut fns_called = 0usize;
 
         for edge_id in &edge_ids {
             if let Some(search_fn) = self.edge_search_fns.get_mut(edge_id) {
+                fns_called += 1;
                 let results = search_fn(query, k);
                 if !results.is_empty() {
                     all_results.insert(edge_id.clone(), results);
@@ -104,8 +106,17 @@ impl SplatsDBClusterClient {
             // For HTTP mode (future): would make HTTP call to edge_url here
         }
 
+        if fns_called == 0 {
+            // No search function for ANY routed edge — that's a configuration
+            // error, not an empty result set (previously reported Ok(vec![])).
+            return Err(ClusterError::EdgeError(format!(
+                "no search functions registered for routed edges: {:?}",
+                edge_ids
+            )));
+        }
+
+        // Edges were queried but matched nothing — a legitimate empty result.
         if all_results.is_empty() {
-            // No local search fns registered — return routing decision only
             return Ok(Vec::new());
         }
 
@@ -114,23 +125,38 @@ impl SplatsDBClusterClient {
         Ok(merged)
     }
 
-    /// Ingest documents to cluster using shard strategy.
-    pub fn ingest_sharded(&mut self, doc_ids: &[String], edge_ids: &[String]) -> usize {
+    /// Ingest documents to the cluster using rendezvous sharding.
+    ///
+    /// Returns the number of documents registered, or an error when no router
+    /// is configured (previously `added` was incremented even when the
+    /// registration never happened, reporting falsified success).
+    pub fn ingest_sharded(
+        &mut self,
+        doc_ids: &[String],
+        edge_ids: &[String],
+    ) -> Result<usize, ClusterError> {
         if edge_ids.is_empty() {
-            return 0;
+            return Err(ClusterError::EdgeError(
+                "ingest_sharded: no edge ids provided".into(),
+            ));
         }
+        let router = match &mut self.in_memory_router {
+            Some(r) => r,
+            None => {
+                return Err(ClusterError::CoordinatorUnavailable(
+                    "ingest_sharded: no in-memory router configured".into(),
+                ))
+            }
+        };
 
         let mut added = 0;
         for doc_id in doc_ids {
-            let target = shard_by_hash(doc_id, edge_ids.len());
-            if target < edge_ids.len() {
-                if let Some(ref mut router) = self.in_memory_router {
-                    router.register_document(doc_id, &edge_ids[target]);
-                }
+            if let Some(target) = shard_by_rendezvous(doc_id, edge_ids) {
+                router.register_document(doc_id, &edge_ids[target]);
                 added += 1;
             }
         }
-        added
+        Ok(added)
     }
 
     /// Fallback: query known edges directly.
@@ -202,7 +228,7 @@ mod tests {
         let edges = vec!["e1".to_string(), "e2".to_string()];
 
         let docs: Vec<String> = (0..100).map(|i| format!("doc_{}", i)).collect();
-        let added = client.ingest_sharded(&docs, &edges);
+        let added = client.ingest_sharded(&docs, &edges).unwrap();
         assert_eq!(added, 100);
     }
 
@@ -216,7 +242,7 @@ mod tests {
     /// End-to-end integration test: register edges → ingest → route → search → aggregate
     #[test]
     fn test_cluster_e2e_workflow() {
-        use crate::cluster::sharding::shard_by_hash;
+        use crate::cluster::sharding::shard_by_rendezvous;
 
         // 1. Setup: 3 edge nodes with 100 docs each
         let mut router = ClusterRouter::new(None);
@@ -235,7 +261,7 @@ mod tests {
             std::collections::HashMap::new();
         for i in 0..500 {
             let doc_id = format!("doc_{}", i);
-            let shard = shard_by_hash(&doc_id, edge_ids.len());
+            let shard = shard_by_rendezvous(&doc_id, &edge_ids).unwrap();
             let target = &edge_ids[shard];
             router.register_document(&doc_id, target);
             per_edge_docs.entry(target.clone()).or_default().push(i);
@@ -295,11 +321,43 @@ mod tests {
 
         // 7. Test ingest_sharded
         let new_docs: Vec<String> = (500..600).map(|i| format!("doc_{}", i)).collect();
-        let added = client.ingest_sharded(&new_docs, &edge_ids);
+        let added = client.ingest_sharded(&new_docs, &edge_ids).unwrap();
         assert_eq!(added, 100);
 
         // 8. Verify online edges
         let online = client.online_edges();
         assert_eq!(online.len(), 3);
+    }
+
+    #[test]
+    fn test_ingest_sharded_without_router_errors() {
+        // Regression: ingest_sharded used to report falsified success counts
+        // when no router was configured.
+        let mut client = SplatsDBClusterClient::new(None, Vec::new(), None);
+        let docs = vec!["doc_1".to_string()];
+        let edges = vec!["e1".to_string()];
+        assert!(client.ingest_sharded(&docs, &edges).is_err());
+    }
+
+    #[test]
+    fn test_search_without_edge_fns_errors() {
+        // Regression: routed edges without registered search functions used
+        // to return Ok(vec![]) — a falsified success.
+        let mut router = ClusterRouter::new(None);
+        router.register_edge("e1", "localhost:8001", 1.0);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
+        assert!(client.search(&[0.1, 0.2], 5, "broadcast").is_err());
+    }
+
+    #[test]
+    fn test_search_legitimately_empty_results_is_ok() {
+        // Edges were queried and answered with no matches — that's Ok(empty),
+        // distinct from the missing-search-fn configuration error above.
+        let mut router = ClusterRouter::new(None);
+        router.register_edge("e1", "localhost:8001", 1.0);
+        let mut client = SplatsDBClusterClient::new_embedded(router);
+        client.register_edge_search_fn("e1", Box::new(|_q, _k| vec![]));
+        let results = client.search(&[0.1, 0.2], 5, "broadcast").unwrap();
+        assert!(results.is_empty());
     }
 }

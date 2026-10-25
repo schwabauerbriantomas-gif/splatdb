@@ -113,6 +113,20 @@ impl SpatialIndex {
             hall: hall.map(|s| s.to_string()),
         };
 
+        // If the doc is already registered (e.g. the MCP layer re-registers
+        // everything on every startup), undo its old room count first so
+        // repeated registration doesn't inflate doc_count. Re-registering in
+        // the same room decrements and then re-increments — a no-op.
+        if let Some(old) = self.doc_spatial.get(doc_id) {
+            if let (Some(w), Some(r)) = (&old.wing, &old.room) {
+                if let Some(wing_entry) = self.wings.get_mut(w) {
+                    if let Some(room_entry) = wing_entry.get_mut(r) {
+                        room_entry.doc_count = room_entry.doc_count.saturating_sub(1);
+                    }
+                }
+            }
+        }
+
         // Update room doc count
         if let (Some(w), Some(r)) = (&meta.wing, &meta.room) {
             let wing_entry = self.wings.entry(w.clone()).or_default();
@@ -495,6 +509,38 @@ mod tests {
         ]);
         let relabeled = idx.auto_label_clusters(|doc_id| texts.get(doc_id).cloned());
         assert_eq!(relabeled, 0); // "auth" is already the best label
+    }
+
+    #[test]
+    fn test_register_doc_idempotent() {
+        // Regression: re-registering an existing doc (the MCP layer does this
+        // on every startup) used to inflate the room's doc_count.
+        let mut idx = SpatialIndex::new();
+        idx.register_doc("d1", Some("w"), Some("auth"), None);
+        idx.register_doc("d1", Some("w"), Some("auth"), None); // re-register same
+        assert_eq!(idx.doc_count(), 1);
+        let counts: HashMap<String, usize> = idx
+            .rooms_for_wing("w")
+            .into_iter()
+            .map(|r| (r.label.clone(), r.doc_count))
+            .collect();
+        assert_eq!(
+            counts.get("auth"),
+            Some(&1),
+            "counts must not inflate: {:?}",
+            counts
+        );
+
+        // Re-register into a different room: the old room loses the doc.
+        idx.register_doc("d1", Some("w"), Some("billing"), None);
+        let counts: HashMap<String, usize> = idx
+            .rooms_for_wing("w")
+            .into_iter()
+            .map(|r| (r.label.clone(), r.doc_count))
+            .collect();
+        assert_eq!(counts.get("auth"), Some(&0));
+        assert_eq!(counts.get("billing"), Some(&1));
+        assert_eq!(idx.doc_count(), 1);
     }
 
     #[test]

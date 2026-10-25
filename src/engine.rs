@@ -165,11 +165,15 @@ impl SplatsDBEngine {
             .map(|i| (distances_sq[i], i))
             .collect();
 
-        // Partial sort for top-k (O(n) average instead of O(n log n))
+        // Partial sort for top-k (O(n) average instead of O(n log n)).
+        // Guard: select_nth_unstable_by panics when the index == len, so only
+        // partition when strictly inside the slice (splats.rs convention).
         let k_actual = k.min(indexed.len());
-        indexed.select_nth_unstable_by(k_actual, |a, b| {
-            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        if k_actual < indexed.len() {
+            indexed.select_nth_unstable_by(k_actual, |a, b| {
+                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
 
         // Sort only the top-k portion
         indexed[..k_actual]
@@ -220,5 +224,32 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!((results[0].distance - 0.0).abs() < 1e-6);
         assert!((results[1].distance - 5.0).abs() < 1e-4);
+    }
+
+    /// k >= len must not panic in the partial sort (regression: k == len made
+    /// select_nth_unstable_by panic). CPU-only, no GPU needed.
+    #[test]
+    fn test_topk_k_ge_len_no_panic() {
+        let engine = SplatsDBEngine::default();
+        let embeddings = array![[0.0f32, 0.0, 0.0], [3.0, 4.0, 0.0]];
+        let results = engine.compute_expert_distances_topk(
+            &[0.0, 0.0, 0.0],
+            &embeddings,
+            &[0, 1],
+            &[0, 1],
+            &[0, 0],
+            5, // k > len(experts)
+        );
+        assert_eq!(results.len(), 2, "k clamped to len");
+        // k == len boundary
+        let results_exact = engine.compute_expert_distances_topk(
+            &[0.0, 0.0, 0.0],
+            &embeddings,
+            &[0, 1],
+            &[0, 1],
+            &[0, 0],
+            2,
+        );
+        assert_eq!(results_exact.len(), 2);
     }
 }

@@ -118,6 +118,14 @@ impl KMeans {
                         .map(|(i, c)| (i, c as usize, gpu_dist[i]))
                         .collect()
                 } else {
+                    // GPU kernel unavailable — warn once per process (this is
+                    // inside the Lloyd loop; one warning, not one per iteration).
+                    static GPU_FALLBACK: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                    if GPU_FALLBACK.set(()).is_ok() {
+                        eprintln!(
+                            "[splatsdb] warning: GPU kmeans_assign kernel unavailable — CPU (rayon) fallback for Lloyd iterations (logged once)"
+                        );
+                    }
                     // CPU fallback with rayon
                     (0..n)
                         .into_par_iter()
