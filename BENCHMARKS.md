@@ -77,7 +77,7 @@ Reproduce:
 **Hardware**: Ryzen 5 3400G, Windows 11
 **Conditions**: SIFT-128, HNSW M=32, ef_construction=400, ef_search=100, exact L2 re-rank, **k=10**
 
-> **Provenance caveat**: the maintainer's later validated re-run (commit `a2908b1` on `main`; JSON `bench-data/hnsw_validated_results.json`, not present on this branch) on **synthetic uniform-random** SIFT-like data measured 789 QPS / recall@10 0.861 at 10K and 242 QPS at 100K — lower than the table below, consistent with synthetic data being harder for HNSW. Treat the April figures as indicative pending a re-run with persisted results.
+> **Provenance caveat — raw run output not preserved**: the maintainer's later validated re-run (commit `a2908b1` on `main`; JSON `bench-data/hnsw_validated_results.json`, not present on this branch) on **synthetic uniform-random** SIFT-like data measured 789 QPS / recall@10 0.861 at 10K and 242 QPS at 100K — lower than the table below, consistent with synthetic data being harder for HNSW. Treat the April figures as indicative pending a re-run with persisted results. **Note**: README.md shows the July synthetic numbers (789 QPS / 0.861) as its headline while this file shows the April real-SIFT numbers (1,054 QPS / 0.998) — they are different runs on different data, and **neither has a preserved raw artifact on this branch**. Do not cite either as a measured artifact until re-run with persisted results.
 
 | N | Build | p50 | p95 | p99 | QPS | Recall@10 |
 |---|-------|-----|-----|-----|-----|-----------|
@@ -119,27 +119,46 @@ cargo test --release --features cuda test_ptx_kernel_correctness -- --nocapture
 
 ## 5. LongMemEval agent memory (recall@k)
 
-**Source**: `bench-data/longmemeval_full_results.json` + `bench-data/longmemeval_splatdb_native.json`, scripts `bench-data/longmemeval_full.py` / `bench-data/longmemeval_splatdb_native.py`
-**Hardware**: RTX 3090 (embedding with `all-MiniLM-L6-v2`, 384d), Ryzen 5 3400G
-**Conditions**: 500 questions, ~24K haystack sessions, HNSW M=32 / efC=400 / efS=100, over-fetch 3× + exact re-rank, spatial pre-filter (Wing = question group → ~48 candidates/query)
+Two **distinct pipelines** were measured on 2026-04-09 (LongMemEval-S-cleaned, 500 questions, ~23.9K haystack sessions, embeddings `all-MiniLM-L6-v2` 384d on RTX 3090). They are not interchangeable: the headline recall (96.6%) comes from a **NumPy brute-force reference**, not from SplatsDB's engine; the **native** SplatsDB run measured far lower recall at this dataset/config. Numbers below cite the two source JSONs exactly.
 
-| Metric | Value |
+### 5a. NumPy brute-force reference (recall + latency)
+
+**Source**: [`bench-data/longmemeval_full_results.json`](bench-data/longmemeval_full_results.json) — `search_method: "numpy_cosine_normalized"`, date 2026-04-09
+**Hardware**: RTX 3090 (embedding), Ryzen 5 3400G
+**Conditions**: cosine similarity over normalized MiniLM embeddings; answer session in top-k
+
+| Metric | Value (source JSON) |
 |--------|-------|
 | Recall@1 / @3 / @5 | 75.8% / 88.2% / 92.2% |
-| **Recall@10** | **96.6%** |
-| QPS (spatial pre-filter path) | 3,125 |
-| p50 / p95 latency | 0.029ms / 0.036ms |
-| Index build | 105.3s |
+| **Recall@10** | **96.6%** (0.966) |
+| p50 / p95 / p99 latency | 0.056 ms / 0.080 ms / 0.105 ms |
 
-Per-type recall@10: knowledge-update 100.0% (78q), multi-session 99.2% (133q), single-session-assistant 98.2% (56q), single-session-preference 96.7% (30q), temporal-reasoning 95.5% (133q), single-session-user 88.6% (70q).
+Per-type recall@10 (same JSON): knowledge-update 100.0% (78q), multi-session 99.2% (133q), single-session-assistant 98.2% (56q), single-session-preference 96.7% (30q), temporal-reasoning 95.5% (133q), single-session-user 88.6% (70q).
 
-**Comparison caveat**: the LongMemEval paper's best of 86.2% is for **end-to-end systems**; SplatsDB's 96.6% is **retrieval-only** (answer session in top-k). Not like-for-like; no system-level win is claimed.
+These figures validate the **retrieval approach** (embeddings + cosine), not SplatsDB's search engine. The source JSON contains **no QPS figure** for this pipeline.
+
+### 5b. SplatsDB native pipeline (QPS + latency + recall)
+
+**Source**: [`bench-data/longmemeval_splatdb_native.json`](bench-data/longmemeval_splatdb_native.json) — date 2026-04-09, 23,867 sessions, 500 queries
+**Conditions**: HNSW M=32 / efC=400 / efS=100, over-fetch 3× + exact re-rank, L2 metric
+
+| Metric | Value (source JSON) |
+|--------|-------|
+| QPS (Rust, over-fetch + re-rank) | 671.63 |
+| p50 latency | 1.448 ms (hnsw_raw 0.837 ms; in-engine brute force 3.171 ms) |
+| Index build | 106.96 s (106,962 ms) |
+| Recall@10 — brute force inside native pipeline | 0.304 |
+| Recall@10 — hnsw_raw / over-fetch + re-rank | 0.308 / 0.304 |
+
+The native run's recall (0.304) vs the NumPy reference (0.966) is a real gap under this methodology (session grouping, L2-vs-cosine, ef tuning) — see the source JSON and `bench-data/longmemeval_splatdb_native.py` for the analysis. No end-to-end comparison against published systems is claimed: the paper's best 86.2% is for end-to-end systems, while both rows above are retrieval-only (different tasks).
+
+> **Corrected attribution (2026-10-25)**: a previous version of this section (and the `longmemeval` block in `bench-data/benchmark_results_hardware.json`) presented the NumPy recall (0.966) together with "3,125 QPS / p50 0.029 ms / build 105.3 s" as one "SplatDB v2.5.0 native pipeline" result that "beats all published systems". Those throughput/latency figures appear in **neither** source JSON (5a has p50 0.056 ms and no QPS; 5b has 671.63 QPS / p50 1.448 ms / recall 0.304) and the "beats all published systems" claim compared retrieval-only against end-to-end systems. They were withdrawn — see [Removed claims](#removed-claims).
 
 Reproduce:
 ```bash
 # TODO-B4 (requires embedding service + datasets in bench-data/)
-[COMANDO: python bench-data/longmemeval_full.py]
-[COMANDO: python bench-data/longmemeval_splatdb_native.py]
+[COMANDO: python bench-data/longmemeval_full.py]           # 5a — NumPy reference
+[COMANDO: python bench-data/longmemeval_splatdb_native.py]  # 5b — native pipeline
 ```
 
 ---
@@ -155,6 +174,11 @@ The following numbers appeared in previous versions of README.md / BENCHMARKS.md
 | 269 / 214 QPS — CPU rayon, 640D | BENCHMARKS.md (v1) §2 | Same untraced run family as the 1,667 figure; no result file. |
 | "SplatsDB GPU **beats** Faiss HNSW CPU — 1.25× faster" | README Faiss comparison | Misleading framing: compares GPU brute-force at k=10 against Faiss CPU ANN at k=64. Different regimes; restated as "different regimes, not a head-to-head win". |
 | LongMemEval "beats all published systems" | README, `benchmark_results_hardware.json` analysis note | Retrieval-only (96.6%) vs paper's end-to-end systems (86.2%) — different tasks; caveat added, no system-level claim. |
+| HRM2 "Validated Rust result" table — Linear scan 94.79 ms / 10.55 QPS vs HRM2 0.99 ms / 1,012.77 QPS = "32.4×" | README "HRM2 vs Linear Scan" section | No source artifact (no JSON, no run log) and internally inconsistent arithmetic (1,012.77/10.55 ≈ 96×, not 32.4×). Table removed; replaced by an explicit NOT VALIDATED note. The historical "32× Python prototype" claim remains labeled as unvalidated context. |
+| LongMemEval throughput "3,125 QPS / p50 0.029 ms / build 105.3 s" attributed to the "SplatDB v2.5.0 native pipeline" (recall 0.966) | `bench-data/benchmark_results_hardware.json` `longmemeval` block; previous BENCHMARKS.md §5 | Numbers exist in no source JSON: `longmemeval_full_results.json` (NumPy reference — recall 0.966, p50 0.056 ms, no QPS) and `longmemeval_splatdb_native.json` (native — 671.63 QPS, p50 1.448 ms, recall@10 0.304) disagree with every figure. §5 rewritten as 5a (NumPy) / 5b (native) citing both JSONs; the JSON block itself still needs the same fix (owned by another agent). |
+| GPU microbenchmark "CPU 718 ms vs GPU 18 ms = 39.89×" (`test_ptx_kernel_performance`, 10K×640D×100q, 2026-10-15) | README "GPU Acceleration → Performance" | Contradicted the same test's logged run (565 ms / 27 ms / 20.93×, documented in §4 and README's benchmark section) and had no preserved run log. Replaced by the 20.93× figure; pending re-measure with a persisted result file. |
+| TurboQuant ">95% top-10 recall at 5% search fraction" (4-bit, 640D) | README "Vector Compression → Compression Ratio" | No preserved result artifact. Replaced by a "source not preserved" note pointing at `quant-index`/`quant-search` for self-measurement. |
+| BEIR "Alternative Approaches" A/B table — BGE-base 0.5806 avg NDCG@10, passage-level 0.5432, title-only 0.1422, BM25+RRF ~0.55 | README "BEIR Information Retrieval → Alternative Approaches" | No preserved result files (`bench-data/alternative_results.json` covers only the fiqa baseline, NDCG@10 0.3848). Kept in README with a visible "source not preserved" label as directional findings; not citable as measured results. |
 
 Also superseded: BENCHMARKS_V2.md (micro-optimization measurements from the pre-rename criterion bench, no regeneration script) — it remains in the repo for history but is not referenced as a claims source.
 

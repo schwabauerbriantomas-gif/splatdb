@@ -12,8 +12,8 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-406%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-31K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-425%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-35K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
@@ -47,7 +47,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | RRF result fusion | ✅ | — | — | — | ✅ | — |
 | Self-hosted | ✅ | ✅ | ❌ SaaS-only | ✅ | ✅ | ✅ |
 | Embedded (no server) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
-| GPU custom kernels (14 total) | PTX | CUDA | Cloud | ❌ | ✅ Knowhere | ❌ |
+| GPU custom kernels (15 total) | PTX | CUDA | Cloud | ❌ | ✅ Knowhere | ❌ |
 | HNSW | ✅ | ✅ | ✅ | ✅ | ✅ | IVF-PQ |
 | Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Pricing (cloud managed) | **Free** | N/A | $50–$500/mo | Usage-based | $99–$155/mo | Free |
@@ -89,7 +89,7 @@ SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 14 CUDA GPU kernels (6 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~29K lines of pure Rust + CUDA.
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~35K lines of pure Rust + CUDA (35,242 by `wc -l` — Rust `src/` 34,218 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -215,7 +215,7 @@ cargo build --release
 cargo build --release --no-default-features
 
 # Run tests
-cargo test --lib
+cargo test   # full suite: 349 lib tests + 76 integration tests in tests/ (425 total)
 ```
 
 ### Run
@@ -357,9 +357,9 @@ All numbers are measured on real hardware. Exact QPS figures are only comparable
 
 HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates.
 
-> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI. Ground truth: brute-force L2 (NumPy). Full methodology and raw output in [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
+> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI on synthetic SIFT-like data. Ground truth: brute-force L2 (NumPy). **Raw run output not preserved** — no result file backing this table exists on this branch (the validated JSON from commit `a2908b1` lives on `main` and is not present here).
 
-> **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `a2908b1` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results.
+> **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `a2908b1` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results. **Note**: [BENCHMARKS.md §3](BENCHMARKS.md#3-splatsdb-hnsw-standalone-k10) shows the April figures as its headline (1,054 QPS / 0.998 at 10K) — neither table has a preserved raw artifact on this branch; they are different runs (April real-SIFT vs July synthetic) and not comparable with each other.
 
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
@@ -369,7 +369,7 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 <details>
 <summary><b>Why recall is lower than a typical SIFT-128 benchmark</b></summary>
 
-This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce: see [`bench-data/hnsw_validated_results.json`](bench-data/hnsw_validated_results.json).
+This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce (no result file is preserved; the `a2908b1` JSON is not on this branch): `cargo run --release -- bench-hnsw --train bench-data/sift_train_10000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_10000.bin --dim 128 --k 10`.
 </details>
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
@@ -379,16 +379,18 @@ This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, 
 
 ### Comparison: HNSW vs Linear Scan vs HRM2 Splats
 
-> Same provenance caveat as the HNSW table above for the HNSW rows (no preserved result file on this branch).
+> **Raw run output not preserved for every row of this table**: the HNSW rows share the provenance caveat above (no result file on this branch), and the Linear scan and HRM2 rows likewise have no preserved artifact. Historical numbers, kept for context — do not cite as measured artifacts until re-run with persisted results.
 
 | Method | Dataset | N | p50 Latency | QPS | Recall@10 |
 |--------|---------|------|-------------|------|-----------|
 | **HNSW (synthetic)** | synthetic-sift128 | 10K | **1.20ms** | **789** | **0.861** |
 | **HNSW (synthetic)** | synthetic-sift128 | 100K | **4.09ms** | **242** | n/a |
 | Linear scan | synthetic-sift128 | 10K | 1,143ms | 0.9 | 1.000 |
-| HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95 |
+| HRM2 splats | SIFT-128 | 100K | 76ms | 11.0 | ~0.95* |
 
 On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real-SIFT recall would be higher.
+
+\* HRM2 row: **source not preserved** — no result artifact backs the ~0.95 recall or the 76ms/11.0 QPS pair (logged in [BENCHMARKS.md → Removed claims](BENCHMARKS.md#removed-claims)).
 
 ### Faiss Comparison (Same Hardware, Same Dataset — k and Recall Stated Per Row)
 
@@ -475,7 +477,7 @@ Measured today on this repository, WSL2 + RTX 3090, with `cargo test --release -
 
 ### CUDA Kernel Optimizations
 
-**Distance kernels** (`kernels/distance.cu` — 6 kernels):
+**Distance kernels** (`kernels/distance.cu` — 7 kernels: `l2_distance`, `batch_l2_distance`, `cosine_distance`, `batch_cosine_distance`, `l2_topk`, `cosine_topk`, `gaussian_topk`):
 - `float4` vectorized loads (640D = 160 × float4 per vector)
 - Shared memory query cache (avoids redundant global reads per thread)
 - Thread-local sorted top-k (max K=32) with shared memory merge
@@ -559,12 +561,9 @@ python benchmarks/benchmark_reproducible.py --suite all        # Everything
 
 ### HRM2 vs Linear Scan (Python Prototype — Historical)
 
-An earlier Python prototype showed **32x speedup** with HRM2 vs linear scan on 100K vectors (100K splats, 1K queries, k=64, CPU). Referenced for historical context only. Validated Rust result:
+An earlier Python prototype claimed a **32× speedup** for HRM2 vs linear scan on 100K vectors (100K splats, 1K queries, k=64, CPU). Referenced for historical context only.
 
-| Method | Latency | QPS | Speedup |
-|--------|---------|-----|---------|
-| Linear scan | 94.79 ms | 10.55 | baseline |
-| SplatsDB HRM2 | 0.99 ms | 1,012.77 | **32.4x** |
+> **NOT VALIDATED — no source artifact**: a table previously shown here, labeled "Validated Rust result" (Linear scan 94.79 ms / 10.55 QPS vs SplatsDB HRM2 0.99 ms / 1,012.77 QPS = **32.4×**), has been removed: no result JSON or run log backs it, and its arithmetic is internally inconsistent (1,012.77 / 10.55 ≈ 96×, not 32.4×). The removal is recorded in [BENCHMARKS.md → Removed claims](BENCHMARKS.md#removed-claims). If re-measured with a persisted result file, real numbers may return.
 
 ---
 
@@ -712,6 +711,28 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 | Command | Description |
 |---------|-------------|
 | `bench-hnsw --train data.bin --queries q.bin --gt ground.bin --dim 128` | HNSW benchmark with recall measurement |
+
+### Distributed, Verbatim & Compression Commands
+
+Distributed cluster operations, verbatim text storage, AAAK text compression, and the remaining benchmark commands (all defined in the `Commands` enum, `src/cli/mod.rs`).
+
+| Command | Description |
+|---------|-------------|
+| `cluster-ingest --prefix doc --n-docs 1000 --strategy hash\|cluster\|geo` | Ingest documents to the cluster with sharding |
+| `cluster-join --id <ID> --url localhost:8001 --role worker\|edge\|coordinator --weight 1.0` | Join a node to the cluster |
+| `cluster-leave --id <ID>` | Remove a node from the cluster |
+| `cluster-reset` | Reset cluster state (remove all nodes) |
+| `cluster-search --query "0.1,..." -k 10 --strategy broadcast\|round_robin\|least_loaded` | Cluster search with routing and RRF aggregation |
+| `cluster-status [--verbose]` | Cluster status — nodes, routing, sharding |
+| `cluster-bench --n-queries 1000 -k 10 --strategy broadcast\|round_robin\|least_loaded` | Benchmark cluster search performance |
+| `verbatim-store --id my-doc --text "verbatim content" [--category notes]` | Store document with verbatim text (Drawer layer, alpha) |
+| `verbatim-get --id my-doc` | Retrieve the original document text by ID |
+| `verbatim-search --query "search text" -k 10` | Search with HIGH/MEDIUM/LOW confidence on verbatim text |
+| `compress --text "long text" [--verbose]` | AAAK text compression (semantic + binary) with stats |
+| `compress-bench --size small\|medium\|large` | Measure AAAK compression ratio on sample text |
+| `decompress --data <hex>` | Decompress AAAK binary data (hex-encoded) back to semantic text |
+| `bench-gaussian -n 100000 -q 100 -k 10 [-s 42] [--hnsw-m 16] [--hnsw-ef-construction 200] [--hnsw-ef-search 50] [--candidate-mult 10] [--out results.json] [--gt-out gt.bin]` | A/B benchmark: κ-weighted Gaussian ranking vs pure L2 (synthetic splats) |
+| `bench-longmemeval --sessions sessions.bin --queries queries.bin --meta meta.json [-k 10] [--ef-search 100] [--over-fetch 3]` | LongMemEval with the native pipeline (spatial filter + vector search) |
 
 ### Spatial Memory Commands
 
@@ -1046,7 +1067,7 @@ cargo build --release --features cuda
 
 ### Performance
 
-**Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): batch L2 over 10K×640D × 100 queries — CPU 718ms vs GPU 18ms = **39.89×**; correctness test passes alongside.
+**Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): batch L2 over 10K×640D × 100 queries — **CPU 565ms vs GPU 27ms = 20.93×** (single-threaded CPU baseline; companion correctness test `test_ptx_kernel_correctness` passes). Full table and reproduction commands: [BENCHMARKS.md §4](BENCHMARKS.md#4-gpu-vs-cpu-kernel-microbenchmark-640d). A previous version of this paragraph quoted "CPU 718ms vs GPU 18ms = 39.89×" — that figure had no preserved run log and was corrected to the logged 20.93× run; **pending re-measure** with a persisted result file either way.
 
 **Serve integration (v2.6.0, 2026-10-20)** — `splatsdb serve --gpu` uploads the dataset to VRAM at boot and routes `/search` (with embedding) through the PTX `l2_topk_kernel`. Measured on the semantic-hub dataset (26,273×768d, RTX 3090, WSL2), 30 queries against exact brute-force ground truth + 600-query soak:
 
@@ -1200,7 +1221,7 @@ SplatsDB supports data-oblivious vector compression that requires **no training 
 With 4-bit TurboQuant on 640D vectors:
 - **Raw**: 2,560 bytes per vector
 - **Compressed**: 320 bytes per vector (8x reduction)
-- **Recall**: >95% top-10 recall at 5% search fraction
+- **Recall**: a previous ">95% top-10 recall at 5% search fraction" claim is **source not preserved** (no result artifact on this branch; logged in [BENCHMARKS.md → Removed claims](BENCHMARKS.md#removed-claims)). Measure recall on your own data with `quant-index` + `quant-search`, or via the recall measurement built into `src/quantization.rs`.
 
 ---
 
@@ -1222,7 +1243,7 @@ This gives the best of both worlds: vector search captures semantic meaning, BM2
 
 Optional: recent memories can be weighted higher via exponential decay with configurable half-life.
 
-### Verbatim Storage (Planned)
+### Verbatim Storage (Implemented — alpha)
 
 > Inspired by [MemPalace's](https://github.com/MemPalace/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
 
@@ -1245,9 +1266,13 @@ MCP query → Vector search finds top-5 splats
 
 This is the opposite of how Pinecone/Qdrant handle text — they truncate or discard it. SplatsDB keeps the source of truth because for agent memory, losing *why* a decision was made kills future recall.
 
-**Status**: Planned. The building blocks exist (SQLite persistence, BM25 text index, MCP server). Pending: summary extraction pipeline and drawer API.
+**Status**: Implemented (alpha) — the **Drawer layer** (verbatim original text) is real and shipped:
+- CLI (`src/cli/verbatim_cmds.rs`): `verbatim-store --id <ID> --text "<verbatim>" [--category <CAT>]` persists the original text via the metadata store; `verbatim-get --id <ID>` returns it exactly; `verbatim-search --query "<q>" -k 10` returns results tagged HIGH/MEDIUM/LOW confidence.
+- MCP: `splatsdb_verbatim_search` — returns verbatim text alongside confidence for hallucination-checking.
+- Caveat: this path embeds with SimCos hashing (demo-grade) — for production, store real embeddings through the main store.
+- Not yet implemented: the LLM-generated **Summary** layer and the full three-layer API (Splat + Summary + Drawer as one query surface).
 
-### Text Compression (Planned)
+### Text Compression (Implemented — alpha)
 
 Vector compression (TurboQuant/PolarQuant) handles embeddings. But the *text* itself also needs compression for efficient agent memory.
 
@@ -1270,7 +1295,10 @@ Compressed (~40 tokens, 30x):
 - MCP server can return compressed summaries within token budgets
 - Agent only fetches full drawer when needed → saves ~90% tokens on average query
 
-**Status**: Planned. Will be implemented as a post-ingestion compression pass, independent of the vector pipeline.
+**Status**: Implemented (alpha) as **AAAK compression** (`src/text_compression.rs`):
+- CLI: `compress --text "<text>" --verbose` (semantic + binary compression with stats), `decompress --data <hex>`, `compress-bench --size small|medium|large` (measures the ratio on sample text).
+- MCP: `splatsdb_compress` (returns LLM-readable semantic text + hex binary) and `splatsdb_decompress`.
+- The ~30× example above is illustrative only — measure the real ratio on your own text with `compress-bench`; ratios vary with content.
 
 ---
 
@@ -1308,7 +1336,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Module Map
 
-26,465 lines of Rust across these modules:
+35,242 lines of Rust + CUDA by `wc -l` (raw lines: 34,218 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
@@ -1359,15 +1387,16 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 - ~~**Faiss benchmark comparison**: Same hardware, same dataset, honest side-by-side numbers~~ → See [Faiss Comparison](#faiss-comparison-same-hardware-same-dataset)
 - ~~**LongMemEval benchmark**: Validate agent memory use case with the conversational memory standard~~ → See [LongMemEval Agent Memory Benchmark](#longmemeval-agent-memory-benchmark)
 - ~~**Spatial memory structure**: Wings/Rooms/Halls/Tunnels**~~ → See [Spatial Memory](#spatial-memory-architecture)
-- ~~**GPU CUDA kernels**: 14 PTX kernels for RTX 3090~~ → See [GPU Acceleration](#gpu-acceleration)
+- ~~**GPU CUDA kernels**: 15 PTX kernels for RTX 3090~~ → See [GPU Acceleration](#gpu-acceleration)
+- ~~**Verbatim storage**: store original document text alongside splats for exact recall~~ → implemented (alpha): `verbatim-store` / `verbatim-get` / `verbatim-search` CLI + MCP `splatsdb_verbatim_search` (see [Semantic Memory](#semantic-memory))
+- ~~**Text compression (AAAK)**: compressed text any LLM reads natively~~ → implemented (alpha): `compress` / `decompress` / `compress-bench` CLI + MCP `splatsdb_compress` / `splatsdb_decompress` (see [Semantic Memory](#semantic-memory))
 
 ### 🔜 Planned
 
 - **Docker image**: `docker run splatsdb` for instant trial without Rust/CUDA setup
 - **Test coverage reporting**: CI integration with `tarpaulin` or `llvm-cov`
 - **CI with GPU**: GitHub Actions runner with CUDA for integration testing
-- **Verbatim storage**: Store original document text alongside splats for exact recall (alpha — concept defined, implementation pending)
-- **Text compression (AAAK)**: ~30× compressed text any LLM reads natively (concept defined, implementation pending)
+- **Verbatim summary layer**: LLM-generated summaries between splat and drawer (see [Semantic Memory](#semantic-memory) — alpha stores/retrieves verbatim text; the Summary layer is pending)
 
 ---
 
@@ -1603,6 +1632,8 @@ Uses SplatsDB's full pipeline: BM25 from `bm25_index.rs`, RRF from `cluster/aggr
 > **Source**: v1 results from `bench-data/beir_results.json` (BEIR v1.0, all-MiniLM-L6-v2, standard protocol). v2 results from internal benchmark runs — result file not yet published.
 
 **Alternative Approaches — A/B tested on scifact/arguana/nfcorpus**
+
+> **Source not preserved**: the A/B numbers below (including the BGE-base 0.5806 average and the passage/title-only/BM25 rows) come from internal runs whose result files were not kept — `bench-data/alternative_results.json` covers only the fiqa baseline (NDCG@10 0.3848). They are kept as directional findings only; re-run before citing as measured results (logged in [BENCHMARKS.md → Removed claims](BENCHMARKS.md#removed-claims)).
 
 After v2, we tested 4 alternative approaches to identify what actually improves retrieval:
 
