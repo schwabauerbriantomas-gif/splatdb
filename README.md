@@ -106,8 +106,6 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 
 ## Architecture
 
-<p align="center"><img src="assets/splatsdb-architecture.png" alt="SplatsDB Architecture" width="900"/></p>
-
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Interfaces                                 │
@@ -419,11 +417,9 @@ On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real
 
 > **Removed claims**: a previous version of this section claimed GPU throughput of 1,667 QPS at 640D and 20,000 QPS for linear scan over 100 splats. Both numbers had no preserved source (no result file or run log; the 640D figure was marked "untraced" in `a2908b1`). They were removed rather than restated.
 
-<details>
-<summary>Known caveat: benchmark chart images lag this table</summary>
+<p align="center"><img src="assets/splatsdb-faiss-comparison.png" alt="SplatsDB vs Faiss — same hardware" width="900"/></p>
 
-The PNG charts in `assets/` (`splatsdb-faiss-comparison.png`, `splatsdb-benchmarks.png`) were rendered from earlier data and present the GPU k=10 row inside a chart labeled "k=64", plus stale takeaways. Regenerate before citing; the tables in this README and in `BENCHMARKS.md` are the source of truth.
-</details>
+> Chart regenerated 2026-10-25 from [`bench-data/benchmark_results_hardware.json`](bench-data/benchmark_results_hardware.json) — k and search type stated per panel; the GPU row (exact, k=10) lives in its own panel. The tables above and in [BENCHMARKS.md](BENCHMARKS.md) are the source of truth.
 
 ### LongMemEval Agent Memory Benchmark
 
@@ -1508,8 +1504,6 @@ Spatial memory has an initial implementation. The building blocks exist:
 ---
 
 ## Competitive Landscape
-
-<p align="center"><img src="assets/splatsdb-features.png" alt="SplatsDB Feature Comparison" width="900"/></p>
 
 ### Market Position (DB-Engines Vector DBMS Ranking, April 2026)
 
