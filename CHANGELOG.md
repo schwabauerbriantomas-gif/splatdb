@@ -27,7 +27,7 @@
 ### Added
 - Process-level VRAM dataset cache (`gpu::cached_dataset_index`): the dataset uploads to GPU once per dataset version instead of per query/batch; `SplatStore::data_version()` (global epoch-seeded) keys the single-entry cache; alpha/kappa ride along; sub-threshold datasets (≤10K floats) bypass it
 - `HNSWIndex::len()`/`dim()`/`is_empty()` accessors; `SyncAction::seq` monotonic identity
-- Regression test `test_stale_persisted_hnsw_rejected_and_rebuilt`: a stale persisted HNSW (fewer vectors than the store) is rejected on load and rebuilt — vectors added after the snapshot stay findable via the fused path (covers the `384e205` fix)
+- Regression test `test_stale_persisted_hnsw_rejected_and_rebuilt`: a stale persisted HNSW (fewer vectors than the store) is rejected on load and rebuilt — vectors added after the snapshot stay findable via the fused path (covers the `1e6b4ea` fix)
 
 ### Fixed
 - `semantic_memory`: hybrid search fabricated `vec_{n}` ids that never matched real doc ids — fusion never joined vector+BM25 results (CRITICAL); honest capacity/dim errors on store; `with_encoder()` documented + warns (drops stored vectors); `stats()` counted deletes twice
@@ -49,16 +49,16 @@
 ## [v2.6.1] - 2026-10-25
 
 ### Added
-- Two-phase IVF over the splat field: `field-search --nprobe N` (CLI) and `/field-search {"mode":"two-phase","nprobe":N}` (HTTP) — phase 1 selects top-N clusters by d(q,μ), phase 2 re-ranks their members exactly; `--gpu` runs phase 1 on the PTX kernel (`f32bc87`)
-- `/search` results now carry `topic` + `confidence` per hit (1 − d(x,μ_topic)/R_topic) when a `field/` is persisted; dead-weight splats pruned during ingest (`5cf7e09`)
-- `semantic-hub/faststart.sh`: one-command stack — embeddinggemma-2 embedder (:8860) + exact GPU hub (:8871) + end-to-end smoke (`5cf7e09`)
+- Two-phase IVF over the splat field: `field-search --nprobe N` (CLI) and `/field-search {"mode":"two-phase","nprobe":N}` (HTTP) — phase 1 selects top-N clusters by d(q,μ), phase 2 re-ranks their members exactly; `--gpu` runs phase 1 on the PTX kernel (`15de959`)
+- `/search` results now carry `topic` + `confidence` per hit (1 − d(x,μ_topic)/R_topic) when a `field/` is persisted; dead-weight splats pruned during ingest (`4d144be`)
+- `semantic-hub/faststart.sh`: one-command stack — embeddinggemma-2 embedder (:8860) + exact GPU hub (:8871) + end-to-end smoke (`4d144be`)
 
 ### Fixed
-- `serve --gpu`: the `/search` GPU index now searches the full chunk corpus (`field.raw`) instead of the cluster centroids μ, so `topic`/`confidence` always refer to real chunks (`cf38316`)
-- CI: `gpu_info()` no longer panics when `cudarc` finds no driver (`5c12ee5`); cudarc-without-driver panic guarded in the rest of the GPU path and clippy 1.99 lints fixed (`96ddbd2`)
+- `serve --gpu`: the `/search` GPU index now searches the full chunk corpus (`field.raw`) instead of the cluster centroids μ, so `topic`/`confidence` always refer to real chunks (`2ed5e6c`)
+- CI: `gpu_info()` no longer panics when `cudarc` finds no driver (`7afb768`); cudarc-without-driver panic guarded in the rest of the GPU path and clippy 1.99 lints fixed (`867b9da`)
 
 ### Removed
-- `training` preset and its subsystems (data lake, `train_embeddings`, training config fields) as unvalidated dead weight — ~1,250 lines deleted (`5cf7e09`)
+- `training` preset and its subsystems (data lake, `train_embeddings`, training config fields) as unvalidated dead weight — ~1,250 lines deleted (`4d144be`)
 
 ## [v2.6.0] - 2026-10-20
 

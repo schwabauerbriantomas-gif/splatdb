@@ -360,9 +360,9 @@ All numbers are measured on real hardware. Exact QPS figures are only comparable
 
 HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance re-ranking of candidates.
 
-> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI on synthetic SIFT-like data. Ground truth: brute-force L2 (NumPy). **Raw run output not preserved** — no result file backing this table exists on this branch (the validated JSON from commit `a2908b1` lives on `main` and is not present here).
+> **Measured 2026-07-05** with the built-in `bench-hnsw` CLI on synthetic SIFT-like data. Ground truth: brute-force L2 (NumPy). **Raw run output not preserved** — no result file backing this table exists on this branch (the validated JSON from commit `ab81716` lives on `main` and is not present here).
 
-> **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `a2908b1` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results. **Note**: [BENCHMARKS.md §3](BENCHMARKS.md#3-splatsdb-hnsw-standalone-k10) shows the April figures as its headline (1,054 QPS / 0.998 at 10K) — neither table has a preserved raw artifact on this branch; they are different runs (April real-SIFT vs July synthetic) and not comparable with each other.
+> **Provenance caveat**: the figures below come from April 2026 `bench-hnsw` runs whose raw output was not preserved as a result file on this branch. The maintainer's later validated re-run (commit `ab81716` on `main`, synthetic SIFT-like data, JSON `bench-data/hnsw_validated_results.json` — not present on this branch) measured lower numbers: 789 QPS / recall@10 0.861 at 10K, 242 QPS at 100K, on synthetic uniform-random data. Treat the table below as indicative until re-run with persisted results. **Note**: [BENCHMARKS.md §3](BENCHMARKS.md#3-splatsdb-hnsw-standalone-k10) shows the April figures as its headline (1,054 QPS / 0.998 at 10K) — neither table has a preserved raw artifact on this branch; they are different runs (April real-SIFT vs July synthetic) and not comparable with each other.
 
 | Dataset | N | Dim | Build Time | p50 Latency | p95 | p99 | QPS | Recall@10 |
 |---------|-------|-----|-----------|-------------|------|------|------|-----------|
@@ -372,7 +372,7 @@ HNSW graph with persistence (save/load to `hnsw_index.bin`), exact L2 distance r
 <details>
 <summary><b>Why recall is lower than a typical SIFT-128 benchmark</b></summary>
 
-This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce (no result file is preserved; the `a2908b1` JSON is not on this branch): `cargo run --release -- bench-hnsw --train bench-data/sift_train_10000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_10000.bin --dim 128 --k 10`.
+This measurement uses **synthetic uniform-random data** (128-dim, uint8-valued, seed=42), not real ANN-Benchmarks SIFT. Synthetic data has no natural cluster structure, so it is harder for HNSW than real SIFT (which has learnable cluster patterns). These numbers validate the **code path and order of magnitude**. A run on real SIFT-128 data (which has natural clusters) would show higher recall. To reproduce (no result file is preserved; the `ab81716` JSON is not on this branch): `cargo run --release -- bench-hnsw --train bench-data/sift_train_10000.bin --queries bench-data/sift_queries_1000.bin --gt bench-data/sift_gt_10000.bin --dim 128 --k 10`.
 </details>
 
 *Build time is one-time — HNSW graph persists to `hnsw_index.bin`. Subsequent runs load from disk, skipping build entirely.
@@ -415,7 +415,7 @@ On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real
 - SplatsDB's value is not raw ANN QPS — it's uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in one binary
 - Full results: `bench-data/benchmark_results_hardware.json`
 
-> **Removed claims**: a previous version of this section claimed GPU throughput of 1,667 QPS at 640D and 20,000 QPS for linear scan over 100 splats. Both numbers had no preserved source (no result file or run log; the 640D figure was marked "untraced" in `a2908b1`). They were removed rather than restated.
+> **Removed claims**: a previous version of this section claimed GPU throughput of 1,667 QPS at 640D and 20,000 QPS for linear scan over 100 splats. Both numbers had no preserved source (no result file or run log; the 640D figure was marked "untraced" in `ab81716`). They were removed rather than restated.
 
 <p align="center"><img src="assets/splatsdb-faiss-comparison.png" alt="SplatsDB vs Faiss — same hardware" width="900"/></p>
 
@@ -1101,7 +1101,7 @@ cargo build --release --features cuda
 | CPU brute-force (rayon) | 2.5 ms | 1.0 (reference) |
 | Throughput | 84.5 QPS sequential; ~87 QPS at 10 threads | 0 errors in 600 queries |
 
-vs HNSW HTTP on the same data (~25 ms, recall 0.997): faster **and** exact. The E2E ceiling is HTTP/JSON, not the GPU (kernel is margin). Source: `bench-latent/` (ground truth + 4-agent swarm validation), commit `be3374c`.
+vs HNSW HTTP on the same data (~25 ms, recall 0.997): faster **and** exact. The E2E ceiling is HTTP/JSON, not the GPU (kernel is margin). Source: `bench-latent/` (ground truth + 4-agent swarm validation), commit `8d63b9f`.
 
 **End-to-end top-k** (SIFT-128 100K vectors, k=10, dataset resident in VRAM): source [`bench-data/benchmark_results_hardware.json`](bench-data/benchmark_results_hardware.json) (2026-04-10).
 

@@ -77,7 +77,7 @@ Reproduce:
 **Hardware**: Ryzen 5 3400G, Windows 11
 **Conditions**: SIFT-128, HNSW M=32, ef_construction=400, ef_search=100, exact L2 re-rank, **k=10**
 
-> **Provenance caveat — raw run output not preserved**: the maintainer's later validated re-run (commit `a2908b1` on `main`; JSON `bench-data/hnsw_validated_results.json`, not present on this branch) on **synthetic uniform-random** SIFT-like data measured 789 QPS / recall@10 0.861 at 10K and 242 QPS at 100K — lower than the table below, consistent with synthetic data being harder for HNSW. Treat the April figures as indicative pending a re-run with persisted results. **Note**: README.md shows the July synthetic numbers (789 QPS / 0.861) as its headline while this file shows the April real-SIFT numbers (1,054 QPS / 0.998) — they are different runs on different data, and **neither has a preserved raw artifact on this branch**. Do not cite either as a measured artifact until re-run with persisted results.
+> **Provenance caveat — raw run output not preserved**: the maintainer's later validated re-run (commit `ab81716` on `main`; JSON `bench-data/hnsw_validated_results.json`, not present on this branch) on **synthetic uniform-random** SIFT-like data measured 789 QPS / recall@10 0.861 at 10K and 242 QPS at 100K — lower than the table below, consistent with synthetic data being harder for HNSW. Treat the April figures as indicative pending a re-run with persisted results. **Note**: README.md shows the July synthetic numbers (789 QPS / 0.861) as its headline while this file shows the April real-SIFT numbers (1,054 QPS / 0.998) — they are different runs on different data, and **neither has a preserved raw artifact on this branch**. Do not cite either as a measured artifact until re-run with persisted results.
 
 | N | Build | p50 | p95 | p99 | QPS | Recall@10 |
 |---|-------|-----|-----|-----|-----|-----------|
@@ -109,7 +109,7 @@ Two runs of `cargo test --release --features cuda test_ptx_kernel_performance --
 
 **Run B — 2026-10-25 (6 runs, fused top-k k=16)**
 **Source**: [`bench-data/gpu_kernel_microbench_2026-10-25.json`](bench-data/gpu_kernel_microbench_2026-10-25.json) — `cargo test --release test_ptx_kernel_performance -- --nocapture`
-**Conditions**: same shape; `l2_topk` fused kernel, **k=16**; the public batch wrapper uploads the dataset per call (VRAM cache not exercised — the production `/search` path uses `cached_dataset_index` since `384e205`)
+**Conditions**: same shape; `l2_topk` fused kernel, **k=16**; the public batch wrapper uploads the dataset per call (VRAM cache not exercised — the production `/search` path uses `cached_dataset_index` since `1e6b4ea`)
 
 | Run | CPU ms | GPU ms | Speedup | Note |
 |-----|--------|--------|---------|------|
@@ -186,7 +186,7 @@ The following numbers appeared in previous versions of README.md / BENCHMARKS.md
 | Removed claim | Where it appeared | Why removed |
 |---------------|-------------------|-------------|
 | 20,000 QPS — linear scan, 100 splats (50 µs/query) | BENCHMARKS.md (v1, 2026-03-29) pipeline table | Transcribed from a one-off DatasetTransformer run; no result file or log preserved. Analytically plausible order of magnitude, but unverifiable. |
-| 1,667 QPS — GPU persistent, 100K×640D ("7.8× faster than CPU", "0.60ms/query") | BENCHMARKS.md (v1) §1, README GPU section | No preserved source; marked "untraced" by the author in commit `a2908b1` (2026-07-05) and dropped from `main`. |
+| 1,667 QPS — GPU persistent, 100K×640D ("7.8× faster than CPU", "0.60ms/query") | BENCHMARKS.md (v1) §1, README GPU section | No preserved source; marked "untraced" by the author in commit `ab81716` (2026-07-05) and dropped from `main`. |
 | 269 / 214 QPS — CPU rayon, 640D | BENCHMARKS.md (v1) §2 | Same untraced run family as the 1,667 figure; no result file. |
 | "SplatsDB GPU **beats** Faiss HNSW CPU — 1.25× faster" | README Faiss comparison | Misleading framing: compares GPU brute-force at k=10 against Faiss CPU ANN at k=64. Different regimes; restated as "different regimes, not a head-to-head win". |
 | LongMemEval "beats all published systems" | README, `benchmark_results_hardware.json` analysis note | Retrieval-only (96.6%) vs paper's end-to-end systems (86.2%) — different tasks; caveat added, no system-level claim. |

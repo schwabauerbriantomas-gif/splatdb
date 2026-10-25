@@ -1536,7 +1536,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Regression test for the stale-HNSW fix (`384e205`): a persisted index
+    /// Regression test for the stale-HNSW fix (`1e6b4ea`): a persisted index
     /// with fewer vectors than the store (or a mismatched dim) must be
     /// REJECTED on load and rebuilt from scratch. Before the fix it was
     /// silently accepted: every vector added after the snapshot became
