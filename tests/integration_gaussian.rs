@@ -305,7 +305,8 @@ mod gpu_parity {
     #[test]
     fn gaussian_topk_gpu_cpu_parity() {
         if !gpu::is_cuda_available() {
-            return; // silent skip: no GPU device
+            eprintln!("[gpu-parity] SKIP: CUDA no disponible");
+            return; // skip: no GPU device
         }
 
         let (dataset, alpha, kappa) = dataset_and_params(SEED + 100);

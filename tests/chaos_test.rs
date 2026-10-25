@@ -226,30 +226,61 @@ fn chaos_rapid_fire() {
     let build_time = start.elapsed();
     eprintln!("[chaos_rapid_fire] build_index in {:?}", build_time);
 
-    // Search for each 100th vector — should find itself as nearest
-    let mut recall_count = 0;
+    // Search with PERTURBED queries (mu + small noise from the seeded RNG) and
+    // validate the top-k against an independent brute-force reference over the
+    // same store. Querying the exact stored mu would be tautological: the scan
+    // path is exact, so self-recall only fails on outright corruption.
+    // Reference pattern: tests/integration_gaussian.rs `gaussian_reference_topk`.
+    let top_k = 10usize;
+    let noise_amp = 0.01f32;
+    let mu = store.get_mu().expect("mu after inserts");
+    let mut overlap_hits = 0usize;
+    let mut overlap_total = 0usize;
     for i in (0..10000).step_by(100) {
-        let _query = Array1::from_vec(
-            (0..dim)
-                .map(|j| {
-                    let base = (i * dim + j) as f32 * 0.001;
-                    base.sin()
-                })
-                .collect(),
-        );
-        // Actually fetch from store's mu
-        let mu = store.get_mu().unwrap();
-        let q = mu.row(i).to_owned();
-        let results = store.find_neighbors(&q.view(), 1);
-        if results[0].index == i {
-            recall_count += 1;
-        }
+        let base = mu.row(i).to_owned();
+        // Perturbed query: mu_i + small per-component noise
+        let q: Array1<f32> = base
+            .iter()
+            .map(|&x| x + noise_amp * (rng.gen::<f32>() - 0.5))
+            .collect();
+
+        // Store path under test
+        let results = store.find_neighbors(&q.view(), top_k);
+        assert_eq!(results.len(), top_k, "top-k result count");
+        let got: Vec<usize> = results.iter().map(|r| r.index).collect();
+
+        // Independent brute-force reference (squared L2, ascending) over the
+        // same store — a separate code path from the library's scan.
+        let mut scored: Vec<(usize, f32)> = (0..10000)
+            .map(|j| {
+                let d2: f32 = mu
+                    .row(j)
+                    .iter()
+                    .zip(q.iter())
+                    .map(|(a, b)| (a - b) * (a - b))
+                    .sum();
+                (j, d2)
+            })
+            .collect();
+        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(top_k);
+        let expected: Vec<usize> = scored.iter().map(|&(j, _)| j).collect();
+
+        overlap_hits += got.iter().filter(|&g| expected.contains(g)).count();
+        overlap_total += top_k;
     }
-    eprintln!("[chaos_rapid_fire] self-recall: {}/100", recall_count);
+    let overlap_pct = 100.0 * overlap_hits as f32 / overlap_total as f32;
+    eprintln!(
+        "[chaos_rapid_fire] perturbed top-{} overlap vs brute-force: {:.1}% ({} queries)",
+        top_k,
+        overlap_pct,
+        overlap_total / top_k
+    );
     assert!(
-        recall_count >= 95,
-        "Self-recall should be >= 95%, got {}%",
-        recall_count
+        overlap_pct >= 80.0,
+        "Perturbed top-{} overlap vs brute-force reference should be >= 80%, got {:.1}%",
+        top_k,
+        overlap_pct
     );
 }
 
@@ -405,6 +436,13 @@ fn chaos_edge_cases() {
 #[test]
 fn chaos_wal_under_load() {
     let dir = std::env::temp_dir().join("splatsdb_chaos_wal_test");
+    // Pre-clean: an aborted prior run can leave a poisoned WAL behind and
+    // corrupt recovery expectations on re-runs. Ignore NotFound.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            panic!("pre-clean of WAL test dir failed: {e}");
+        }
+    }
     std::fs::create_dir_all(&dir).unwrap();
     let wal_path = dir.join("chaos.wal");
     let path_str = wal_path.to_str().unwrap();

@@ -62,3 +62,18 @@ jobs:
 
       - name: Clippy (cpu-only)
         run: cargo clippy --no-default-features -- -D warnings
+
+  # Standalone advisory scan: no `needs` to/from the other jobs, so a RustSec
+  # registry outage here never blocks the main test/lint pipeline, while the
+  # job itself still fails loudly on real advisories (continue-on-error is
+  # intentionally NOT set).
+  audit:
+    name: Cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check dependencies for RUSTSEC advisories
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

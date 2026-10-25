@@ -45,6 +45,22 @@ jobs:
         run: |
           copy target\${{ matrix.target }}\release\splatsdb.exe ${{ matrix.artifact }}
 
+      # Boot-validate on the NATIVE runner for this target before upload:
+      # --version and --help must exit 0. A binary that doesn't start must
+      # fail the build here, never reach the release job.
+      - name: Smoke test binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x ${{ matrix.artifact }}
+          ./${{ matrix.artifact }} --version
+          ./${{ matrix.artifact }} --help
+
+      - name: Smoke test binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\${{ matrix.artifact }} --version
+          .\${{ matrix.artifact }} --help
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +90,30 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # Validate what was actually downloaded BEFORE publishing: every target's
+      # artifact must exist and be non-empty, and the one binary runnable on
+      # this ubuntu runner (linux-amd64) must boot. Windows/macOS binaries were
+      # boot-tested on their native builders (see build job smoke steps).
+      - name: Validate downloaded artifacts
+        run: |
+          for f in \
+            artifacts/splatsdb-linux-amd64/splatsdb-linux-amd64 \
+            artifacts/splatsdb-windows-amd64.exe/splatsdb-windows-amd64.exe \
+            artifacts/splatsdb-macos-arm64/splatsdb-macos-arm64
+          do
+            if [ ! -s "$f" ]; then
+              echo "::error::artifact missing or empty: $f"
+              exit 1
+            fi
+            file "$f"
+          done
+
+      - name: Smoke test downloaded linux binary
+        run: |
+          chmod +x artifacts/splatsdb-linux-amd64/splatsdb-linux-amd64
+          ./artifacts/splatsdb-linux-amd64/splatsdb-linux-amd64 --version
+          ./artifacts/splatsdb-linux-amd64/splatsdb-linux-amd64 --help
 
       - name: Create release
         uses: softprops/action-gh-release@v2
