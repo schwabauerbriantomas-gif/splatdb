@@ -94,7 +94,7 @@ SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.6K lines of pure Rust + CUDA (34,587 by `wc -l` — Rust `src/` 33,563 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.6K lines of pure Rust + CUDA (34,618 by `wc -l` — Rust `src/` 33,594 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -220,7 +220,7 @@ cargo build --release
 cargo build --release --no-default-features
 
 # Run tests
-cargo test   # full suite: 315 lib tests + 78 integration tests in tests/ (393 total)
+cargo test   # full suite: 317 lib tests (305 #[test] + 12 #[tokio::test]) + 76 integration tests in tests/ (393 total)
 ```
 
 ### Run
@@ -504,7 +504,7 @@ Two runs of `cargo test --release --features cuda test_ptx_kernel_performance` (
 - `kmeans_assign_kernel` — N×K×D assignment in single kernel (KMeans++ hot path)
 - `cosine_similarity_kernel` — all-pairs cosine sim with tile-based 16×16 upper triangle computation
 - `batch_geodesic_kernel` — pairwise arccos distance between matched vector pairs
-- `lsh_hash_kernel` — batch LSH hash sign bits across T tables × K projections
+- `lsh_batch_hash_kernel` — batch LSH hash sign bits across T tables × K projections
 
 All extended kernels use float4 vectorized loads, shared memory caching, and `__launch_bounds__(256)`. Each has a CPU fallback via `Option`-returning functions — no CUDA dependency required at runtime.
 
@@ -513,9 +513,9 @@ All extended kernels use float4 vectorized loads, shared memory caching, and `__
 - Public API in `gpu/mod.rs`: `rotation_gemv()`, `rotation_gemv_inverse()`, `qjl_batch_sketch()`, `qjl_batch_ip_estimate()`, `kmeans_assign()`, `cosine_similarity_matrix()`, `batch_geodesic()`, `lsh_batch_hash()`
 - Auto-fallback: if CUDA unavailable, returns `None` and caller uses CPU path
 
-### 🔄 Planned Benchmarks
+### Published Benchmarks (BEIR / LOCOMO / MemoBench-style)
 
-The following benchmarks are implemented in [`benchmarks/benchmark_reproducible.py`](benchmarks/benchmark_reproducible.py) but have not yet been executed on our hardware. They will be run and results published once the full pipeline is validated.
+The following benchmarks are implemented in [`benchmarks/benchmark_reproducible.py`](benchmarks/benchmark_reproducible.py) and executed with persisted results in `bench-data/` (full tables below and in [Reproducible Benchmarks](#reproducible-benchmarks)). MemoBench-style is synthetic (seed=42, deterministic) pending release of the official dataset.
 
 | Benchmark | Domain | What It Tests | Status |
 |-----------|--------|---------------|--------|
@@ -895,7 +895,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.7.0"}
+{"status": "ok", "version": "2.7.1"}
 ```
 
 #### `POST /status` — Store Statistics
@@ -1363,7 +1363,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Module Map
 
-34,587 lines of Rust + CUDA by `wc -l` (raw lines: 33,563 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
+34,618 lines of Rust + CUDA by `wc -l` (raw lines: 33,594 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
