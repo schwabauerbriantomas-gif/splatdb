@@ -137,11 +137,21 @@ pub struct SplatsDBConfig {
 
     // --- Semantic Memory Configuration ---
     pub enable_semantic_memory: bool,
+    // NOTE (2026-10-25 audit): the keys below are parsed/serialized but have
+    // NO reader outside config/ — SemanticMemoryDB uses hardcoded fusion
+    // weights (RRF + exp decay). Wire them in or ignore them; do not trust
+    // them to change behavior.
+    /// Currently unused — reserved.
     pub semantic_fusion: FusionMethod,
+    /// Currently unused — reserved.
     pub semantic_vector_weight: f64,
+    /// Currently unused — reserved.
     pub semantic_bm25_weight: f64,
+    /// Currently unused — reserved.
     pub semantic_bm25_k1: f64,
+    /// Currently unused — reserved.
     pub semantic_bm25_b: f64,
+    /// Currently unused — reserved.
     pub semantic_decay_halflife: f64,
 
     // --- MapReduce Indexing ---
@@ -149,6 +159,8 @@ pub struct SplatsDBConfig {
     pub mapreduce_n_chunks: usize,
 
     // --- Auto-Scaling ---
+    /// Currently unused — the auto-scaling module was removed in v2.7.0
+    /// (dead code); kept for config file compatibility only.
     pub enable_auto_scaling: bool,
     pub autoscale_min_nodes: usize,
     pub autoscale_max_nodes: usize,

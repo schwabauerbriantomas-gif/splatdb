@@ -445,6 +445,11 @@ impl FullEmbeddingBuilder {
 
     /// Build embedding for a single splat.
     ///
+    /// NOTE: inputs are encoded as-is — `position` is expected PRE-NORMALIZED
+    /// to [0, 1] per axis and colors pre-scaled (see `build()` / ingest paths,
+    /// which normalize before calling this). Raw world coordinates here yield
+    /// a valid 640D vector but with meaningless spatial bins.
+    ///
     /// # Returns
     /// 640D embedding vector
     pub fn build_single(

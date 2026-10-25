@@ -9,11 +9,11 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 </p>
 
 [![CI](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-427%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-35K-informational.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-34.5K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
@@ -89,7 +89,7 @@ SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~35K lines of pure Rust + CUDA (35,242 by `wc -l` — Rust `src/` 34,218 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.5K lines of pure Rust + CUDA (34,461 by `wc -l` — Rust `src/` 33,437 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -868,7 +868,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.6.0"}
+{"status": "ok", "version": "2.7.0"}
 ```
 
 #### `POST /status` — Store Statistics
@@ -1336,14 +1336,13 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Module Map
 
-35,242 lines of Rust + CUDA by `wc -l` (raw lines: 34,218 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
+34,461 lines of Rust + CUDA by `wc -l` (raw lines: 33,437 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
 | `splats` | `src/splats.rs` | Core API — insert, search, batch ops, incremental HNSW, statistics |
 | `hrm2_engine` | `src/hrm2_engine.rs` | Two-level hierarchical retrieval (coarse → fine) |
-| `engine` | `src/engine.rs` | CPU L2 distance with rayon parallelism |
-| `gpu` | `src/gpu/` | CUDA PTX kernels, `GpuIndex` with persistent VRAM |
+| `gpu` | `src/gpu/` | CUDA PTX kernels, `GpuIndex` with persistent VRAM dataset cache |
 | `quantization` | `src/quantization.rs` | TurboQuant / PolarQuant data-oblivious compression with recall measurement |
 | `clustering` | `src/clustering.rs` | KMeans++ with ChaCha8 RNG |
 | `graph_splat` | `src/graph_splat.rs` | Knowledge graph overlay with hybrid search |

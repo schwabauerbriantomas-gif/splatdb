@@ -46,61 +46,6 @@ impl EdgeNodeInfo {
     }
 }
 
-/// Health status of a cluster node.
-#[derive(Debug, Clone, Serialize)]
-pub struct HealthStatus {
-    pub node_id: String,
-    pub healthy: bool,
-    pub n_vectors: usize,
-    pub last_check: f64,
-}
-
-/// Health checker for cluster nodes.
-pub struct HealthChecker {
-    statuses: Vec<HealthStatus>,
-    timeout_secs: f64,
-}
-
-impl HealthChecker {
-    pub fn new(timeout_secs: f64) -> Self {
-        Self {
-            statuses: Vec::new(),
-            timeout_secs,
-        }
-    }
-
-    pub fn update(&mut self, node_id: &str, healthy: bool, n_vectors: usize) {
-        self.statuses.retain(|s| s.node_id != node_id);
-        self.statuses.push(HealthStatus {
-            node_id: node_id.to_string(),
-            healthy,
-            n_vectors,
-            last_check: now_secs(),
-        });
-    }
-
-    pub fn healthy_nodes(&self) -> Vec<&HealthStatus> {
-        self.statuses.iter().filter(|s| s.healthy).collect()
-    }
-
-    pub fn all_healthy(&self) -> bool {
-        self.statuses.iter().all(|s| s.healthy)
-    }
-
-    /// Check for stale nodes and mark them unhealthy.
-    pub fn check_timeouts(&mut self) -> Vec<String> {
-        let now = now_secs();
-        let mut timed_out = Vec::new();
-        for s in &mut self.statuses {
-            if s.healthy && now - s.last_check > self.timeout_secs {
-                s.healthy = false;
-                timed_out.push(s.node_id.clone());
-            }
-        }
-        timed_out
-    }
-}
-
 fn now_secs() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

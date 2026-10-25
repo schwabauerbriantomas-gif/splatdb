@@ -939,13 +939,6 @@ impl SplatStore {
         }
     }
 
-    /// Decay all frequencies (call periodically).
-    pub fn decay_frequencies(&mut self, factor: f32) {
-        for i in 0..self.n_active {
-            self.frequency[i] *= factor;
-        }
-    }
-
     /// Get active frequency values.
     pub fn get_frequency(&self) -> Option<Array1<f32>> {
         if self.n_active == 0 {
@@ -1296,6 +1289,19 @@ mod tests {
         }
     }
 
+    /// Small HNSW config for the stale-persistence regression test.
+    fn test_config_stale_hnsw() -> SplatsDBConfig {
+        SplatsDBConfig {
+            max_splats: 1000,
+            latent_dim: 16,
+            enable_hnsw: true,
+            hnsw_m: 8,
+            hnsw_ef_construction: 40,
+            hnsw_ef_search: 32,
+            ..Default::default()
+        }
+    }
+
     fn random_vectors(n: usize, dim: usize, seed: u64) -> Array2<f32> {
         use rand::Rng;
         use rand::SeedableRng;
@@ -1526,6 +1532,73 @@ mod tests {
                 "Should find vector 125 after reload"
             );
         }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Regression test for the stale-HNSW fix (`384e205`): a persisted index
+    /// with fewer vectors than the store (or a mismatched dim) must be
+    /// REJECTED on load and rebuilt from scratch. Before the fix it was
+    /// silently accepted: every vector added after the snapshot became
+    /// permanently unfindable through the backend (fused) search path,
+    /// because the stale graph could only ever return indices below the
+    /// persisted length.
+    #[test]
+    fn test_stale_persisted_hnsw_rejected_and_rebuilt() {
+        let dir = std::env::temp_dir().join("splatsdb_stale_hnsw_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let data_dir = dir.to_str().unwrap();
+
+        // Phase 1: build a small store (20 vectors, dim 16) and persist its
+        // HNSW index to disk.
+        let mut store = SplatStore::new(test_config_stale_hnsw());
+        let data = random_vectors(20, 16, 7);
+        assert!(store.add_splat(&data));
+        store.build_index_with_save(Some(data_dir));
+        assert_eq!(store.hnsw_indexed_count(), 20);
+
+        // Phase 2: the store grows past the snapshot — inserts WITHOUT a
+        // data_dir, so the process "exits" before persisting and
+        // hnsw_index.bin on disk still describes only the first 20 vectors.
+        let more = random_vectors(10, 16, 8);
+        for i in 0..more.nrows() {
+            store
+                .insert_with_hnsw(&more.row(i).to_vec(), None)
+                .expect("insert should succeed");
+        }
+        assert_eq!(store.n_active(), 30);
+        assert_eq!(store.hnsw_indexed_count(), 30);
+
+        // Phase 3: "restart" — reconstruct the 30-vector store from disk and
+        // go through the load path. The persisted index (20 vectors) is
+        // stale vs the store (30 active): it must be rejected, not accepted.
+        let mut store2 = SplatStore::new(test_config_stale_hnsw());
+        assert!(store2.add_splat(&random_vectors(20, 16, 7)));
+        assert!(store2.add_splat(&random_vectors(10, 16, 8)));
+        assert_eq!(store2.n_active(), 30);
+        assert!(
+            !store2.try_load_hnsw(data_dir),
+            "stale persisted HNSW (20 vectors < 30 active) must be rejected"
+        );
+
+        // The load path recovers: full rebuild instead of trusting the file.
+        assert!(store2.build_index_if_needed(data_dir));
+        assert_eq!(store2.hnsw_indexed_count(), 30);
+        assert!(!store2.hnsw_needs_sync());
+
+        // A vector added AFTER the snapshot must be findable via the backend
+        // (fused) path — with the stale index accepted, the backend could
+        // only ever return indices < 20.
+        let query = more.row(5).to_owned();
+        let results = store2.find_neighbors_fused(&query.view(), 5);
+        assert!(
+            results.iter().any(|r| r.index == 25 && r.distance < 1e-3),
+            "vector 25 (added after the snapshot) must be findable after the rebuild, got {:?}",
+            results
+                .iter()
+                .map(|r| (r.index, r.distance))
+                .collect::<Vec<_>>()
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

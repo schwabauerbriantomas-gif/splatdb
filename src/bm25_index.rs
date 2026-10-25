@@ -173,14 +173,6 @@ impl BM25Index {
         ranked
     }
 
-    /// Search returning only doc IDs.
-    pub fn search_ids(&self, query: &str, k: usize) -> Vec<String> {
-        self.search(query, k)
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect()
-    }
-
     /// Number of indexed documents.
     pub fn n_docs(&self) -> usize {
         self.n_docs
@@ -252,14 +244,6 @@ mod tests {
         let results = bm25.search("updated", 5);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "doc_1");
-    }
-
-    #[test]
-    fn test_search_ids() {
-        let mut bm25 = BM25Index::new();
-        bm25.add("a", "test document");
-        let ids = bm25.search_ids("test", 5);
-        assert_eq!(ids, vec!["a".to_string()]);
     }
 
     #[test]

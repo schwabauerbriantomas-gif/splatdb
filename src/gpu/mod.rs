@@ -722,13 +722,46 @@ mod tests {
     fn test_batch_search_k_clamped_to_n() {
         let queries = vec![1.0f32, 0.0];
         let dataset = vec![1.0f32, 0.0, 0.0, 1.0];
-        let results = batch_search(&queries, 1, &dataset, 2, 2, 10, "l2");
+        let n_vectors = 2;
+        let results = batch_search(&queries, 1, &dataset, n_vectors, 2, 10, "l2");
         assert_eq!(results.len(), 1);
-        assert!(
-            results[0].0.len() <= 2,
-            "k must clamp to n_vectors, got {}",
+        // Clamp must be EXACT: k=10 over a 2-vector dataset yields exactly
+        // n_vectors neighbors on every path (CPU and GPU), not "<= k".
+        assert_eq!(
+            results[0].0.len(),
+            n_vectors,
+            "k must clamp to exactly n_vectors, got {}",
             results[0].0.len()
         );
+        assert_eq!(
+            results[0].1.len(),
+            n_vectors,
+            "distances must mirror clamped indices"
+        );
+
+        // On a CUDA machine `batch_search` above already took the GPU path
+        // (cfg cuda + runtime availability), so the sentinel/NaN checks below
+        // exercise the GPU top-k download/filter for real.
+        #[cfg(feature = "cuda")]
+        {
+            if !is_cuda_available() {
+                eprintln!("[clamp test] CUDA unavailable on this machine -> skip GPU checks");
+                return;
+            }
+            for metric in ["l2", "cosine"] {
+                let results = batch_search(&queries, 1, &dataset, n_vectors, 2, 10, metric);
+                let (indices, dists) = &results[0];
+                assert_eq!(indices.len(), n_vectors, "GPU clamp exact for {metric}");
+                assert!(
+                    indices.iter().all(|&i| i != usize::MAX),
+                    "sentinel index usize::MAX leaked through GPU top-k clamp ({metric}): {indices:?}"
+                );
+                assert!(
+                    dists.iter().all(|d| !d.is_nan()),
+                    "NaN in {metric} scores/dists leaked through GPU top-k clamp: {dists:?}"
+                );
+            }
+        }
     }
 
     /// Test that CUDA pipeline actually works on this machine (GPU upload/download/verify).

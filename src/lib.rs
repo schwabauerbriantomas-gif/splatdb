@@ -1,6 +1,4 @@
 pub mod api_server;
-pub mod auto_scaling;
-pub mod backend_comm;
 pub mod bm25_index;
 pub mod candidate_backend;
 pub mod clustering;
@@ -12,9 +10,7 @@ pub mod embedding_config;
 pub mod embedding_model;
 pub mod encoding;
 pub mod energy;
-pub mod engine;
 pub mod entity_extractor;
-pub mod error;
 pub mod evaluate_embeddings;
 pub mod geometry;
 pub mod gpu_auto_tune;
@@ -42,14 +38,12 @@ pub mod storage;
 pub mod text_compression;
 pub mod verbatim;
 
-pub mod api;
 pub mod cluster;
 pub mod gpu;
 pub mod loaders;
 pub mod quant;
 
 pub use config::SplatsDBConfig;
-pub use error::SplatsDBError;
 pub use geometry::{geodesic_distance, normalize_sphere};
 pub use splat_types::{GaussianSplat, SplatCluster, SplatEmbedding};
 pub use splats::SplatStore;

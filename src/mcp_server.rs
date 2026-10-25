@@ -2044,7 +2044,44 @@ pub fn run_mcp_server() {
 
             let is_notification = req.id.is_none() && req.method != "initialize";
 
-            let resp = dispatch_request(&state, &req);
+            // Defense-in-depth: a panic inside any tool handler must not kill
+            // the whole MCP stdio process — the client would lose the stream.
+            // `state` is a `&Mutex` (not UnwindSafe, by poisoning design) and
+            // `req` is not guaranteed UnwindSafe either → AssertUnwindSafe.
+            // dispatch_request returns JsonRpcResponse directly (handlers map
+            // their Result into error responses internally), so we only need
+            // to map the Err(panic-payload) arm. If a panic poisoned the
+            // mutex, later handlers already degrade via their
+            // `lock().map_err(...)` arms instead of panicking again.
+            let resp = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                dispatch_request(&state, &req)
+            })) {
+                Ok(resp) => resp,
+                Err(payload) => {
+                    let detail = if let Some(s) = payload.downcast_ref::<&str>() {
+                        (*s).to_string()
+                    } else if let Some(s) = payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "non-string panic payload".to_string()
+                    };
+                    // Panic detail goes to server stderr only, never to the
+                    // client (same convention as api_server.rs).
+                    eprintln!(
+                        "[splatsdb] PANIC in dispatch_request (method={}): {}",
+                        req.method, detail
+                    );
+                    JsonRpcResponse {
+                        jsonrpc: "2.0".into(),
+                        id: req.id.clone(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32603,
+                            message: "Internal error".into(),
+                        }),
+                    }
+                }
+            };
 
             if !is_notification && resp.id.is_some() {
                 let out = match serde_json::to_string(&resp) {

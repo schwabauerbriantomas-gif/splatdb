@@ -1,10 +1,11 @@
 # Changelog
 
-## [Unreleased] - 2026-10-25
+## [v2.7.0] - 2026-10-25
 
 ### Added
 - Process-level VRAM dataset cache (`gpu::cached_dataset_index`): the dataset uploads to GPU once per dataset version instead of per query/batch; `SplatStore::data_version()` (global epoch-seeded) keys the single-entry cache; alpha/kappa ride along; sub-threshold datasets (≤10K floats) bypass it
 - `HNSWIndex::len()`/`dim()`/`is_empty()` accessors; `SyncAction::seq` monotonic identity
+- Regression test `test_stale_persisted_hnsw_rejected_and_rebuilt`: a stale persisted HNSW (fewer vectors than the store) is rejected on load and rebuilt — vectors added after the snapshot stay findable via the fused path (covers the `384e205` fix)
 
 ### Fixed
 - `semantic_memory`: hybrid search fabricated `vec_{n}` ids that never matched real doc ids — fusion never joined vector+BM25 results (CRITICAL); honest capacity/dim errors on store; `with_encoder()` documented + warns (drops stored vectors); `stats()` counted deletes twice
@@ -14,7 +15,11 @@
 - cluster: rendezvous placement unified between CLI ingest and library (split-brain mapping); `mark_flushed` no longer drops re-queued failed actions; sharding stable under edge reordering
 - GPU: no more global panic-hook swap (fallback causes now logged once); extended-kernel PTX cached per process (was JIT-loaded from disk per call, even inside the k-means loop); l2/cosine top-k honors >48KB shared-memory opt-in (silent failures for K≥24); sentinel −1 no longer surfaces as vector 0; CPU fallbacks log once instead of silently degrading
 - CI: `cargo-audit` job; `Cargo.lock` versioned; release binaries smoke-tested before publish; dead Python tests (m2m-memory inheritance) removed; pentest setups fail loudly instead of passing empty
-- docs: badge/tests count measured (427), GPU microbenchmark contradictions unified (20.93× with re-measure pending), longmemeval NumPy-vs-native results separated (native: 0.304 recall / 671.63 QPS), unsourced HRM2/TurboQuant claims marked NOT VALIDATED, 15 missing CLI commands documented, verbatim/compression status corrected
+- MCP stdio dispatcher runs behind `catch_unwind`: a panic in a tool handler returns JSON-RPC `-32603` instead of killing the server process; GPU clamp test asserts exact result length and sentinel/NaN-free outputs under CUDA
+- docs: badge/tests count measured (427), GPU microbenchmark re-measured with persisted artifact (`bench-data/gpu_kernel_microbench_2026-10-25.json`: 6 runs, median 30.6×, GPU 20ms @ 10K×640D×100q), longmemeval NumPy-vs-native results separated (native: 0.304 recall / 671.63 QPS), unsourced HRM2/TurboQuant claims marked NOT VALIDATED, 15 missing CLI commands documented, verbatim/compression status corrected, inert config keys (`semantic_fusion`, `semantic_vector_weight`, `semantic_bm25_*`, `semantic_decay_halflife`, `autoscale_*`) documented as unused, `build_single` input preconditions documented, LOC badge recount (34,461)
+
+### Removed
+- Dead code, wave-4 audit (zero callers verified by search before each deletion): `error::SplatsDBError`, `engine::SplatsDBEngine` + `compute_expert_distances*`, geometry helpers (`normalize_sphere_1d`, `geodesic_distance_batch`, `exp_map`, `log_map`, `project_to_tangent`, `knn_geodesic`), `BM25Index::search_ids`, `SplatStore::decay_frequencies`, cluster `protocol`/`edge_node`/`sync` modules + `HealthChecker` (`EdgeNodeInfo`/`LoadMetrics`/`GeoLocation` kept — router/sharding use them), `backend_comm`, `auto_scaling`, `api::coordinator_api` + `api::edge_api` — ~2.8K lines
 
 ### Verified
 - 427 tests green, `clippy -D warnings` clean on cuda + cpu-only, GPU kernel benchmark 31.28× → 34.32× (10K×640D×100q, same-run CPU control)
