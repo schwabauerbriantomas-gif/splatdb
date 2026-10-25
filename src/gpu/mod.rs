@@ -10,26 +10,36 @@ pub mod cuda_kernel;
 #[cfg(feature = "cuda")]
 pub mod cuda_extended;
 
+/// First reason CUDA was found unavailable, logged exactly once per process.
+#[cfg(feature = "cuda")]
+static CUDA_UNAVAILABLE_CAUSE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Log the underlying cause of a CUDA failure exactly once per process.
+/// cudarc's init paths already return `Result` — surface that error instead
+/// of swapping the GLOBAL panic hook (which raced other threads' panics and
+/// silenced the real reason behind every CPU fallback).
+#[cfg(feature = "cuda")]
+pub(crate) fn log_cuda_unavailable_once(cause: String) {
+    if CUDA_UNAVAILABLE_CAUSE.set(cause.clone()).is_ok() {
+        eprintln!("[splatsdb] CUDA unavailable: {cause} — using CPU fallback");
+    }
+}
+
 /// Check if CUDA is available at runtime.
 #[cfg(feature = "cuda")]
 pub fn is_cuda_available() -> bool {
-    crate::gpu::with_silent_panic(|| {
-        use cudarc::driver::CudaContext;
-        CudaContext::device_count().map(|c| c > 0).unwrap_or(false)
-    })
-    .unwrap_or(false)
-}
-
-/// Run a cudarc initialization closure without letting its internal panic
-/// escape: cudarc panics when `libcuda` is absent (runner/machine without a
-/// GPU driver). Returns None on panic; the panic message is silenced.
-#[cfg(feature = "cuda")]
-pub fn with_silent_panic<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Option<T> {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let result = std::panic::catch_unwind(f).ok();
-    std::panic::set_hook(prev);
-    result
+    use cudarc::driver::CudaContext;
+    match CudaContext::device_count() {
+        Ok(count) if count > 0 => true,
+        Ok(count) => {
+            log_cuda_unavailable_once(format!("no CUDA devices (device_count={count})"));
+            false
+        }
+        Err(e) => {
+            log_cuda_unavailable_once(format!("driver init failed: {e:?}"));
+            false
+        }
+    }
 }
 
 /// Check if CUDA is available at runtime.
@@ -85,6 +95,10 @@ pub fn batch_search(
     k: usize,
     metric: &str,
 ) -> Vec<(Vec<usize>, Vec<f32>)> {
+    // Clamp k to the dataset size before dispatch (parity with the CPU path):
+    // requesting more neighbors than vectors must not reach the GPU top-k
+    // kernel, which fills the excess slots with (-1, sentinel) entries.
+    let k = k.min(n_vectors);
     #[cfg(feature = "cuda")]
     {
         if is_cuda_available() {
@@ -102,7 +116,13 @@ pub fn batch_search(
 #[cfg(feature = "cuda")]
 pub fn gpu_info() -> Option<String> {
     use cudarc::driver::CudaContext;
-    let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
+    let ctx = match CudaContext::new(0) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+            return None;
+        }
+    };
     let name = ctx.name().unwrap_or_else(|_| "Unknown".to_string());
     let (major, minor) = ctx.compute_capability().unwrap_or((0, 0));
     let total_mem = ctx.total_mem().unwrap_or(0);
@@ -446,9 +466,25 @@ mod tests {
     #[test]
     fn test_batch_search_public_api() {
         let queries = vec![1.0f32, 0.0];
-        let dataset = vec![1.0, 0.0, 0.0, 1.0];
+        let dataset = vec![1.0f32, 0.0, 0.0, 1.0];
         let results = batch_search(&queries, 1, &dataset, 2, 2, 2, "l2");
         assert_eq!(results.len(), 1);
+    }
+
+    /// k > n_vectors must be clamped before dispatch (CPU/GPU parity); the
+    /// GPU top-k kernel fills excess slots with (-1, sentinel) pairs.
+    /// CPU-only path exercises the clamp; GPU machines run the same code.
+    #[test]
+    fn test_batch_search_k_clamped_to_n() {
+        let queries = vec![1.0f32, 0.0];
+        let dataset = vec![1.0f32, 0.0, 0.0, 1.0];
+        let results = batch_search(&queries, 1, &dataset, 2, 2, 10, "l2");
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].0.len() <= 2,
+            "k must clamp to n_vectors, got {}",
+            results[0].0.len()
+        );
     }
 
     /// Test that CUDA pipeline actually works on this machine (GPU upload/download/verify).

@@ -9,9 +9,49 @@
 //!
 //! All methods have CPU fallbacks (return None on failure, caller falls back).
 
-use cudarc::driver::{CudaContext, CudaFunction, CudaStream, LaunchConfig, PushKernelArg};
+use cudarc::driver::{
+    CudaContext, CudaFunction, CudaModule, CudaStream, LaunchConfig, PushKernelArg,
+};
 use cudarc::nvrtc::Ptx;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// Cached extended PTX module (process-wide).
+///
+/// `CudaContext::load_module` performs cuModuleLoadData + JIT compilation;
+/// doing that on EVERY `load_ext_kernel` call — including each iteration of
+/// the KMeans Lloyd loop in clustering.rs — dominated the cost of the GPU
+/// path. Load once; per call we only resolve the function handle.
+static EXT_MODULE: OnceLock<Option<Arc<CudaModule>>> = OnceLock::new();
+
+/// Load the extended PTX module once per process, logging each failure cause
+/// exactly once.
+fn load_ext_module_once(ctx: &Arc<CudaContext>) -> Option<Arc<CudaModule>> {
+    static LOAD_FAIL_LOG: OnceLock<String> = OnceLock::new();
+    let fail = |msg: String| -> Option<Arc<CudaModule>> {
+        if LOAD_FAIL_LOG.set(msg.clone()).is_ok() {
+            eprintln!("{msg}");
+        }
+        None
+    };
+    let Some(ptx_path) = option_env!("M2M_EXTENDED_PTX_PATH") else {
+        return fail(
+            "[splatsdb] extended PTX kernels not available (M2M_EXTENDED_PTX_PATH unset)"
+                .to_string(),
+        );
+    };
+    if ptx_path.is_empty() {
+        return fail("[splatsdb] extended PTX kernels not available (empty path)".to_string());
+    }
+    if !std::path::Path::new(ptx_path).exists() {
+        return fail(format!(
+            "[splatsdb] extended PTX path set but file not found: {ptx_path}"
+        ));
+    }
+    match ctx.load_module(Ptx::from_file(ptx_path)) {
+        Ok(module) => Some(module),
+        Err(e) => fail(format!("[splatsdb] extended PTX module load failed: {e:?}")),
+    }
+}
 
 /// Extended GPU operations. Owns a CUDA context and can load extended PTX kernels.
 /// Unlike GpuIndex which holds a dataset, this is a stateless launcher —
@@ -24,20 +64,23 @@ pub struct GpuExtended {
 impl GpuExtended {
     /// Create a new extended GPU context. Returns None if CUDA unavailable.
     pub fn new() -> Option<Self> {
-        let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
+        let ctx = match CudaContext::new(0) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                crate::gpu::log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+                return None;
+            }
+        };
         let stream = ctx.default_stream();
         Some(GpuExtended { ctx, stream })
     }
 
     fn load_ext_kernel(&self, name: &str) -> Option<CudaFunction> {
-        let ptx_path = option_env!("M2M_EXTENDED_PTX_PATH")?;
-        if ptx_path.is_empty() {
-            return None;
-        }
-        if !std::path::Path::new(ptx_path).exists() {
-            return None;
-        }
-        let module = self.ctx.load_module(Ptx::from_file(ptx_path)).ok()?;
+        // The module (cuModuleLoadData + JIT) is cached process-wide in
+        // EXT_MODULE — only the cheap load_function runs per call.
+        let module = EXT_MODULE
+            .get_or_init(|| load_ext_module_once(&self.ctx))
+            .as_ref()?;
         module.load_function(name).ok()
     }
 

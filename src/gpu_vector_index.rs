@@ -7,7 +7,7 @@
 //!   - Query Buffer: [B x D] per batch call
 //!   - Result Buffer: [B x N] distances read after computation
 
-use ndarray::{Array1, Array2, ArrayView2};
+use ndarray::{Array1, ArrayView2};
 
 use crate::cuda_search::{BruteForceSearcher, Metric, SearchResult};
 
@@ -93,32 +93,14 @@ impl GpuVectorIndex {
     }
 
     /// Add vectors to existing index.
+    ///
+    /// NOT SUPPORTED: the persistent index does not retain the raw matrix, so
+    /// an incremental append cannot insert data. The previous implementation
+    /// bumped `n_vectors` without inserting anything, silently corrupting the
+    /// index state. Rebuild with the full dataset instead (`rebuild`).
     pub fn add_vectors(&mut self, new_vectors: ArrayView2<f32>) -> Result<(), String> {
-        if new_vectors.ncols() != self.dim {
-            return Err(format!(
-                "Dimension mismatch: index={}, new={}",
-                self.dim,
-                new_vectors.ncols()
-            ));
-        }
-
-        // Concatenate existing + new
-        let new_total = self.n_vectors + new_vectors.nrows();
-        let _combined = Array2::<f32>::zeros((new_total, self.dim));
-
-        if let Some(ref _searcher) = self.searcher {
-            // Copy existing data (would need accessor on BruteForceSearcher)
-            // For simplicity, rebuild
-        }
-
-        // Rebuild with full dataset
-        // Note: in GPU version, this would upload to GPU once
-        if let Some(ref _searcher) = self.searcher {
-            // Access index directly isn't possible in this design,
-            // so we store the raw data too
-        }
-        self.n_vectors = new_total;
-        Ok(())
+        let _ = new_vectors;
+        Err("add_vectors not supported; use rebuild".into())
     }
 
     /// Search single query for k nearest neighbors.
@@ -325,6 +307,19 @@ mod tests {
             .max_batch(50)
             .build();
         assert!(!idx.is_available());
+    }
+
+    /// add_vectors must refuse instead of silently bumping n_vectors without
+    /// inserting data. CPU-only, no GPU needed.
+    #[test]
+    fn test_add_vectors_rejected_without_state_change() {
+        let data = make_index();
+        let mut idx = GpuVectorIndex::with_dim(3);
+        idx.build(data.view()).unwrap();
+        let err = idx.add_vectors(data.view()).unwrap_err();
+        assert!(err.contains("not supported"), "got: {err}");
+        assert_eq!(idx.len(), 5, "n_vectors must be untouched");
+        assert!(idx.is_available());
     }
 
     #[test]

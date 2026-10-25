@@ -16,7 +16,26 @@ use cudarc::driver::{
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
 };
 use cudarc::nvrtc::Ptx;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// eprintln! a GPU diagnostic exactly once per process (first occurrence
+/// wins). House style for GPU failures: return `None` and log the cause once
+/// — never spam per call/iteration.
+fn warn_gpu_once(slot: &'static OnceLock<String>, msg: String) {
+    if slot.set(msg.clone()).is_ok() {
+        eprintln!("{msg}");
+    }
+}
+
+// One-shot diagnostic slots for the kernel paths below.
+static L2_KERNEL_FALLBACK_LOG: OnceLock<String> = OnceLock::new();
+static BATCH_L2_KERNEL_FALLBACK_LOG: OnceLock<String> = OnceLock::new();
+static COSINE_KERNEL_FALLBACK_LOG: OnceLock<String> = OnceLock::new();
+static TOPK_KERNEL_FALLBACK_LOG: OnceLock<String> = OnceLock::new();
+static TOPK_INFO_LOG: OnceLock<String> = OnceLock::new();
+static TOPK_LAUNCH_LOG: OnceLock<String> = OnceLock::new();
+static GAUSSIAN_INFO_LOG: OnceLock<String> = OnceLock::new();
+static GAUSSIAN_LAUNCH_LOG: OnceLock<String> = OnceLock::new();
 
 /// Persistent GPU state — keeps dataset in VRAM between calls.
 pub struct GpuIndex {
@@ -37,8 +56,19 @@ impl GpuIndex {
     /// Create a new GPU index. Returns None if CUDA is unavailable
     /// (no driver, no device, or PTX load failure).
     pub fn new() -> Option<Self> {
-        let ctx = crate::gpu::with_silent_panic(|| CudaContext::new(0)).and_then(Result::ok)?;
-        eprintln!("[splatsdb] CUDA context created successfully");
+        // Log once per process, not once per index creation (this fires per
+        // request in server paths).
+        static CTX_CREATED: OnceLock<()> = OnceLock::new();
+        let ctx = match CudaContext::new(0) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                crate::gpu::log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+                return None;
+            }
+        };
+        if CTX_CREATED.set(()).is_ok() {
+            eprintln!("[splatsdb] CUDA context created successfully");
+        }
         let stream = ctx.default_stream();
 
         // Load the PTX module once and keep it alive for the index lifetime.
@@ -154,19 +184,15 @@ impl GpuIndex {
             return Some(result);
         }
 
-        // Fallback: upload query, download dataset, compute on CPU
-        let data_back: Vec<f32> = self.stream.clone_dtoh(data_gpu).ok()?;
-        let mut distances = Vec::with_capacity(n);
-        for i in 0..n {
-            let row = &data_back[i * dim..(i + 1) * dim];
-            let dist: f32 = query
-                .iter()
-                .zip(row.iter())
-                .map(|(a, b)| (a - b).powi(2))
-                .sum();
-            distances.push(dist);
-        }
-        Some(distances)
+        // Kernel unavailable (no PTX / kernel missing / launch failed):
+        // return None so the caller computes on the host copy it already
+        // holds. The old fallback downloaded the ENTIRE dataset from VRAM
+        // per query just to redo the math on CPU — pure wasted bandwidth.
+        warn_gpu_once(
+            &L2_KERNEL_FALLBACK_LOG,
+            "[splatsdb] l2_distance_kernel unavailable — caller computes on host".to_string(),
+        );
+        None
     }
 
     /// Launch custom L2 distance PTX kernel.
@@ -241,24 +267,14 @@ impl GpuIndex {
             return Some(result);
         }
 
-        // Fallback: per-query
-        let data_back: Vec<f32> = self.stream.clone_dtoh(data_gpu).ok()?;
-        let mut all_dists = Vec::with_capacity(n_queries);
-        for q in 0..n_queries {
-            let q_slice = &queries[q * dim..(q + 1) * dim];
-            let mut distances = Vec::with_capacity(n);
-            for i in 0..n {
-                let row = &data_back[i * dim..(i + 1) * dim];
-                let dist: f32 = q_slice
-                    .iter()
-                    .zip(row.iter())
-                    .map(|(a, b)| (a - b).powi(2))
-                    .sum();
-                distances.push(dist);
-            }
-            all_dists.push(distances);
-        }
-        Some(all_dists)
+        // Kernel unavailable: return None — the caller (gpu::batch_l2_distances)
+        // already holds the dataset on the host. The old fallback downloaded
+        // the full dataset from VRAM and then recomputed per query on CPU.
+        warn_gpu_once(
+            &BATCH_L2_KERNEL_FALLBACK_LOG,
+            "[splatsdb] batch_l2_distance_kernel unavailable — caller computes on host".to_string(),
+        );
+        None
     }
 
     fn launch_batch_l2_kernel(
@@ -338,18 +354,13 @@ impl GpuIndex {
             return Some(result);
         }
 
-        // Fallback
-        let data_back: Vec<f32> = self.stream.clone_dtoh(data_gpu).ok()?;
-        let q_norm: f32 = query.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-10);
-        let distances: Vec<f32> = (0..n)
-            .map(|i| {
-                let row = &data_back[i * dim..(i + 1) * dim];
-                let dot: f32 = query.iter().zip(row.iter()).map(|(a, b)| a * b).sum();
-                let r_norm: f32 = row.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-10);
-                1.0 - dot / (q_norm * r_norm)
-            })
-            .collect();
-        Some(distances)
+        // Kernel unavailable: return None — the caller holds the dataset on
+        // the host already (same rationale as l2_distances above).
+        warn_gpu_once(
+            &COSINE_KERNEL_FALLBACK_LOG,
+            "[splatsdb] cosine_distance_kernel unavailable — caller computes on host".to_string(),
+        );
+        None
     }
 
     fn launch_cosine_kernel(
@@ -433,7 +444,11 @@ impl GpuIndex {
         {
             return Some(result);
         }
-        eprintln!("[splatsdb] top-k PTX kernel unavailable, using fallback");
+        warn_gpu_once(
+            &TOPK_KERNEL_FALLBACK_LOG,
+            "[splatsdb] top-k PTX kernel unavailable — using distance+CPU-sort fallback"
+                .to_string(),
+        );
 
         // Fallback to separate distance + CPU top-k
         let all_dists = if metric == "cosine" {
@@ -470,8 +485,8 @@ impl GpuIndex {
         metric: &str,
     ) -> Option<Vec<(Vec<usize>, Vec<f32>)>> {
         let ptx_path = option_env!("M2M_PTX_PATH");
-        if ptx_path.is_none_or(|p| p.is_empty()) || k > 32 {
-            return None; // Kernel supports K <= 32
+        if ptx_path.is_none_or(|p| p.is_empty()) || k == 0 || k > 32 {
+            return None; // Kernel supports 1 <= K <= 32
         }
 
         let kernel_name = if metric == "cosine" {
@@ -479,9 +494,11 @@ impl GpuIndex {
         } else {
             "l2_topk_kernel"
         };
-        eprintln!(
-            "[splatsdb] Launching {} PTX kernel (Q={}, N={}, D={}, K={})",
-            kernel_name, n_queries, n, dim, k
+        warn_gpu_once(
+            &TOPK_INFO_LOG,
+            format!(
+                "[splatsdb] launching {kernel_name} PTX kernel (Q={n_queries}, N={n}, D={dim}, K={k})"
+            ),
         );
         let func: CudaFunction = self.kernel_fn(kernel_name)?;
 
@@ -513,6 +530,26 @@ impl GpuIndex {
             .saturating_add((block_dim as usize).saturating_mul(k).saturating_mul(2))
             .saturating_mul(4);
 
+        // K>=24 with 256 threads exceeds the 48KB default dynamic shared
+        // memory — replicate the gaussian top-k opt-in
+        // (CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES) or the launch
+        // fails and the query silently degrades to CPU.
+        if shared_mem_bytes > 48 * 1024 {
+            use cudarc::driver::sys::{CUfunction_attribute, CUfunction_attribute_enum};
+            let attr: CUfunction_attribute_enum =
+                CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES;
+            if let Err(e) = func.set_attribute(attr, shared_mem_bytes as i32) {
+                warn_gpu_once(
+                    &TOPK_LAUNCH_LOG,
+                    format!(
+                        "[splatsdb] {kernel_name}: driver refused {shared_mem_bytes}B extended \
+                         shared memory ({e:?}) — CPU fallback"
+                    ),
+                );
+                return None;
+            }
+        }
+
         let cfg = LaunchConfig {
             grid_dim: (n_queries as u32, 1, 1), // one block per query
             block_dim: (block_dim, 1, 1),
@@ -521,8 +558,8 @@ impl GpuIndex {
 
         // SAFETY: Top-k kernel args are valid GPU allocations. idx_gpu/dist_gpu sized n_queries*k.
         // shared_mem_bytes covers query (D floats) + per-thread top-k arrays (dist+idx). Grid is
-        // one block per query. K <= 32 enforced above. PTX kernel writes exactly n_queries*k results.
-        unsafe {
+        // one block per query. 1 <= K <= 32 enforced above. PTX kernel writes exactly n_queries*k results.
+        let launch_result = unsafe {
             self.stream
                 .launch_builder(&func)
                 .arg(&queries_gpu)
@@ -534,7 +571,13 @@ impl GpuIndex {
                 .arg(&(dim as i32))
                 .arg(&(k as i32))
                 .launch(cfg)
-                .ok()?;
+        };
+        if let Err(e) = launch_result {
+            warn_gpu_once(
+                &TOPK_LAUNCH_LOG,
+                format!("[splatsdb] {kernel_name} launch failed: {e:?} — CPU fallback"),
+            );
+            return None;
         }
 
         // Download only K*Q results (tiny compared to N*Q)
@@ -543,11 +586,20 @@ impl GpuIndex {
 
         let results: Vec<(Vec<usize>, Vec<f32>)> = (0..n_queries)
             .map(|q| {
-                let indices: Vec<usize> = indices_flat[q * k..(q + 1) * k]
+                // Filter sentinel slots (idx == -1, dist = 1e30) the kernel
+                // emits when N < K — same filter as the gaussian top-k path.
+                // Mapping -1 -> index 0 fabricated a bogus nearest neighbor.
+                let mut indices = Vec::with_capacity(k);
+                let mut distances = Vec::with_capacity(k);
+                for (&i, &d) in indices_flat[q * k..(q + 1) * k]
                     .iter()
-                    .map(|&i| if i >= 0 { i as usize } else { 0 })
-                    .collect();
-                let distances: Vec<f32> = distances_flat[q * k..(q + 1) * k].to_vec();
+                    .zip(distances_flat[q * k..(q + 1) * k].iter())
+                {
+                    if i >= 0 {
+                        indices.push(i as usize);
+                        distances.push(d);
+                    }
+                }
                 (indices, distances)
             })
             .collect();
@@ -626,11 +678,13 @@ impl GpuIndex {
             use cudarc::driver::sys::{CUfunction_attribute, CUfunction_attribute_enum};
             let attr: CUfunction_attribute_enum =
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES;
-            if func.set_attribute(attr, shared_mem_bytes as i32).is_err() {
-                eprintln!(
-                    "[splatsdb] gaussian_topk_kernel: opt-in extended shared memory \
-                     ({} bytes) refused by driver — using CPU fallback",
-                    shared_mem_bytes
+            if let Err(e) = func.set_attribute(attr, shared_mem_bytes as i32) {
+                warn_gpu_once(
+                    &GAUSSIAN_LAUNCH_LOG,
+                    format!(
+                        "[splatsdb] gaussian_topk_kernel: driver refused {shared_mem_bytes}B \
+                         extended shared memory ({e:?}) — CPU fallback"
+                    ),
                 );
                 return None;
             }
@@ -642,9 +696,11 @@ impl GpuIndex {
             shared_mem_bytes: shared_mem_bytes as u32,
         };
 
-        eprintln!(
-            "[splatsdb] Launching gaussian_topk_kernel PTX kernel (Q={}, N={}, D={}, K={})",
-            n_queries, n, dim, k
+        warn_gpu_once(
+            &GAUSSIAN_INFO_LOG,
+            format!(
+                "[splatsdb] launching gaussian_topk_kernel PTX kernel (Q={n_queries}, N={n}, D={dim}, K={k})"
+            ),
         );
 
         // SAFETY: gaussian_topk_kernel args are valid GPU allocations sized
@@ -652,7 +708,7 @@ impl GpuIndex {
         // (D floats) + per-thread top-k arrays (blockDim*K floats + ints).
         // Grid is one block per query; 1 <= K <= 32 enforced above. Kernel
         // writes exactly n_queries*k (idx, score) pairs.
-        unsafe {
+        let launch_result = unsafe {
             self.stream
                 .launch_builder(&func)
                 .arg(&queries_gpu)
@@ -666,7 +722,13 @@ impl GpuIndex {
                 .arg(&(dim as i32))
                 .arg(&(k as i32))
                 .launch(cfg)
-                .ok()?;
+        };
+        if let Err(e) = launch_result {
+            warn_gpu_once(
+                &GAUSSIAN_LAUNCH_LOG,
+                format!("[splatsdb] gaussian_topk_kernel launch failed: {e:?} — CPU fallback"),
+            );
+            return None;
         }
 
         // Download only K*Q results

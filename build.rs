@@ -12,6 +12,14 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
+    // Watch kernel sources BEFORE attempting compilation: cargo honors
+    // rerun-if-changed directives emitted on failed builds too. Emitting them
+    // only on success (as before) means a stale PTX from a previous good
+    // build keeps being served even after the .cu files change.
+    for cu in ["kernels/distance.cu", "kernels/extended_kernels.cu"] {
+        println!("cargo:rerun-if-changed={}", cu);
+    }
+
     let nvcc = which_nvcc();
     if let Some(nvcc) = nvcc {
         println!("cargo:warning=[m2m] Found nvcc: {}", nvcc);
@@ -38,10 +46,22 @@ fn main() {
             "kernels/distance.cu",
         ]);
 
-        let status = cmd.status().expect("Failed to run nvcc");
+        // nvcc was found but may still fail to EXECUTE (broken toolchain
+        // install, a Windows nvcc.exe picked up from WSL, missing loader…).
+        // Panicking the build script here would break CPU-only builds the
+        // design promises to keep working — warn and degrade instead.
+        let status = match cmd.status() {
+            Ok(status) => status,
+            Err(err) => {
+                println!(
+                    "cargo:warning=[m2m] failed to execute nvcc '{}': {} — GPU kernels unavailable, CPU-only build",
+                    nvcc, err
+                );
+                return;
+            }
+        };
         if status.success() {
             println!("cargo:warning=[m2m] CUDA distance kernels compiled to PTX");
-            println!("cargo:rerun-if-changed=kernels/distance.cu");
             println!("cargo:rustc-env=M2M_PTX_PATH={}", ptx_output.display());
 
             // Compile extended kernels
@@ -61,16 +81,28 @@ fn main() {
                 &format!("--output-file={}", ext_ptx.display()),
                 "kernels/extended_kernels.cu",
             ]);
-            if ext_cmd.status().map(|s| s.success()).unwrap_or(false) {
-                println!("cargo:warning=[m2m] CUDA extended kernels compiled to PTX");
-                println!("cargo:rerun-if-changed=kernels/extended_kernels.cu");
-                println!(
-                    "cargo:rustc-env=M2M_EXTENDED_PTX_PATH={}",
-                    ext_ptx.display()
-                );
+            match ext_cmd.status() {
+                Ok(s) if s.success() => {
+                    println!("cargo:warning=[m2m] CUDA extended kernels compiled to PTX");
+                    println!(
+                        "cargo:rustc-env=M2M_EXTENDED_PTX_PATH={}",
+                        ext_ptx.display()
+                    );
+                }
+                Ok(s) => println!(
+                    "cargo:warning=[m2m] extended kernels nvcc failed (exit={:?}) — extended GPU kernels unavailable",
+                    s.code()
+                ),
+                Err(err) => println!(
+                    "cargo:warning=[m2m] failed to execute nvcc for extended kernels: {} — extended GPU kernels unavailable",
+                    err
+                ),
             }
         } else {
-            println!("cargo:warning=[m2m] nvcc compilation failed — GPU kernels unavailable");
+            println!(
+                "cargo:warning=[m2m] nvcc compilation failed (exit={:?}) — GPU kernels unavailable, CPU-only build",
+                status.code()
+            );
         }
     } else {
         println!("cargo:warning=[m2m] nvcc not found — GPU kernels unavailable");
