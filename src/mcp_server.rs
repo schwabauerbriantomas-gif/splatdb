@@ -10,7 +10,7 @@ use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -28,6 +28,14 @@ static EMBED_SERVICE_AVAILABLE: AtomicBool = AtomicBool::new(true);
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const MAX_DOC_TEXT_CACHE: usize = 10_000;
 const MAX_WARM_START_DOCS: usize = 50_000;
+
+/// True iff every component is finite (rejects NaN and ±inf). JSON has no
+/// NaN literal but `1e400` parses to +inf; one poisoned vector corrupts
+/// every similarity computation over the index, so every embedding entry
+/// point (and the remote embedding service response) validates this.
+fn all_finite(e: &[f32]) -> bool {
+    e.iter().all(|v| v.is_finite())
+}
 
 fn embedding_service_url() -> String {
     std::env::var("SPLATSDB_EMBED_URL")
@@ -75,6 +83,12 @@ fn fetch_real_embedding(text: &str, target_dim: usize) -> Option<Vec<f32>> {
         for x in vec.iter_mut() {
             *x /= norm;
         }
+    }
+    // A hostile/broken embedding service returning NaN/inf must not poison
+    // the index: reject and fall back to the SimCos embedding.
+    if !all_finite(&vec) {
+        eprintln!("[mcp] embedding service returned non-finite values; falling back to simcos");
+        return None;
     }
     Some(vec)
 }
@@ -560,6 +574,19 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
         return Err(format!("Text exceeds max length ({MAX_TEXT_LEN})"));
     }
     let category = params["category"].as_str();
+    // Same bounds as handle_doc_add: non-empty, ≤256 bytes — validated BEFORE
+    // the vector is added so a rejected request never mutates the store.
+    const MAX_ID_LEN: usize = 256;
+    if let Some(id) = params["id"].as_str() {
+        if id.is_empty() || id.len() > MAX_ID_LEN {
+            return Err("invalid document ID".into());
+        }
+    }
+    if let Some(cat) = category {
+        if cat.is_empty() || cat.len() > MAX_ID_LEN {
+            return Err("invalid category".into());
+        }
+    }
     let embedding_opt = params["embedding"].as_array().map(|arr| {
         arr.iter()
             .filter_map(|v| v.as_f64().map(|f| f as f32))
@@ -585,6 +612,11 @@ fn handle_store(state: &Mutex<McpState>, params: &Value) -> Result<Value, String
             "Embedding dimension mismatch: expected {dim}, got {}",
             embedding.len()
         ));
+    }
+    // NaN/inf (user input like `1e400`, or a bad embedding service) must
+    // never reach add_splat — it poisons the whole index.
+    if !all_finite(&embedding) {
+        return Err("Embedding contains non-finite values (NaN/inf)".into());
     }
 
     let arr = Array2::from_shape_vec((1, dim), embedding)
@@ -696,6 +728,11 @@ fn handle_search(state: &Mutex<McpState>, params: &Value) -> Result<Value, Strin
             "Embedding dimension mismatch: expected {dim}, got {}",
             embedding.len()
         ));
+    }
+    // NaN/inf query (user input like `1e400`, or a bad embedding service)
+    // yields NaN distances for every result — reject it.
+    if !all_finite(&embedding) {
+        return Err("Embedding contains non-finite values (NaN/inf)".into());
     }
 
     let query_vec = Array1::from_vec(embedding);
@@ -839,9 +876,11 @@ fn handle_doc_add(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
         updated_at: now,
     };
 
-    s.doc_store
-        .upsert(&record)
-        .map_err(|e| format!("SQLite error: {}", e))?;
+    s.doc_store.upsert(&record).map_err(|e| {
+        // Internal detail stays server-side; the client gets a generic error.
+        eprintln!("[mcp] doc_add SQLite error for id={id}: {e}");
+        "internal error".to_string()
+    })?;
 
     eprintln!(
         "[mcp] doc_add: id={}, vec_idx={}, text_len={}, has_meta={}",
@@ -873,7 +912,11 @@ fn handle_doc_get(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
             }))
         }
         Ok(None) => Err(format!("document not found: {}", id)),
-        Err(e) => Err(format!("SQLite error: {}", e)),
+        Err(e) => {
+            // Internal detail stays server-side; the client gets a generic error.
+            eprintln!("[mcp] doc_get SQLite error for id={id}: {e}");
+            Err("internal error".into())
+        }
     }
 }
 
@@ -903,7 +946,11 @@ fn handle_doc_del(state: &Mutex<McpState>, params: &Value) -> Result<Value, Stri
             Ok(json!({ "ok": true, "id": id }))
         }
         Ok(false) => Err(format!("document not found: {}", id)),
-        Err(e) => Err(format!("SQLite error: {}", e)),
+        Err(e) => {
+            // Internal detail stays server-side; the client gets a generic error.
+            eprintln!("[mcp] doc_del SQLite error for id={id}: {e}");
+            Err("internal error".into())
+        }
     }
 }
 
@@ -1531,10 +1578,7 @@ fn handle_decompress(params: &Value) -> Result<Value, String> {
     if hex_data.len() > MAX_DECOMPRESS_HEX_LEN {
         return Err("data too large".into());
     }
-    let binary_data: Vec<u8> = (0..hex_data.len())
-        .step_by(2)
-        .filter_map(|i| u8::from_str_radix(&hex_data[i..i + 2], 16).ok())
-        .collect();
+    let binary_data = hex_to_bytes(hex_data)?;
 
     let text = crate::text_compression::decompress(&binary_data)
         .map_err(|e| format!("Decompression error: {}", e))?;
@@ -1544,6 +1588,42 @@ fn handle_decompress(params: &Value) -> Result<Value, String> {
         "binary_size": binary_data.len(),
         "text_size": text.len(),
     }))
+}
+
+/// Strict hex decode for `handle_decompress`.
+///
+/// The previous implementation (`(0..len).step_by(2).filter_map(from_str_radix)`)
+/// PANICKED on odd-length input (slice out of bounds) and on multibyte UTF-8
+/// (indexing at non-char-boundaries), killing the whole MCP process — there
+/// is no catch_unwind in the dispatcher — and silently DROPPED non-hex pairs.
+/// This version rejects all of those with a clean Err. ASCII whitespace
+/// between pairs (hex-dump style) is tolerated.
+fn hex_to_bytes(hex_data: &str) -> Result<Vec<u8>, String> {
+    let compact: Vec<u8> = hex_data
+        .bytes()
+        .filter(|b| !b.is_ascii_whitespace())
+        .collect();
+    if !compact.iter().all(|b| b.is_ascii_hexdigit()) {
+        return Err("data contains non-hex characters".into());
+    }
+    if !compact.len().is_multiple_of(2) {
+        return Err("data must contain an even number of hex digits".into());
+    }
+    let (pairs, _remainder) = compact.as_chunks::<2>();
+    Ok(pairs
+        .iter()
+        .map(|p| hex_digit(p[0]) << 4 | hex_digit(p[1]))
+        .collect())
+}
+
+/// Hex digit → value. Only called on bytes already validated with
+/// `is_ascii_hexdigit`, so the fallback arm is unreachable in practice.
+fn hex_digit(b: u8) -> u8 {
+    match b {
+        b'0'..=b'9' => b - b'0',
+        b'a'..=b'f' => b - b'a' + 10,
+        _ => b - b'A' + 10, // b'A'..=b'F'
+    }
 }
 
 // ============================================================================
@@ -1816,7 +1896,7 @@ pub fn run_mcp_server() {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let reader = stdin.lock();
+    let mut reader = stdin.lock();
 
     // Set up signal handler for graceful shutdown
     #[cfg(unix)]
@@ -1835,91 +1915,126 @@ pub fn run_mcp_server() {
 
     const MAX_JSONRPC_LINE_LEN: usize = 10_000_000; // 10MB max line length
 
-    for line in reader.lines() {
+    // Bounded line reader (fix: `reader.lines()` buffers the ENTIRE line in
+    // memory before the 10MB check below could reject it — one huge line
+    // could OOM the server). read_until under a take() cap bounds the buffer
+    // at MAX+1 bytes; the remainder of an oversized line is drained in 8KB
+    // chunks and skipped, never buffered whole.
+    let mut raw_line: Vec<u8> = Vec::with_capacity(4096);
+    loop {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
             eprintln!("[splatsdb] Shutdown requested, exiting main loop.");
             break;
         }
-        match line {
-            Ok(line) => {
-                let line = line.trim().to_string();
-                if line.is_empty() {
-                    continue;
-                }
-                if line.len() > MAX_JSONRPC_LINE_LEN {
+
+        raw_line.clear();
+        let read = {
+            let mut capped = reader.by_ref().take(MAX_JSONRPC_LINE_LEN as u64 + 1);
+            capped.read_until(b'\n', &mut raw_line)
+        };
+        let line = match read {
+            Ok(0) => break, // EOF — stdin closed
+            Ok(_) => {
+                let ends_nl = raw_line.last() == Some(&b'\n');
+                // Hit the MAX+1 cap with no newline → oversized line: reject
+                // and drain the rest in bounded chunks.
+                if !ends_nl && raw_line.len() > MAX_JSONRPC_LINE_LEN {
                     eprintln!(
-                        "[splatsdb] rejecting oversized JSON-RPC message ({} bytes)",
-                        line.len()
+                        "[splatsdb] rejecting oversized JSON-RPC message (>{} bytes)",
+                        MAX_JSONRPC_LINE_LEN
                     );
+                    let mut discard = [0u8; 8192];
+                    loop {
+                        match reader.read(&mut discard) {
+                            Ok(0) => break, // EOF
+                            Ok(m) if discard[..m].contains(&b'\n') => break,
+                            Ok(_) => {}
+                            Err(_) => break,
+                        }
+                    }
                     continue;
                 }
-
-                let req: JsonRpcRequest = match serde_json::from_str::<JsonRpcRequest>(&line) {
-                    Ok(r) => {
-                        // Validate jsonrpc version
-                        if r.jsonrpc != "2.0" {
-                            eprintln!("[splatsdb] invalid jsonrpc version: {}", r.jsonrpc);
-                            let resp = JsonRpcResponse {
-                                jsonrpc: "2.0".into(),
-                                id: r.id.clone(),
-                                result: None,
-                                error: Some(JsonRpcError {
-                                    code: -32600,
-                                    message: format!(
-                                        "Invalid jsonrpc version: expected '2.0', got '{}'",
-                                        r.jsonrpc
-                                    ),
-                                }),
-                            };
-                            let out = serde_json::to_string(&resp)
-                                .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid request"}}"#.to_string());
-                            writeln!(stdout, "{}", out).ok();
-                            stdout.flush().ok();
-                            continue;
-                        }
-                        eprintln!("[splatsdb] <- method={}", r.method);
-                        r
-                    }
-                    Err(e) => {
-                        eprintln!("[splatsdb] parse error: {}", e);
-                        let resp = JsonRpcResponse {
-                            jsonrpc: "2.0".into(),
-                            id: None,
-                            result: None,
-                            error: Some(JsonRpcError {
-                                code: -32700,
-                                message: format!("Parse error: {}", e),
-                            }),
-                        };
-                        let out = serde_json::to_string(&resp)
-                            .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}"#.to_string());
-                        writeln!(stdout, "{}", out).ok();
-                        stdout.flush().ok();
-                        continue;
-                    }
-                };
-
-                let is_notification = req.id.is_none() && req.method != "initialize";
-
-                let resp = dispatch_request(&state, &req);
-
-                if !is_notification && resp.id.is_some() {
-                    let out = match serde_json::to_string(&resp) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            eprintln!("[splatsdb] serialization error: {}", e);
-                            r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#.to_string()
-                        }
-                    };
-                    let preview: String = out.chars().take(200).collect();
-                    eprintln!("[splatsdb] -> {}...", preview);
-                    writeln!(stdout, "{}", out).ok();
-                    stdout.flush().ok();
-                }
+                String::from_utf8_lossy(&raw_line).trim().to_string()
             }
             Err(e) => {
                 eprintln!("[splatsdb] stdin error: {}", e);
                 break;
+            }
+        };
+
+        {
+            if line.is_empty() {
+                continue;
+            }
+            if line.len() > MAX_JSONRPC_LINE_LEN {
+                eprintln!(
+                    "[splatsdb] rejecting oversized JSON-RPC message ({} bytes)",
+                    line.len()
+                );
+                continue;
+            }
+
+            let req: JsonRpcRequest = match serde_json::from_str::<JsonRpcRequest>(&line) {
+                Ok(r) => {
+                    // Validate jsonrpc version
+                    if r.jsonrpc != "2.0" {
+                        eprintln!("[splatsdb] invalid jsonrpc version: {}", r.jsonrpc);
+                        let resp = JsonRpcResponse {
+                            jsonrpc: "2.0".into(),
+                            id: r.id.clone(),
+                            result: None,
+                            error: Some(JsonRpcError {
+                                code: -32600,
+                                message: format!(
+                                    "Invalid jsonrpc version: expected '2.0', got '{}'",
+                                    r.jsonrpc
+                                ),
+                            }),
+                        };
+                        let out = serde_json::to_string(&resp)
+                                .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid request"}}"#.to_string());
+                        writeln!(stdout, "{}", out).ok();
+                        stdout.flush().ok();
+                        continue;
+                    }
+                    eprintln!("[splatsdb] <- method={}", r.method);
+                    r
+                }
+                Err(e) => {
+                    eprintln!("[splatsdb] parse error: {}", e);
+                    let resp = JsonRpcResponse {
+                        jsonrpc: "2.0".into(),
+                        id: None,
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32700,
+                            message: format!("Parse error: {}", e),
+                        }),
+                    };
+                    let out = serde_json::to_string(&resp)
+                            .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}"#.to_string());
+                    writeln!(stdout, "{}", out).ok();
+                    stdout.flush().ok();
+                    continue;
+                }
+            };
+
+            let is_notification = req.id.is_none() && req.method != "initialize";
+
+            let resp = dispatch_request(&state, &req);
+
+            if !is_notification && resp.id.is_some() {
+                let out = match serde_json::to_string(&resp) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[splatsdb] serialization error: {}", e);
+                        r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#.to_string()
+                    }
+                };
+                let preview: String = out.chars().take(200).collect();
+                eprintln!("[splatsdb] -> {}...", preview);
+                writeln!(stdout, "{}", out).ok();
+                stdout.flush().ok();
             }
         }
     }
@@ -2059,5 +2174,38 @@ mod tests {
                 "{v:?} must parse as enabled"
             );
         }
+    }
+
+    /// Fix: hex decode must never panic (odd length / multibyte UTF-8 slice
+    /// out of bounds killed the whole MCP process) and must not silently
+    /// drop non-hex pairs. Whitespace between pairs is tolerated.
+    #[test]
+    fn hex_decode_strict_no_panic() {
+        // odd length → Err
+        assert!(hex_to_bytes("abc").is_err());
+        // non-hex pair → Err (previously silently dropped by filter_map)
+        assert!(hex_to_bytes("zz").is_err());
+        assert!(hex_to_bytes("0g").is_err());
+        // whitespace between pairs tolerated
+        assert_eq!(hex_to_bytes("ab cd").unwrap(), vec![0xab, 0xcd]);
+        assert_eq!(hex_to_bytes("abcd").unwrap(), vec![0xab, 0xcd]);
+        // multibyte UTF-8 → clean Err, not a panic
+        assert!(hex_to_bytes("aé").is_err());
+        assert!(hex_to_bytes("aéc").is_err());
+        // case + roundtrip sanity
+        assert_eq!(hex_to_bytes("00Ff10").unwrap(), vec![0x00, 0xff, 0x10]);
+        assert!(hex_to_bytes("").unwrap().is_empty());
+    }
+
+    /// Fix: embeddings with NaN/inf components are rejected at every entry
+    /// point (JSON `1e400` decodes to f32::INFINITY).
+    #[test]
+    fn all_finite_rejects_nan_and_inf() {
+        assert!(all_finite(&[]));
+        assert!(all_finite(&[0.0, -1.5, 3.25]));
+        assert!(!all_finite(&[0.0, f32::INFINITY]));
+        assert!(!all_finite(&[f32::NEG_INFINITY]));
+        assert!(!all_finite(&[f32::NAN]));
+        assert!(!all_finite(&[0.0, 1.0, f32::NAN, 2.0]));
     }
 }

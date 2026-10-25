@@ -49,6 +49,16 @@ const MAX_TEXT_LEN: usize = 100_000; // 100KB max text input
 const MAX_EMBEDDING_DIM: usize = 8192; // Max embedding dimension
 const MAX_TOP_K: usize = 1000;
 
+/// True iff every component is finite (rejects NaN and ±inf).
+///
+/// serde_json happily parses `1e400` into `inf` (JSON has no NaN literal but
+/// float overflow decodes to inf); a single non-finite vector accepted into
+/// the index poisons every later similarity computation, so every embedding
+/// entry point validates this before touching the store.
+fn all_finite(e: &[f32]) -> bool {
+    e.iter().all(|v| v.is_finite())
+}
+
 // ─── Micro-batching constants (R9 §2) ────────────────────
 /// Coalescing window: requests arriving within this window are served by a
 /// single batched search instead of one lock acquisition + scan per request.
@@ -219,6 +229,13 @@ async fn store_memory(
                 format!("Embedding dimension exceeds max ({MAX_EMBEDDING_DIM})"),
             ));
         }
+        // NaN/inf (e.g. `1e400` parsed as inf) would poison the index.
+        if !all_finite(emb) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Embedding contains non-finite values (NaN/inf)".into(),
+            ));
+        }
     }
 
     let embedding = req
@@ -244,10 +261,10 @@ async fn store_memory(
     })
     .await
     .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("task error: {e}"),
-        )
+        // Log the real cause server-side; the client gets a generic 500
+        // (JoinError strings can carry panic payloads).
+        eprintln!("[splatsdb] /store: background task failed: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
     })?;
 
     if !added {
@@ -284,7 +301,8 @@ async fn search_memories(
     }; // lock dropped — the hot path below never re-acquires it
 
     // Validate user-supplied embedding dimension BEFORE the empty-store
-    // early-return so malformed requests are always rejected with 400.
+    // early-return so malformed requests (dim, max-dim, NaN/inf) are always
+    // rejected with 400.
     if let Some(ref emb) = req.embedding {
         if emb.len() != dim {
             return Err((
@@ -299,6 +317,14 @@ async fn search_memories(
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Embedding dimension exceeds max ({MAX_EMBEDDING_DIM})"),
+            ));
+        }
+        // NaN/inf (e.g. `1e400` parsed as inf) would poison every later
+        // similarity computation over the index.
+        if !all_finite(emb) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Embedding contains non-finite values (NaN/inf)".into(),
             ));
         }
     }
@@ -379,7 +405,12 @@ async fn search_memories(
                 "search worker dropped request".into(),
             )
         })?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(|e| {
+            // Log the real cause server-side; the client gets a generic 500
+            // (the internal String may carry panic payloads from JoinError).
+            eprintln!("[splatsdb] /search: batch worker error: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+        })?;
     if had_embedding {
         // scores L2 reales (no gaussian, no hash) → confidence espacial
         enrich_topics(&state, &mut results, false);
@@ -451,11 +482,28 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
     f.read_exact(&mut hdr).ok()?;
     let n = u64::from_le_bytes(hdr[..8].try_into().ok()?) as usize;
     let k = u64::from_le_bytes(hdr[8..].try_into().ok()?) as usize;
+    // Sanity caps BEFORE any allocation: n*4 / (k+1)*8 bytes are reserved
+    // straight from the file header, so a corrupt header must not OOM the
+    // server on boot.
+    const MAX_FIELD_N: usize = 100_000_000;
+    const MAX_FIELD_K: usize = 100_000_000;
+    if n > MAX_FIELD_N || k > MAX_FIELD_K {
+        eprintln!(
+            "[splatsdb] field/ header out of range (n={n}, k={k}); /field-search deshabilitado"
+        );
+        return None;
+    }
     let mut ob = vec![0u8; (k + 1) * 8];
     f.read_exact(&mut ob).ok()?;
     let mut offsets = vec![0u64; k + 1];
     for (i, c) in ob.as_chunks::<8>().0.iter().enumerate() {
         offsets[i] = u64::from_le_bytes(*c);
+    }
+    // CSR sanity: monotone non-decreasing offsets ending exactly at n. This
+    // also bounds every later `ids[lo..hi]` slice (field_sweep/field_two_phase).
+    if offsets[k] != n as u64 || offsets.windows(2).any(|w| w[0] > w[1]) {
+        eprintln!("[splatsdb] field/ CSR offsets inválidos; /field-search deshabilitado");
+        return None;
     }
     let mut ib = vec![0u8; n * 4];
     f.read_exact(&mut ib).ok()?;
@@ -463,10 +511,26 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
     for (i, c) in ib.as_chunks::<4>().0.iter().enumerate() {
         ids[i] = u32::from_le_bytes(*c);
     }
+    // Every membership id must index into the raw corpus: chunk_cluster[id]
+    // and field_sweep's raw.row(id) depend on it (raw.nrows() == n is checked
+    // below against the persisted vectors).
+    if ids.iter().any(|&id| id as usize >= n) {
+        eprintln!("[splatsdb] field/ member id fuera de rango; /field-search deshabilitado");
+        return None;
+    }
     let mut f = std::fs::File::open(dir.join("radii.bin")).ok()?;
     let mut k8 = [0u8; 8];
     f.read_exact(&mut k8).ok()?;
     let kr = u64::from_le_bytes(k8) as usize;
+    // Same sanity cap as n/k: kr*4 bytes are allocated straight from the
+    // radii.bin header.
+    const MAX_FIELD_RADII: usize = 100_000_000;
+    if kr > MAX_FIELD_RADII {
+        eprintln!(
+            "[splatsdb] field/ radii header out of range (kr={kr}); /field-search deshabilitado"
+        );
+        return None;
+    }
     let mut rb = vec![0u8; kr * 4];
     f.read_exact(&mut rb).ok()?;
     let mut radii = vec![0f32; kr];
@@ -674,6 +738,14 @@ async fn field_search_handler(
             ),
         ));
     }
+    // NaN/inf (e.g. `1e400` parsed as inf) breaks the bound-sweep pruning
+    // (all lower bounds compare NaN → false) and poisons the ranking.
+    if !all_finite(&req.embedding) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Embedding contains non-finite values (NaN/inf)".into(),
+        ));
+    }
     let k = req.top_k.unwrap_or(10).clamp(1, 1000);
     if req.mode.as_deref() == Some("two-phase") {
         let nprobe = req.nprobe.unwrap_or(32).clamp(1, field.splats.nrows());
@@ -774,11 +846,11 @@ async fn serve_batch(
         }
         Err(join_err) => {
             // spawn_blocking panicked — worker state (snapshot) is lost, which
-            // is safe: it is only a cache.
+            // is safe: it is only a cache. Log the JoinError server-side and
+            // reply with a generic message (panic payloads stay internal).
+            eprintln!("[splatsdb] batch worker task failed: {join_err}");
             for b in batch {
-                let _ = b
-                    .resp
-                    .send(Err(format!("batch worker task failed: {join_err}")));
+                let _ = b.resp.send(Err("internal error".into()));
             }
         }
     }
@@ -1044,6 +1116,13 @@ async fn api_key_auth(
         return Ok(next.run(request).await);
     }
 
+    // Skip auth for CORS preflight: OPTIONS carries no credentials and must
+    // be answered by the CORS layer (with CORS headers), otherwise browsers
+    // get a 401 before ever sending the real authenticated request.
+    if request.method() == axum::http::Method::OPTIONS {
+        return Ok(next.run(request).await);
+    }
+
     // If no SPLATSDB_API_KEY env var set, skip auth (localhost dev mode)
     let Ok(expected_key) = std::env::var("SPLATSDB_API_KEY") else {
         return Ok(next.run(request).await);
@@ -1097,6 +1176,14 @@ fn load_default_shard(store: &mut SplatStore, data_dir: &str) -> anyhow::Result<
         }
         None => Ok(0),
     }
+}
+
+/// Loopback bind check for the no-API-key warning: `localhost`, `::1` and
+/// any `127.x.x.x` address are private; everything else (including
+/// `0.0.0.0`/`::`) is treated as externally reachable.
+fn is_loopback_addr(addr: &str) -> bool {
+    let a = addr.trim().to_ascii_lowercase();
+    matches!(a.as_str(), "localhost" | "::1" | "[::1]") || a.starts_with("127.")
 }
 
 pub async fn run_server(
@@ -1210,6 +1297,15 @@ pub async fn run_server(
     let app = build_router(state);
 
     let bind_addr = format!("{addr}:{port}");
+    // Loud warning: bound beyond loopback with no API key → everything (store,
+    // search, field-search) is open to anyone who can reach this address.
+    if !is_loopback_addr(addr) && std::env::var("SPLATSDB_API_KEY").is_err() {
+        eprintln!(
+            "[splatsdb] ⚠  WARNING: serving on {bind_addr} with NO SPLATSDB_API_KEY set.\n\
+             ⚠  Authentication is DISABLED — anyone who can reach this address can read\n\
+             ⚠  and write the entire store. Set SPLATSDB_API_KEY to require Bearer auth."
+        );
+    }
     println!(
         "SplatsDB server listening on {bind_addr} \
          (hnsw={}, batching: window={BATCH_WINDOW_MS}ms max={MAX_BATCH}, gpu={})",
@@ -1258,8 +1354,12 @@ fn build_router(state: AppState) -> Router {
         .route("/store", post(store_memory))
         .route("/search", post(search_memories))
         .route("/field-search", post(field_search_handler))
-        .layer(cors)
+        // Layer order matters: `.layer()` wraps everything added BEFORE it,
+        // so the LAST layer is the OUTERMOST. cors must be outermost so a
+        // preflight OPTIONS is answered (with CORS headers) without going
+        // through auth; auth then guards the actual requests inside.
         .layer(middleware::from_fn(api_key_auth))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -1758,5 +1858,202 @@ mod tests {
         assert_ne!(emb, other);
         // O(1)-hash construction must still cover the full dim
         assert!(emb.iter().filter(|x| **x != 0.0).count() > dim / 2);
+    }
+
+    // ── security: non-finite embeddings (NaN/inf) are rejected ──
+
+    /// Sends a raw JSON string body and returns the status. json!/Value
+    /// cannot carry non-finite floats (serde_json serializes them as null),
+    /// but the wire text `1e400` decodes to f32::INFINITY inside the
+    /// Vec<f32> extractor — so these tests must write the body literally.
+    async fn send_raw(app: Router, method: &str, uri: &str, body: String) -> StatusCode {
+        let req = HttpRequest::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        app.oneshot(req)
+            .await
+            .expect("oneshot request failed")
+            .status()
+    }
+
+    #[tokio::test]
+    async fn test_store_rejects_non_finite_embedding() {
+        let (app, _) = test_app().await;
+        let body = format!(
+            "{{\"text\":\"x\",\"embedding\":[1e400{}]}}",
+            ",0.0".repeat(31)
+        );
+        let status = send_raw(app, "POST", "/store", body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_search_rejects_non_finite_embedding() {
+        let (app, _) = test_app().await;
+        let body = format!(
+            "{{\"query\":\"x\",\"embedding\":[0.0,1e400{}],\"top_k\":1}}",
+            ",0.0".repeat(30)
+        );
+        let status = send_raw(app, "POST", "/search", body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_field_search_rejects_non_finite_embedding() {
+        // Minimal FieldData: 2 chunks (dim 2), 1 splat owning both.
+        let field = FieldData {
+            raw: Array2::from_shape_vec((2, 2), vec![1.0, 0.0, 0.0, 1.0]).unwrap(),
+            splats: Array2::from_shape_vec((1, 2), vec![0.5, 0.5]).unwrap(),
+            offsets: vec![0, 2],
+            ids: vec![0, 1],
+            radii: vec![1.0],
+            chunk_cluster: vec![0, 0],
+        };
+        let store = Arc::new(Mutex::new(SplatStore::new(test_config())));
+        let (batch_tx, batch_rx) = mpsc::channel(BATCH_CHANNEL_CAP);
+        let batches_served = Arc::new(AtomicUsize::new(0));
+        tokio::spawn(batch_worker(
+            batch_rx,
+            store.clone(),
+            batches_served.clone(),
+        ));
+        let state = AppState {
+            store,
+            next_id: Arc::new(AtomicUsize::new(0)),
+            batch_tx,
+            batches_served,
+            #[cfg(feature = "cuda")]
+            gpu: None,
+            field: Some(Arc::new(field)),
+            corpus_n: 2,
+        };
+        let app = build_router(state);
+
+        // inf component → 400, never a poisoned sweep.
+        let status = send_raw(
+            app.clone(),
+            "POST",
+            "/field-search",
+            "{\"embedding\":[1e400,0.0],\"top_k\":1}".to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Finite embedding still works.
+        let (status, body) = send(
+            app,
+            "POST",
+            "/field-search",
+            Some(json!({ "embedding": [1.0, 0.0], "top_k": 1 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert!(body["results"].is_array());
+    }
+
+    // ── security: CORS preflight must be answered by the CORS layer ──
+
+    #[tokio::test]
+    async fn test_cors_preflight_answered_by_cors_layer() {
+        let (app, _) = test_app().await;
+        let req = HttpRequest::builder()
+            .method("OPTIONS")
+            .uri("/search")
+            .header("Origin", "http://localhost")
+            .header("Access-Control-Request-Method", "POST")
+            .header("content-type", "application/json")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.expect("oneshot failed");
+        assert_ne!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "preflight must not be blocked by auth"
+        );
+        assert_ne!(
+            resp.status(),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "preflight must be short-circuited by the CORS layer, not reach the router"
+        );
+        assert!(
+            resp.status().is_success(),
+            "preflight status: {}",
+            resp.status()
+        );
+        assert_eq!(
+            resp.headers()
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some("http://localhost"),
+            "CORS layer must answer the preflight with allow-origin"
+        );
+    }
+
+    // ── load_field rejects corrupt/oversized headers before allocating ──
+
+    #[test]
+    fn test_load_field_rejects_corrupt_headers() {
+        let base = std::env::temp_dir().join(format!("splatsdb_field_test_{}", std::process::id()));
+        let write_field = |n: u64, k: u64, offsets: &[u64], ids: &[u32], kr: u64| {
+            let dir = base.join("field");
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut members = Vec::new();
+            members.extend_from_slice(&n.to_le_bytes());
+            members.extend_from_slice(&k.to_le_bytes());
+            for o in offsets {
+                members.extend_from_slice(&o.to_le_bytes());
+            }
+            for id in ids {
+                members.extend_from_slice(&id.to_le_bytes());
+            }
+            std::fs::write(dir.join("members.idx"), &members).unwrap();
+            let mut radii = Vec::new();
+            radii.extend_from_slice(&kr.to_le_bytes());
+            radii.extend_from_slice(&1.0f32.to_le_bytes());
+            std::fs::write(dir.join("radii.bin"), &radii).unwrap();
+        };
+
+        // n over cap → rejected before allocating n*4 bytes.
+        write_field(100_000_001, 1, &[0, 1], &[0], 1);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+        // k over cap → rejected before allocating (k+1)*8 bytes.
+        write_field(2, 100_000_001, &[0, 2], &[0, 1], 1);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+        // offsets[k] != n.
+        write_field(2, 1, &[0, 1], &[0, 1], 1);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+        // non-monotone offsets.
+        write_field(2, 2, &[2, 0, 2], &[0, 1], 2);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+        // member id ≥ n.
+        write_field(2, 1, &[0, 2], &[0, 5], 1);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+        // radii count over cap.
+        write_field(2, 1, &[0, 2], &[0, 1], 100_000_001);
+        assert!(load_field(base.to_str().unwrap()).is_none());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn test_is_loopback_addr() {
+        for a in [
+            "127.0.0.1",
+            "127.0.0.0",
+            "127.255.255.255",
+            "localhost",
+            "LOCALHOST",
+            " localhost ",
+            "::1",
+            "[::1]",
+        ] {
+            assert!(is_loopback_addr(a), "{a:?} must be loopback");
+        }
+        for a in ["0.0.0.0", "192.168.1.10", "::", "10.0.0.1", "", "127"] {
+            assert!(!is_loopback_addr(a), "{a:?} must NOT be loopback");
+        }
     }
 }
