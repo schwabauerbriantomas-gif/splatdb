@@ -12,7 +12,7 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 [![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-427%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-393%20passing-brightgreen.svg)]()
 [![LOC](https://img.shields.io/badge/LOC-34.5K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
@@ -215,7 +215,7 @@ cargo build --release
 cargo build --release --no-default-features
 
 # Run tests
-cargo test   # full suite: 351 lib tests + 76 integration tests in tests/ (427 total)
+cargo test   # full suite: 317 lib tests + 76 integration tests in tests/ (393 total)
 ```
 
 ### Run

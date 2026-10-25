@@ -29,14 +29,27 @@ pub(crate) fn log_cuda_unavailable_once(cause: String) {
 #[cfg(feature = "cuda")]
 pub fn is_cuda_available() -> bool {
     use cudarc::driver::CudaContext;
-    match CudaContext::device_count() {
-        Ok(count) if count > 0 => true,
-        Ok(count) => {
+    // cudarc 0.19 PANICS (does not return Err) when the CUDA driver library
+    // itself is missing: the dlopen failure fires inside its lazy init
+    // ("Unable to dynamically load the \"cuda\" shared library"). This is the
+    // ONLY place GPU detection may touch cudarc — catch the panic here and
+    // degrade to "no GPU" (the old global panic-hook swap is gone and must
+    // not come back).
+    let probe = std::panic::catch_unwind(std::panic::AssertUnwindSafe(CudaContext::device_count));
+    match probe {
+        Ok(Ok(count)) if count > 0 => true,
+        Ok(Ok(count)) => {
             log_cuda_unavailable_once(format!("no CUDA devices (device_count={count})"));
             false
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             log_cuda_unavailable_once(format!("driver init failed: {e:?}"));
+            false
+        }
+        Err(_) => {
+            log_cuda_unavailable_once(
+                "CUDA driver library not loadable (libcuda missing) — running CPU-only".into(),
+            );
             false
         }
     }
@@ -360,10 +373,23 @@ pub fn batch_search(
 #[cfg(feature = "cuda")]
 pub fn gpu_info() -> Option<String> {
     use cudarc::driver::CudaContext;
-    let ctx = match CudaContext::new(0) {
-        Ok(ctx) => ctx,
-        Err(e) => {
+    // Hardware check first (catches the driverless-libcuda panic inside).
+    if !is_cuda_available() {
+        return None;
+    }
+    // Belt and suspenders: context creation can also cross the dlopen
+    // boundary on partially-broken driver installs — never let a cudarc
+    // panic escape this function.
+    let ctx = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| CudaContext::new(0))) {
+        Ok(Ok(ctx)) => ctx,
+        Ok(Err(e)) => {
             log_cuda_unavailable_once(format!("CudaContext::new(0) failed: {e:?}"));
+            return None;
+        }
+        Err(_) => {
+            log_cuda_unavailable_once(
+                "CudaContext::new(0) panicked (broken driver install)".into(),
+            );
             return None;
         }
     };
