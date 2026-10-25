@@ -126,6 +126,10 @@ impl SemanticMemoryDB {
     }
 
     /// Set the text encoder used for automatic embedding generation.
+    ///
+    /// NOTE: this rebuilds the underlying vector store, so documents stored
+    /// before this call lose their splat representation (they remain
+    /// searchable via BM25 only). Call this BEFORE storing documents.
     pub fn with_encoder(mut self, encoder: Box<dyn Encoder>) -> Self {
         self.latent_dim = encoder.dim();
         // The internal SplatStore was built with the OLD latent_dim — rebuild
@@ -136,6 +140,13 @@ impl SemanticMemoryDB {
         };
         self.store = SplatStore::new(config);
         self.doc_index.clear();
+        if self.add_count > 0 {
+            eprintln!(
+                "[semantic_memory] WARNING: with_encoder() after {} stored docs — \
+                 previously stored vectors are dropped (BM25-only from now on)",
+                self.add_count
+            );
+        }
         self.encoder = Some(encoder);
         self
     }
@@ -209,6 +220,10 @@ impl SemanticMemoryDB {
                 ))
             }
         };
+        // A re-store of the same doc_id must not leave stale index→id
+        // mappings behind: the old splat (if any) would keep feeding this id
+        // into searches through its (likely worse) position.
+        self.doc_index.retain(|_, v| v != &id);
         self.doc_index.insert(splat_idx, id.clone());
 
         self.documents.insert(id.clone(), text.to_string());
@@ -248,7 +263,16 @@ impl SemanticMemoryDB {
                     continue;
                 }
                 let score = 1.0 - r.distance;
-                vector_score_map.insert(doc_id.clone(), score.into());
+                // Re-stored docs map several splat indices to the same id;
+                // keep the best (lowest distance → highest score), not the last.
+                vector_score_map
+                    .entry(doc_id.clone())
+                    .and_modify(|s| {
+                        if score > *s as f32 {
+                            *s = score as f64;
+                        }
+                    })
+                    .or_insert_with(|| score as f64);
             }
         }
 
@@ -387,7 +411,10 @@ impl SemanticMemoryDB {
     /// Get memory statistics.
     pub fn stats(&self) -> serde_json::Value {
         serde_json::json!({
-            "total_memories": self.documents.len().saturating_sub(self.deleted.len()),
+            // delete() removes the doc from `documents` itself, so no
+            // adjustment by `deleted.len()` is needed (the old subtraction
+            // double-counted every delete and underflowed).
+            "total_memories": self.documents.len(),
             "total_queries": self.query_count,
             "total_adds": self.add_count,
             "bm25_indexed": self.bm25.n_docs(),
@@ -551,6 +578,30 @@ mod tests {
         let stats = db.stats();
         assert_eq!(stats["total_memories"], 0);
         assert_eq!(stats["auto_categorize"], true);
+    }
+
+    #[test]
+    fn test_stats_after_delete() {
+        // Regression: delete() purges `documents` AND marks `deleted`, so the
+        // old `documents.len() - deleted.len()` underflowed (or, after the
+        // saturating_sub band-aid, under-counted to 0). One live doc must
+        // still report 1 after deleting the other four.
+        let mut db = make_test_db();
+        let ids = db
+            .batch_store(&[
+                ("memory one".to_string(), None),
+                ("memory two".to_string(), None),
+                ("memory three".to_string(), None),
+                ("memory four".to_string(), None),
+                ("memory five".to_string(), None),
+            ])
+            .unwrap();
+        assert_eq!(ids.len(), 5);
+        for id in &ids[1..] {
+            assert!(db.delete(id));
+        }
+        let stats = db.stats();
+        assert_eq!(stats["total_memories"], 1, "4 deletes, 1 live doc");
     }
 
     #[test]

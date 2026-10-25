@@ -83,6 +83,21 @@ pub struct HNSWIndex {
 }
 
 impl HNSWIndex {
+    /// Number of vectors currently in the index (incl. tombstoned).
+    pub fn len(&self) -> usize {
+        self.vectors.len()
+    }
+
+    /// True when the index holds no vectors.
+    pub fn is_empty(&self) -> bool {
+        self.vectors.is_empty()
+    }
+
+    /// Dimensionality the index was built with.
+    pub fn dim(&self) -> usize {
+        self._dim
+    }
+
     /// New.
     pub fn new(
         dim: usize,
@@ -240,6 +255,21 @@ impl HNSWIndex {
             return Err(format!(
                 "dimension too large: {} (max {})",
                 dim, MAX_HNSW_DIM
+            ));
+        }
+        // m/m_max0 come from the file header: unbounded values would drive
+        // giant Vec::with_capacity allocations (DoS via a ~100-byte hostile
+        // index). m >= 2 also keeps level_mult = 1/ln(m) finite and positive.
+        const MAX_HNSW_M: usize = 4096;
+        const MAX_HNSW_M_MAX0: usize = 8192;
+        if !(2..=MAX_HNSW_M).contains(&m_stored) {
+            return Err(format!(
+                "m out of valid range [2, {MAX_HNSW_M}]: {m_stored}"
+            ));
+        }
+        if m_max0 > MAX_HNSW_M_MAX0 {
+            return Err(format!(
+                "m_max0 too large (max {MAX_HNSW_M_MAX0}): {m_max0}"
             ));
         }
         let _total_elements = n_vectors

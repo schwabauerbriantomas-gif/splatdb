@@ -10,7 +10,12 @@ pub struct SyncAction {
     pub payload: String, // JSON payload
     pub queued_at: f64,
     pub retries: usize,
+    /// Process-wide monotonic id: the identity used by `mark_flushed`
+    /// (timestamps alone can collide for same-payload actions in one tick).
+    pub seq: u64,
 }
+
+static NEXT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Queue for offline actions when coordinator is unreachable.
 pub struct SyncQueue {
@@ -37,6 +42,7 @@ impl SyncQueue {
             payload: payload.to_string(),
             queued_at: now_secs(),
             retries: 0,
+            seq: NEXT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         });
     }
 
@@ -91,18 +97,12 @@ impl SyncQueue {
     /// Returns the number of actions actually removed.
     pub fn mark_flushed(&mut self, confirmed: &[SyncAction]) -> usize {
         self.last_flush = Some(Instant::now());
-        // f64 is not Hash/Eq, so identity matching uses a Vec + PartialEq scan
-        // (sync queues are small; O(n*m) is fine and keeps the f64 timestamp).
-        let confirmed_keys: Vec<(String, String, f64)> = confirmed
-            .iter()
-            .map(|a| (a.action_type.clone(), a.payload.clone(), a.queued_at))
-            .collect();
+        // Identity = the monotonic `seq` assigned at queue time (payload+timestamp
+        // pairs can collide when the same payload is queued twice in one tick).
+        let confirmed_seqs: std::collections::HashSet<u64> =
+            confirmed.iter().map(|a| a.seq).collect();
         let before = self.queue.len();
-        self.queue.retain(|a| {
-            !confirmed_keys
-                .iter()
-                .any(|(t, p, q)| *t == a.action_type && *p == a.payload && *q == a.queued_at)
-        });
+        self.queue.retain(|a| !confirmed_seqs.contains(&a.seq));
         before - self.queue.len()
     }
 }

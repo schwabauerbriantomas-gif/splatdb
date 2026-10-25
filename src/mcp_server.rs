@@ -1921,6 +1921,11 @@ pub fn run_mcp_server() {
     // at MAX+1 bytes; the remainder of an oversized line is drained in 8KB
     // chunks and skipped, never buffered whole.
     let mut raw_line: Vec<u8> = Vec::with_capacity(4096);
+    // Bytes that followed an oversized line's '\n' inside a drained chunk:
+    // they are the START of the next (valid) request and must NOT be thrown
+    // away, or the JSON-RPC stream desynchronizes and the next message is
+    // corrupted. They are seeded into the next line read instead.
+    let mut pending: Vec<u8> = Vec::new();
     loop {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
             eprintln!("[splatsdb] Shutdown requested, exiting main loop.");
@@ -1928,9 +1933,21 @@ pub fn run_mcp_server() {
         }
 
         raw_line.clear();
-        let read = {
+        let read = if pending.is_empty() {
             let mut capped = reader.by_ref().take(MAX_JSONRPC_LINE_LEN as u64 + 1);
             capped.read_until(b'\n', &mut raw_line)
+        } else {
+            // Seed the tail of the previous oversized line, then keep reading
+            // the current one under the same cap (identical semantics to a
+            // fresh read: newline detection and oversize check still apply).
+            raw_line.extend_from_slice(&pending);
+            pending.clear();
+            let seeded = raw_line.len();
+            let mut capped = reader.by_ref().take(MAX_JSONRPC_LINE_LEN as u64 + 1);
+            match capped.read_until(b'\n', &mut raw_line) {
+                Ok(n) => Ok(seeded + n),
+                Err(e) => Err(e),
+            }
         };
         let line = match read {
             Ok(0) => break, // EOF — stdin closed
@@ -1947,8 +1964,14 @@ pub fn run_mcp_server() {
                     loop {
                         match reader.read(&mut discard) {
                             Ok(0) => break, // EOF
-                            Ok(m) if discard[..m].contains(&b'\n') => break,
-                            Ok(_) => {}
+                            Ok(m) => {
+                                if let Some(pos) = discard[..m].iter().position(|&b| b == b'\n') {
+                                    // Keep whatever follows the newline: the
+                                    // next request already arrived.
+                                    pending.extend_from_slice(&discard[pos + 1..m]);
+                                    break;
+                                }
+                            }
                             Err(_) => break,
                         }
                     }

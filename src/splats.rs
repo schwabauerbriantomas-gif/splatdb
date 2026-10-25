@@ -23,6 +23,15 @@ pub struct NeighborResult {
     pub score: f32,
 }
 
+/// Epoch source for `SplatStore::data_version`: every store claims a
+/// disjoint 2^32-wide range (`epoch << 32`) and bumps +1 per mutation, so
+/// versions are globally unique across ALL stores in the process — required
+/// because the process-level VRAM dataset cache (gpu::cached_dataset_index)
+/// keys its single entry by version; shape alone never disambiguates two
+/// datasets. (2^32 mutations within one store would be needed to overlap a
+/// neighboring range — unreachable in practice.)
+static STORE_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Main SplatStore - wraps HRM2Engine for high-level vector operations.
 ///
 /// Subsystems are initialized based on preset config:
@@ -34,6 +43,13 @@ pub struct SplatStore {
     config: SplatsDBConfig,
     max_splats: usize,
     n_active: usize,
+    /// Globally-unique dataset version: seeded from [`STORE_EPOCH`] and
+    /// bumped by every mutation of the active mu/alpha/kappa content
+    /// (`add_splat`, `load_splats`, `compact` — all other mutators funnel
+    /// through them). Key for the process-level VRAM dataset cache
+    /// (`crate::gpu::cached_dataset_index`) so an unchanged dataset is never
+    /// re-uploaded per query/batch.
+    data_version: u64,
     mu: Array2<f32>,
     alpha: Array1<f32>,
     kappa: Array1<f32>,
@@ -130,6 +146,7 @@ impl SplatStore {
             config,
             max_splats,
             n_active: 0,
+            data_version: STORE_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32,
             mu: Array2::zeros((max_splats, dim)),
             alpha: Array1::ones(max_splats),
             kappa: Array1::ones(max_splats),
@@ -157,6 +174,8 @@ impl SplatStore {
         }
         self.n_active += n_new;
         self.next_id += n_new as u64;
+        // Dataset content changed → bump the VRAM-cache key.
+        self.data_version += 1;
         true
     }
 
@@ -284,6 +303,21 @@ impl SplatStore {
         match crate::hnsw_index::HNSWIndex::load(&path, m, ef_construction, ef_search, metric, 42) {
             Ok(loaded) => {
                 let dim = self.config.latent_dim;
+                // A persisted index is only usable if it matches the store:
+                // stale (fewer vectors → hnsw_needs_sync() would lie forever
+                // and the missing ones never get indexed) or a different dim
+                // (distance_cached zips → silently wrong distances). Either
+                // way, fall through to a full rebuild.
+                if loaded.len() != self.n_active || loaded.dim() != dim {
+                    eprintln!(
+                        "[splatsdb] Persisted HNSW is stale/mismatched (index: {} vectors, dim {}; \
+                         store: n_active {}, dim {dim}) — rebuilding",
+                        loaded.len(),
+                        loaded.dim(),
+                        self.n_active
+                    );
+                    return false;
+                }
                 self.candidates = Some(Box::new(HnswBackend::from_index(loaded, dim)));
                 true
             }
@@ -342,20 +376,34 @@ impl SplatStore {
         }
 
         let count = end - start;
+        let mut inserted = 0usize;
         if let Some(ref mut backend) = self.candidates {
             if backend.capabilities().incremental {
                 let new_vecs: Vec<Vec<f32>> =
                     (start..end).map(|i| self.mu.row(i).to_vec()).collect();
-                if let Err(e) = backend.add_batch(&new_vecs) {
-                    eprintln!(
-                        "[splatsdb] Warning: incremental backend insert failed ({}); \
-                         falling back to per-vector insertion",
-                        e
-                    );
-                    for v in &new_vecs {
-                        // Last resort for backends whose add_batch is partial.
-                        if let Err(e) = backend.add_batch(std::slice::from_ref(v)) {
-                            eprintln!("[splatsdb] Warning: skipping vector: {}", e);
+                match backend.add_batch(&new_vecs) {
+                    Ok(()) => inserted = count,
+                    Err(e) => {
+                        eprintln!(
+                            "[splatsdb] Warning: incremental backend insert failed ({}); \
+                             falling back to per-vector insertion",
+                            e
+                        );
+                        for v in &new_vecs {
+                            match backend.add_batch(std::slice::from_ref(v)) {
+                                Ok(()) => inserted += 1,
+                                Err(e) => {
+                                    eprintln!(
+                                        "[splatsdb] Warning: stopping incremental sync at {} \
+                                         inserted: {}",
+                                        inserted, e
+                                    );
+                                    // Backend indices are positional: a skipped
+                                    // middle vector would SHIFT every later one
+                                    // (silent index corruption). Stop instead.
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -363,10 +411,13 @@ impl SplatStore {
                 // Non-incremental backend (e.g. CAGRA): full rebuild required.
                 let embeddings = self.mu.slice(ndarray::s![..end, ..]).to_owned();
                 backend.build(&embeddings);
+                inserted = count;
             }
         }
-        self.hnsw_indexed_count = end;
-        count
+        // Advance only by what actually made it into the backend: a failure
+        // leaves the counter behind so the next sync retries the remainder.
+        self.hnsw_indexed_count = start + inserted;
+        inserted
     }
 
     /// Insert all new (unindexed) vectors incrementally, then save to disk.
@@ -402,12 +453,15 @@ impl SplatStore {
             if backend.capabilities().incremental {
                 if let Err(e) = backend.add_batch(std::slice::from_ref(&vec.to_vec())) {
                     eprintln!("[splatsdb] Warning: backend insert failed: {}", e);
+                    // Do NOT mark it indexed: the next sync retries it.
+                } else {
+                    self.hnsw_indexed_count = self.n_active;
                 }
             } else {
                 let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
                 backend.build(&embeddings);
+                self.hnsw_indexed_count = self.n_active;
             }
-            self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
                     eprintln!(
@@ -437,12 +491,16 @@ impl SplatStore {
                     .collect();
                 if let Err(e) = backend.add_batch(&new_vecs) {
                     eprintln!("[splatsdb] Warning: backend add_batch failed: {}", e);
+                    // Leave hnsw_indexed_count behind: the next incremental
+                    // sync retries these vectors instead of forgetting them.
+                } else {
+                    self.hnsw_indexed_count = self.n_active;
                 }
             } else {
                 let embeddings = self.mu.slice(ndarray::s![..self.n_active, ..]).to_owned();
                 backend.build(&embeddings);
+                self.hnsw_indexed_count = self.n_active;
             }
-            self.hnsw_indexed_count = self.n_active;
             if let Some(dir) = data_dir {
                 if let Err(e) = self.save_hnsw(dir) {
                     eprintln!("[splatsdb] Warning: failed to save HNSW after batch: {}", e);
@@ -629,10 +687,12 @@ impl SplatStore {
     /// a splat with larger distance but smaller kappa may out-score a closer
     /// one — the re-score makes that explicit.
     ///
-    /// GPU hook (feature `cuda`): when CUDA is available at runtime and
-    /// `crate::gpu::gaussian_topk_scores` returns `Some`, the score top-k runs
+    /// GPU hook (feature `cuda`): when CUDA is available at runtime and the
+    /// VRAM-cached score top-k (`crate::gpu::gaussian_topk_scores_cached`,
+    /// keyed by `data_version`) returns `Some`, the score top-k runs
     /// exhaustively on the GPU against the persistent dataset (`mu`/`alpha`/
-    /// `kappa`). Otherwise the exact CPU candidate path below runs — including
+    /// `kappa`) — resident in VRAM across queries, no per-query upload.
+    /// Otherwise the exact CPU candidate path below runs — including
     /// on `--features cuda` builds without a GPU, where it stays sub-linear.
     pub fn find_neighbors_gaussian(
         &self,
@@ -647,21 +707,25 @@ impl SplatStore {
         let k = k.min(n);
 
         // 0. GPU fast path: exhaustive score top-k over the persistent dataset.
+        //    The dataset lives in the process-level VRAM cache keyed by
+        //    `data_version` (bumps on add/load/compact): one upload per
+        //    dataset version instead of one full upload per query. On cache
+        //    decline (small dataset / no kernel) the cached wrapper falls
+        //    back to the uncached per-call path — fresh GPU upload, then
+        //    exact CPU.
         #[cfg(feature = "cuda")]
         {
             if crate::gpu::is_cuda_available() {
-                let dim = self.config.latent_dim;
                 let dataset = self.mu.slice(ndarray::s![..n, ..]);
                 let alpha = self.alpha.slice(ndarray::s![..n]);
                 let kappa = self.kappa.slice(ndarray::s![..n]);
                 let q: Vec<f32> = query.to_vec();
-                if let Some(results) = crate::gpu::gaussian_topk_scores(
+                if let Some(results) = crate::gpu::gaussian_topk_scores_cached(
+                    self.data_version,
                     &q,
-                    dataset.as_slice().unwrap_or(&[]),
+                    &dataset,
                     alpha.as_slice().unwrap_or(&[]),
                     kappa.as_slice().unwrap_or(&[]),
-                    n,
-                    dim,
                     1,
                     k,
                 ) {
@@ -861,6 +925,8 @@ impl SplatStore {
         }
         self.n_active = n;
         self.next_id = n as u64;
+        // Full overwrite → bump the VRAM-cache key.
+        self.data_version += 1;
         Ok(())
     }
 
@@ -946,6 +1012,8 @@ impl SplatStore {
             self.frequency[i] = 0.0;
         }
         self.n_active = write_idx;
+        // Row content/order changed → bump the VRAM-cache key.
+        self.data_version += 1;
     }
 
     /// Get store statistics.
@@ -962,6 +1030,14 @@ impl SplatStore {
     #[inline]
     pub fn n_active(&self) -> usize {
         self.n_active
+    }
+
+    /// Globally-unique dataset version (bumps on add/load/compact). Cache key
+    /// for the process-level VRAM-resident GpuIndex
+    /// (`crate::gpu::cached_dataset_index`).
+    #[inline]
+    pub fn data_version(&self) -> u64 {
+        self.data_version
     }
 
     /// Find k nearest neighbors among a **subset** of vector indices.

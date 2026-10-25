@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - 2026-10-25
+
+### Added
+- Process-level VRAM dataset cache (`gpu::cached_dataset_index`): the dataset uploads to GPU once per dataset version instead of per query/batch; `SplatStore::data_version()` (global epoch-seeded) keys the single-entry cache; alpha/kappa ride along; sub-threshold datasets (≤10K floats) bypass it
+- `HNSWIndex::len()`/`dim()`/`is_empty()` accessors; `SyncAction::seq` monotonic identity
+
+### Fixed
+- `semantic_memory`: hybrid search fabricated `vec_{n}` ids that never matched real doc ids — fusion never joined vector+BM25 results (CRITICAL); honest capacity/dim errors on store; `with_encoder()` documented + warns (drops stored vectors); `stats()` counted deletes twice
+- `splats`: panics when the HNSW backend returns <k candidates; stale or dim-mismatched persisted HNSW now rejected and rebuilt (was silently accepted → permanent recall loss); `hnsw_indexed_count` no longer advances past failed backend inserts (vectors were lost forever); per-vector fallback stops at first failure (positional shift = silent corruption)
+- `hnsw_index`: `m`/`m_max0` from file headers bounded (DoS via ~100-byte hostile index); `m ≥ 2` keeps `level_mult` finite
+- HTTP/MCP: embeddings with NaN/inf rejected at every entry point (poisoned the whole index); hex decompress no longer panics the MCP process on odd/multibyte input; oversized-line reader preserves bytes after the newline (stream no longer desyncs); `/field-search` runs its O(n·d) scan on `spawn_blocking` (was freezing the whole runtime); `load_field` validates file size before header-driven allocations
+- cluster: rendezvous placement unified between CLI ingest and library (split-brain mapping); `mark_flushed` no longer drops re-queued failed actions; sharding stable under edge reordering
+- GPU: no more global panic-hook swap (fallback causes now logged once); extended-kernel PTX cached per process (was JIT-loaded from disk per call, even inside the k-means loop); l2/cosine top-k honors >48KB shared-memory opt-in (silent failures for K≥24); sentinel −1 no longer surfaces as vector 0; CPU fallbacks log once instead of silently degrading
+- CI: `cargo-audit` job; `Cargo.lock` versioned; release binaries smoke-tested before publish; dead Python tests (m2m-memory inheritance) removed; pentest setups fail loudly instead of passing empty
+- docs: badge/tests count measured (427), GPU microbenchmark contradictions unified (20.93× with re-measure pending), longmemeval NumPy-vs-native results separated (native: 0.304 recall / 671.63 QPS), unsourced HRM2/TurboQuant claims marked NOT VALIDATED, 15 missing CLI commands documented, verbatim/compression status corrected
+
+### Verified
+- 427 tests green, `clippy -D warnings` clean on cuda + cpu-only, GPU kernel benchmark 31.28× → 34.32× (10K×640D×100q, same-run CPU control)
+
 ## [v2.6.1] - 2026-10-25
 
 ### Added

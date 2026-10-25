@@ -16,8 +16,11 @@
 //!     `SplatsDBConfig::default()` shipped it disabled → every query was a
 //!     linear O(N·D) scan).
 //!   - GPU path (when built with `--features cuda` and a device is present):
-//!     one `gpu::batch_search` per batch over a cached flat snapshot of the
-//!     dataset, refreshed only when `n_active` changes (R9 §2).
+//!     one batched search per coalesced batch over a cached flat snapshot of
+//!     the dataset, refreshed only when the store's `data_version` changes
+//!     (R9 §2). The snapshot (version, n, dim) additionally keys a
+//!     process-level VRAM-resident `GpuIndex` (`gpu::cached_dataset_index`)
+//!     so the dataset uploads to the GPU once per version, not per batch.
 //!   - `simple_hash_embedding` hashes the text ONCE and derives the D
 //!     dimensions from a SplitMix64 PRNG (O(1) hashes instead of O(D)).
 //!
@@ -493,6 +496,20 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
         );
         return None;
     }
+    // Header-driven allocations are bounded by the caps above, but a header
+    // near the caps would still transiently allocate ~(k+1)*8 + n*4 ≈ 1.2GB
+    // before read_exact fails on a truncated file. The file must actually
+    // CONTAIN those bytes — check metadata first (DoS via a corrupt boot file).
+    let members_len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let members_need = 16u64 + (k as u64 + 1) * 8 + n as u64 * 4;
+    if members_len < members_need {
+        eprintln!(
+            "[splatsdb] field/ members.idx truncado ({} bytes, header pide {members_need}); \
+             /field-search deshabilitado",
+            members_len
+        );
+        return None;
+    }
     let mut ob = vec![0u8; (k + 1) * 8];
     f.read_exact(&mut ob).ok()?;
     let mut offsets = vec![0u64; k + 1];
@@ -528,6 +545,16 @@ fn load_field(data_dir: &str) -> Option<FieldData> {
     if kr > MAX_FIELD_RADII {
         eprintln!(
             "[splatsdb] field/ radii header out of range (kr={kr}); /field-search deshabilitado"
+        );
+        return None;
+    }
+    let radii_len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if radii_len < 8u64 + kr as u64 * 4 {
+        eprintln!(
+            "[splatsdb] field/ radii.bin truncado ({} bytes, header pide {}); \
+             /field-search deshabilitado",
+            radii_len,
+            8 + kr * 4
         );
         return None;
     }
@@ -747,22 +774,42 @@ async fn field_search_handler(
         ));
     }
     let k = req.top_k.unwrap_or(10).clamp(1, 1000);
-    if req.mode.as_deref() == Some("two-phase") {
-        let nprobe = req.nprobe.unwrap_or(32).clamp(1, field.splats.nrows());
-        return Ok(Json(field_two_phase(field, &req.embedding, k, nprobe)));
+    // field_sweep/field_two_phase are CPU-bound O(n·d) scans; running them
+    // inline on the async runtime freezes ALL endpoints (incl. /health) under
+    // a few concurrent requests. Push them onto the blocking pool (FieldData
+    // travels as Arc, no locks involved).
+    let field = Arc::clone(field);
+    let embedding = req.embedding;
+    let mode_two_phase = req.mode.as_deref() == Some("two-phase");
+    let nprobe = mode_two_phase.then(|| req.nprobe.unwrap_or(32).clamp(1, field.splats.nrows()));
+    let result = tokio::task::spawn_blocking(move || {
+        if let Some(nprobe) = nprobe {
+            field_two_phase(&field, &embedding, k, nprobe)
+        } else {
+            field_sweep(&field, &embedding, k)
+        }
+    })
+    .await;
+    match result {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => {
+            eprintln!("[splatsdb] field-search task panicked: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
     }
-    Ok(Json(field_sweep(field, &req.embedding, k)))
 }
 
 // ─── Batch worker (R9 §2) ─────────────────────────────────
 
 /// Cached flat copy of the active dataset for the GPU batch path.
-/// Refreshed only when `n_active` changes, so the store mutex is held just
-/// long enough to copy — never during the search itself.
+/// Refreshed only when the store's `data_version` changes, so the store
+/// mutex is held just long enough to copy — never during the search itself.
 struct DatasetSnapshot {
-    /// Dataset version (= n_active at snapshot time; the server only appends
-    /// via /store, so this is a sufficient staleness check).
-    version: usize,
+    /// Dataset version (`SplatStore::data_version` at snapshot time —
+    /// globally unique across stores, bumps on every add/load/compact).
+    /// Staleness check for this host-side cache AND key for the
+    /// process-level VRAM dataset cache (`gpu::cached_dataset_index`).
+    version: u64,
     n: usize,
     dim: usize,
     /// Row-major [n, dim] flat data.
@@ -922,12 +969,15 @@ fn gpu_batch_path(
     // ── Snapshot refresh under a brief lock ──
     {
         let s = store.blocking_lock();
-        let version = s.n_active();
+        // data_version (bumps on add/load/compact) drives both the staleness
+        // check and the VRAM-cache key below; n_active sizes the arrays.
+        let version = s.data_version();
+        let n = s.n_active();
         let stale = match snapshot.as_ref() {
             Some(snap) => snap.version != version,
             None => true,
         };
-        if version == 0 {
+        if n == 0 {
             *snapshot = None;
         } else if stale {
             if let Some(mu) = s.get_mu() {
@@ -936,14 +986,14 @@ fn gpu_batch_path(
                 let alpha = s
                     .get_alpha()
                     .map(|a| a.iter().copied().collect::<Vec<f32>>())
-                    .unwrap_or_else(|| vec![1.0f32; version]);
+                    .unwrap_or_else(|| vec![1.0f32; n]);
                 let kappa = s
                     .get_kappa()
                     .map(|k| k.iter().copied().collect::<Vec<f32>>())
-                    .unwrap_or_else(|| vec![10.0f32; version]);
+                    .unwrap_or_else(|| vec![10.0f32; n]);
                 *snapshot = Some(DatasetSnapshot {
                     version,
-                    n: version,
+                    n,
                     dim,
                     data,
                     alpha,
@@ -991,15 +1041,23 @@ fn gpu_batch_path(
         .collect();
     let n_l2 = l2_ks.len();
 
+    // ── One VRAM-resident index for the whole batch (and every later batch
+    // with the same dataset version): the `*_cached` wrappers key the
+    // process-level GpuIndex on (snapshot version, n, dim), so mu+alpha+
+    // kappa upload once per dataset version instead of once per batch. On a
+    // cache decline (small dataset / no CUDA / kernel failure) they fall
+    // back to the per-call wrappers — same results as before.
+    let data_view = ndarray::ArrayView2::from_shape((snap.n, snap.dim), &snap.data)
+        .map_err(|e| format!("snapshot reshape failed: {e}"))?;
+
     let gauss_out = if n_gauss > 0 {
         let kmax_g = gauss_ks.iter().copied().max().unwrap_or(1).min(snap.n);
-        crate::gpu::gaussian_topk_scores(
+        crate::gpu::gaussian_topk_scores_cached(
+            snap.version,
             &gauss_flat,
-            &snap.data,
+            &data_view,
             &snap.alpha,
             &snap.kappa,
-            snap.n,
-            snap.dim,
             n_gauss,
             kmax_g,
         )
@@ -1010,7 +1068,7 @@ fn gpu_batch_path(
 
     let l2_out = if n_l2 > 0 {
         let kmax_l = l2_ks.iter().copied().max().unwrap_or(1).min(snap.n);
-        crate::gpu::batch_search(&l2_flat, n_l2, &snap.data, snap.n, snap.dim, kmax_l, "l2")
+        crate::gpu::batch_search_cached(snap.version, &l2_flat, n_l2, &data_view, kmax_l, "l2")
     } else {
         Vec::new()
     };
@@ -1724,7 +1782,12 @@ mod tests {
             .expect("second call must succeed with cached snapshot");
         assert_eq!(out2[0][0].index, 0);
         assert_eq!(out2[1][0].index, 3);
-        assert_eq!(snapshot.as_ref().unwrap().version, 6);
+        // Snapshot version tracks the store's data_version (not n_active):
+        // unchanged after the second call → snapshot was not rebuilt.
+        assert_eq!(
+            snapshot.as_ref().unwrap().version,
+            store.lock().await.data_version()
+        );
 
         // Store grows → snapshot invalidated and refreshed.
         {
@@ -1734,7 +1797,10 @@ mod tests {
         let out3 = run_gpu_batch(&store, &mut snapshot, &queries, &ks, &rescore)
             .await
             .expect("third call must refresh snapshot");
-        assert_eq!(snapshot.as_ref().unwrap().version, 7);
+        assert_eq!(
+            snapshot.as_ref().unwrap().version,
+            store.lock().await.data_version()
+        );
         assert_eq!(out3[0][0].index, 0);
     }
 

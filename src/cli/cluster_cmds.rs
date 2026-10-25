@@ -3,7 +3,7 @@
 use splatsdb::cluster::client::SplatsDBClusterClient;
 use splatsdb::cluster::energy_router::EnergyRouterConfig;
 use splatsdb::cluster::router::ClusterRouter;
-use splatsdb::cluster::sharding::shard_by_hash;
+use splatsdb::cluster::sharding::shard_by_rendezvous;
 
 // ─── Global cluster state (persisted as JSON for CLI session) ──────
 
@@ -161,7 +161,10 @@ pub fn cmd_cluster_ingest(input: &str, n_docs: usize, strategy: &str) {
 
     for i in 0..n_docs {
         let doc_id = format!("{}_{}", input, i);
-        let target = shard_by_hash(&doc_id, edge_ids.len());
+        // Same placement function the library uses (shard_by_rendezvous over
+        // real edge ids) — shard_by_hash over positional indices created a
+        // split-brain: CLI and library mapped the same doc to different edges.
+        let target = shard_by_rendezvous(&doc_id, &edge_ids).unwrap();
         let target_edge = &edge_ids[target];
         router.register_document(&doc_id, target_edge);
         *per_edge_counts.entry(target_edge.clone()).or_insert(0) += 1;

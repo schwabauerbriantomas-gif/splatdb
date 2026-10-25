@@ -48,6 +48,250 @@ pub fn is_cuda_available() -> bool {
     false
 }
 
+// ============================================================================
+// Process-level VRAM dataset cache (single entry)
+// ============================================================================
+//
+// v2.6.0 audit: every gpu::batch_search / gpu::gaussian_topk_scores call
+// built a fresh GpuIndex, uploaded the whole dataset (N·D floats) and freed
+// it on return — once per HTTP batch in api_server, and once PER QUERY
+// (n_queries = 1) in SplatStore::find_neighbors_gaussian. The cache below
+// keeps ONE GpuIndex alive for the process lifetime and hands out an Arc
+// clone on hits: zero uploads while the dataset version is unchanged.
+
+/// Minimum dataset size (in floats) worth pinning in VRAM. Below the cutoff
+/// the host→device upload is a trivial one-shot (10k floats = 40 KB, µs) and
+/// a cache entry would only add lock traffic and hold device memory for
+/// nothing — callers then use the uncached per-call upload path as before.
+#[cfg(feature = "cuda")]
+const VRAM_CACHE_MIN_FLOATS: usize = 10_000;
+
+#[cfg(feature = "cuda")]
+mod vram_cache {
+    use super::cuda_kernel::GpuIndex;
+    use ndarray::ArrayView2;
+    use parking_lot::RwLock;
+    use std::sync::{Arc, OnceLock};
+
+    struct Entry {
+        version: u64,
+        nrows: usize,
+        ncols: usize,
+        /// alpha/kappa uploaded alongside the dataset (gaussian kernel input).
+        has_ak: bool,
+        index: Arc<GpuIndex>,
+    }
+
+    static CACHE: OnceLock<RwLock<Option<Entry>>> = OnceLock::new();
+
+    fn cache() -> &'static RwLock<Option<Entry>> {
+        CACHE.get_or_init(|| RwLock::new(None))
+    }
+
+    /// Drop the cached entry when it belongs to a different dataset version.
+    /// Used when the incoming dataset is itself too small to cache: the
+    /// previous (large) entry must not pin VRAM for the rest of the process.
+    fn evict_unless(version: u64) {
+        let mut guard = cache().write();
+        if guard.as_ref().is_some_and(|e| e.version != version) {
+            *guard = None;
+        }
+    }
+
+    /// Fetch the process-level cached index for (version, shape).
+    ///
+    /// - hit (version+nrows+ncols match, and alpha/kappa resident when the
+    ///   caller needs them) → Arc clone, NO upload;
+    /// - miss → build + upload OUTSIDE the write lock, then swap the entry
+    ///   (dropping the old one frees its VRAM; transiently both copies
+    ///   coexist, ~2× dataset bytes during a version change);
+    /// - dataset below `min_floats` (or empty) → None, evicting any entry
+    ///   from a different version;
+    /// - no CUDA / upload failure / non-contiguous view → None.
+    ///
+    /// The `version` must be globally unique across all stores in the
+    /// process (see `SplatStore::data_version`); shape alone never
+    /// disambiguates two different datasets.
+    pub(super) fn get(
+        version: u64,
+        data: &ArrayView2<f32>,
+        alpha: Option<&[f32]>,
+        kappa: Option<&[f32]>,
+        min_floats: usize,
+    ) -> Option<Arc<GpuIndex>> {
+        let (nrows, ncols) = (data.nrows(), data.ncols());
+        if nrows == 0 || ncols == 0 {
+            evict_unless(version);
+            return None;
+        }
+        // Contiguous row-major data is required for the host→device copy.
+        let flat = data.as_slice()?;
+        if flat.len() < min_floats {
+            evict_unless(version);
+            return None;
+        }
+
+        // Callers passing alpha+kappa need them resident (gaussian kernel);
+        // an l2-only caller is satisfied by any shape-matching entry.
+        let wants_ak = alpha.is_some() && kappa.is_some();
+
+        // Fast path: short read-lock — clone the Arc and release BEFORE any
+        // GPU work. Concurrent queries share one index; every query method
+        // takes &self, so kernels run outside the lock.
+        {
+            let guard = cache().read();
+            if let Some(entry) = guard.as_ref() {
+                if entry.version == version
+                    && entry.nrows == nrows
+                    && entry.ncols == ncols
+                    && (!wants_ak || entry.has_ak)
+                {
+                    return Some(entry.index.clone());
+                }
+            }
+        }
+
+        // Miss: build + upload outside any lock so readers keep serving from
+        // the old entry during the upload. A concurrent double-miss builds
+        // two indexes and the last swap wins (the loser frees on drop) —
+        // correct, rare, benign.
+        let mut index = GpuIndex::new()?;
+        if !index.upload_dataset(flat, nrows, ncols) {
+            return None;
+        }
+        // Best-effort alpha/kappa: only attempted when lengths match nrows
+        // (upload_alpha_kappa logs per call on mismatch). On failure the
+        // gaussian kernel declines on this index and callers use their
+        // existing exhaustive/CPU fallbacks; l2 top-k is unaffected.
+        let mut has_ak = false;
+        if let (Some(a), Some(k)) = (alpha, kappa) {
+            if a.len() == nrows && k.len() == nrows {
+                has_ak = index.upload_alpha_kappa(a, k);
+            }
+        }
+        let index = Arc::new(index);
+        *cache().write() = Some(Entry {
+            version,
+            nrows,
+            ncols,
+            has_ak,
+            index: index.clone(),
+        });
+        Some(index)
+    }
+}
+
+/// Process-level VRAM dataset cache lookup — the primitive behind
+/// [`gaussian_topk_scores_cached`] and [`batch_search_cached`].
+///
+/// Returns an `Arc<GpuIndex>` holding `data` (plus `alpha`/`kappa` when
+/// given) resident in VRAM: the SAME Arc for repeated (version, shape)
+/// calls, a freshly-uploaded index (evicting the previous entry) when the
+/// version changed. `None` when CUDA is unavailable at runtime, the dataset
+/// is below the caching threshold, or the upload failed — callers fall back
+/// to the uncached per-call wrappers. `data` must be a contiguous row-major
+/// view (all production call sites are).
+#[cfg(feature = "cuda")]
+pub(crate) fn cached_dataset_index(
+    version: u64,
+    data: &ndarray::ArrayView2<f32>,
+    alpha: Option<&[f32]>,
+    kappa: Option<&[f32]>,
+) -> Option<std::sync::Arc<cuda_kernel::GpuIndex>> {
+    vram_cache::get(version, data, alpha, kappa, VRAM_CACHE_MIN_FLOATS)
+}
+
+/// [`gaussian_topk_scores`] over the process-level VRAM dataset cache.
+///
+/// `version` must bump whenever the dataset content changes (see
+/// `SplatStore::data_version`): the first call per version uploads
+/// mu+alpha+kappa once; subsequent calls hit the resident index with zero
+/// uploads. Falls back to the uncached [`gaussian_topk_scores`] (fresh
+/// per-call upload, then exact CPU reference) whenever the cache declines —
+/// small dataset, no CUDA, or kernel failure — so results match the direct
+/// path. Exists in non-CUDA builds (cache ignored) so call sites compile
+/// unchanged.
+#[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
+pub(crate) fn gaussian_topk_scores_cached(
+    version: u64,
+    queries: &[f32],
+    dataset: &ndarray::ArrayView2<f32>,
+    alpha: &[f32],
+    kappa: &[f32],
+    n_queries: usize,
+    k: usize,
+) -> Option<Vec<Vec<(usize, f32)>>> {
+    #[cfg(feature = "cuda")]
+    if is_cuda_available() {
+        if let Some(index) = cached_dataset_index(version, dataset, Some(alpha), Some(kappa)) {
+            if let Some(result) = index.gaussian_topk_search(queries, n_queries, k) {
+                return Some(result);
+            }
+            // Kernel declined on a cached index (no PTX / launch failure):
+            // fall through to the uncached wrapper, which retries a fresh
+            // index and then falls back to the exact CPU reference.
+        }
+    }
+    let owned;
+    let flat = match dataset.as_slice() {
+        Some(flat) => flat,
+        None => {
+            owned = dataset.iter().copied().collect::<Vec<f32>>();
+            owned.as_slice()
+        }
+    };
+    gaussian_topk_scores(
+        queries,
+        flat,
+        alpha,
+        kappa,
+        dataset.nrows(),
+        dataset.ncols(),
+        n_queries,
+        k,
+    )
+}
+
+/// [`batch_search`] over the process-level VRAM dataset cache (l2/cosine
+/// top-k). Same caching contract as [`gaussian_topk_scores_cached`]; `k` is
+/// clamped to the dataset size exactly like the public wrapper and the CPU
+/// fallback is the same. Exists in non-CUDA builds (cache ignored).
+#[cfg_attr(not(feature = "cuda"), allow(unused_variables))]
+pub(crate) fn batch_search_cached(
+    version: u64,
+    queries: &[f32],
+    n_queries: usize,
+    dataset: &ndarray::ArrayView2<f32>,
+    k: usize,
+    metric: &str,
+) -> Vec<(Vec<usize>, Vec<f32>)> {
+    let n_vectors = dataset.nrows();
+    let dim = dataset.ncols();
+    // Clamp before dispatch (parity with the public gpu::batch_search).
+    let k = k.min(n_vectors);
+    #[cfg(feature = "cuda")]
+    if is_cuda_available() {
+        // alpha/kappa not needed for l2/cosine top-k; any matching entry
+        // (with or without them resident) serves.
+        if let Some(index) = cached_dataset_index(version, dataset, None, None) {
+            if let Some(result) = index.topk_search(queries, n_queries, k, metric) {
+                return result;
+            }
+            // Fall through: the uncached wrapper retries a fresh index,
+            // then CPU.
+        }
+    }
+    let owned;
+    let flat = match dataset.as_slice() {
+        Some(flat) => flat,
+        None => {
+            owned = dataset.iter().copied().collect::<Vec<f32>>();
+            owned.as_slice()
+        }
+    };
+    batch_search(queries, n_queries, flat, n_vectors, dim, k, metric)
+}
+
 /// GPU-accelerated batch L2 distance computation.
 ///
 /// CUDA path: uploads dataset to GPU memory, computes distances on device.
@@ -779,6 +1023,115 @@ mod tests {
             }
         }
         eprintln!("[gaussian-topk test] 20k x 64D Q=256 K=16 shape check OK");
+    }
+
+    /// VRAM dataset cache: Arc identity on version hit, rebuild on version
+    /// change, decline below the size threshold, and result parity between
+    /// the cached index and a direct fresh GpuIndex. Explicit skip (with a
+    /// message) when CUDA is unavailable.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn test_vram_dataset_cache_identity_and_parity() {
+        use cuda_kernel::GpuIndex;
+        use ndarray::ArrayView2;
+        use std::sync::Arc;
+
+        if !is_cuda_available() {
+            eprintln!("[vram-cache test] CUDA unavailable on this machine -> skip");
+            return;
+        }
+
+        // 2000 x 8 = 16k floats >= VRAM_CACHE_MIN_FLOATS (10k): cacheable.
+        let n = 2_000;
+        let dim = 8;
+        let (dataset, alpha, kappa, queries) = gaussian_test_data(n, dim, 2, 4242);
+        let view = ArrayView2::from_shape((n, dim), &dataset).expect("contiguous view");
+
+        // 1. Same version + shape -> the SAME Arc (no re-upload).
+        let v1 = 0xAAAA_0000_0000_0001u64;
+        let a = cached_dataset_index(v1, &view, Some(&alpha), Some(&kappa))
+            .expect("large dataset must be cacheable");
+        let b = cached_dataset_index(v1, &view, Some(&alpha), Some(&kappa))
+            .expect("same version+shape must hit");
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "same version+shape must return the SAME Arc (no re-upload)"
+        );
+
+        // 2. Below the size threshold -> cache declines (small uploads are
+        //    trivial; the cache must not pin VRAM for them).
+        let small_data = vec![0.0f32; 16];
+        let small = ArrayView2::from_shape((4, 4), &small_data).unwrap();
+        assert!(
+            cached_dataset_index(v1, &small, None, None).is_none(),
+            "small datasets must bypass the cache"
+        );
+
+        // 3. New version -> a NEW index (old entry evicted and replaced).
+        let v2 = v1 + 1;
+        let c = cached_dataset_index(v2, &view, Some(&alpha), Some(&kappa))
+            .expect("new version must rebuild");
+        assert!(!Arc::ptr_eq(&a, &c), "new version must build a new index");
+
+        // 4. Parity: cached index vs a direct (fresh, uncached) GpuIndex
+        //    produce identical query results on the same bytes.
+        let mut direct = GpuIndex::new().expect("CUDA context");
+        assert!(direct.upload_dataset(&dataset, n, dim));
+        assert!(direct.upload_alpha_kappa(&alpha, &kappa));
+
+        let mut direct_gaussian = None;
+        if let Some(direct_g) = direct.gaussian_topk_search(&queries, 2, 5) {
+            let cached_g = c
+                .gaussian_topk_search(&queries, 2, 5)
+                .expect("cached gaussian kernel must answer when direct does");
+            assert_eq!(cached_g.len(), direct_g.len());
+            for (cq, dq) in cached_g.iter().zip(direct_g.iter()) {
+                assert_eq!(cq.len(), dq.len());
+                for ((ci, cs), (di, ds)) in cq.iter().zip(dq.iter()) {
+                    assert_eq!(ci, di, "gaussian: cached idx {ci} != direct {di}");
+                    assert!(
+                        (cs - ds).abs() < 1e-6,
+                        "gaussian: cached score {cs} vs direct {ds}"
+                    );
+                }
+            }
+            direct_gaussian = Some(direct_g);
+        } else {
+            eprintln!("[vram-cache test] gaussian PTX kernel unavailable -> l2 parity only");
+        }
+
+        if let Some(direct_l) = direct.topk_search(&queries, 2, 5, "l2") {
+            let cached_l = c
+                .topk_search(&queries, 2, 5, "l2")
+                .expect("cached l2 top-k must answer when direct does");
+            for (cq, dq) in cached_l.iter().zip(direct_l.iter()) {
+                assert_eq!(cq.0, dq.0, "l2: cached indices differ from direct");
+                for (cd, dd) in cq.1.iter().zip(dq.1.iter()) {
+                    assert!(
+                        (cd - dd).abs() < 1e-6,
+                        "l2: cached dist {cd} vs direct {dd}"
+                    );
+                }
+            }
+        } else {
+            eprintln!("[vram-cache test] l2 PTX kernel unavailable -> gaussian parity only");
+        }
+
+        // 5. The cached wrapper (public call-site entry) answers and matches
+        //    the direct kernel when the kernel path is live.
+        let via_wrapper = gaussian_topk_scores_cached(v2, &queries, &view, &alpha, &kappa, 2, 5)
+            .expect("cached wrapper must answer (kernel or CPU fallback)");
+        assert_eq!(via_wrapper.len(), 2);
+        if let Some(direct_g) = direct_gaussian {
+            for (wq, dq) in via_wrapper.iter().zip(direct_g.iter()) {
+                assert_eq!(wq.len(), dq.len());
+                for ((wi, ws), (di, ds)) in wq.iter().zip(dq.iter()) {
+                    assert_eq!(wi, di);
+                    assert!((ws - ds).abs() < 1e-6);
+                }
+            }
+        }
+        eprintln!("[vram-cache test] identity + eviction + parity OK (2000x8, gaussian & l2)");
     }
 
     /// Deterministic pseudo-random test data (same LCG as existing tests).
