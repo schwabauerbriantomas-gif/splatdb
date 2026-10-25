@@ -9,15 +9,19 @@
 //! - `add_entity` unused `entity_type` parameter masked with `__`
 //! - Missing `Send + Sync` bounds for thread-safe usage
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 /// Maximum nodes returned by traversal to prevent unbounded memory growth.
 const MAX_TRAVERSE_RESULTS: usize = 10_000;
 /// Maximum embedding dimension we accept.
 const MAX_EMBEDDING_DIM: usize = 8192;
+/// Filename inside the state dir used by save_to_dir/load_from_dir.
+pub const GRAPH_STATE_FILENAME: &str = "graph_state.json";
 
 /// Node types in the graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NodeType {
     Document,
     Entity,
@@ -25,7 +29,7 @@ pub enum NodeType {
 }
 
 /// Directed edge in the graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source_id: usize,
     pub target_id: usize,
@@ -34,7 +38,7 @@ pub struct GraphEdge {
 }
 
 /// Node data — kept lightweight (no nested Vecs of edges inline).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: usize,
     pub node_type: NodeType,
@@ -42,6 +46,15 @@ pub struct GraphNode {
     pub embedding: Vec<f32>,
     pub alpha: f64,
     pub kappa: f64,
+}
+
+/// On-disk JSON document for graph persistence (see save_to_dir/load_from_dir).
+#[derive(Debug, Serialize, Deserialize)]
+struct GraphFile {
+    version: u32,
+    next_id: usize,
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
 }
 
 /// Error type for graph operations.
@@ -57,6 +70,8 @@ pub enum GraphError {
     ResultCapHit { cap: usize },
     /// Invalid weight value (NaN or infinite).
     InvalidWeight,
+    /// I/O or serialization failure during persistence (save/load).
+    Io(String),
 }
 
 impl std::fmt::Display for GraphError {
@@ -71,6 +86,7 @@ impl std::fmt::Display for GraphError {
             Self::NodeNotFound { id } => write!(f, "node {id} not found"),
             Self::ResultCapHit { cap } => write!(f, "result set hit safety cap of {cap}"),
             Self::InvalidWeight => write!(f, "weight must be finite"),
+            Self::Io(context) => write!(f, "graph persistence error: {context}"),
         }
     }
 }
@@ -423,6 +439,87 @@ impl GaussianGraphStore {
     pub fn n_edges(&self) -> usize {
         self.edges.len()
     }
+
+    /// Persist nodes + edges to `<dir>/graph_state.json`.
+    ///
+    /// Robust write (tmp + rename, storage-style): the state file is never
+    /// observed half-written by a concurrent reader. Only serializable state
+    /// is saved; the derived indices (outgoing/incoming/type_index/
+    /// entity_name_index) are rebuilt on load.
+    pub fn save_to_dir<P: AsRef<Path>>(&self, dir: P) -> Result<std::path::PathBuf, GraphError> {
+        let dir = dir.as_ref();
+        std::fs::create_dir_all(dir)
+            .map_err(|e| GraphError::Io(format!("create_dir_all {}: {}", dir.display(), e)))?;
+
+        let doc = GraphFile {
+            version: 1,
+            next_id: self.next_id,
+            nodes: self.nodes.values().cloned().collect(),
+            edges: self.edges.clone(),
+        };
+        let json = serde_json::to_vec_pretty(&doc)
+            .map_err(|e| GraphError::Io(format!("serialize graph: {}", e)))?;
+
+        // Escritura robusta vía el helper canónico del crate (tmp + rename).
+        let final_path = dir.join(GRAPH_STATE_FILENAME);
+        crate::storage::persistence::atomic_write(&final_path, &json)
+            .map_err(|e| GraphError::Io(format!("write {}: {}", final_path.display(), e)))?;
+        Ok(final_path)
+    }
+
+    /// Load a graph previously written by `save_to_dir`, rebuilding every
+    /// derived index (type_index, entity_name_index, adjacency). `next_id`
+    /// never goes below `max node id + 1`, so loaded ids can't be reused.
+    pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Result<GaussianGraphStore, GraphError> {
+        let path = dir.as_ref().join(GRAPH_STATE_FILENAME);
+        let data = std::fs::read(&path)
+            .map_err(|e| GraphError::Io(format!("read {}: {}", path.display(), e)))?;
+        let doc: GraphFile = serde_json::from_slice(&data)
+            .map_err(|e| GraphError::Io(format!("parse {}: {}", path.display(), e)))?;
+
+        let mut store = GaussianGraphStore::new();
+        for node in doc.nodes {
+            let id = node.id;
+            if store.nodes.insert(id, node).is_some() {
+                return Err(GraphError::Io(format!(
+                    "duplicate node id {} in {}",
+                    id,
+                    path.display()
+                )));
+            }
+        }
+        let max_id = store.nodes.keys().copied().max().unwrap_or(0);
+        store.next_id = doc.next_id.max(max_id + 1);
+
+        for (&id, node) in &store.nodes {
+            store
+                .type_index
+                .entry(node.node_type)
+                .or_default()
+                .insert(id);
+            if node.node_type == NodeType::Entity {
+                store
+                    .entity_name_index
+                    .insert(node.content.to_lowercase(), id);
+            }
+        }
+
+        // Adjacency rebuilt in this store's edge-index space; both endpoints
+        // must exist (no silent dangling edges in a corrupt file).
+        for (edge_idx, edge) in doc.edges.into_iter().enumerate() {
+            if !store.nodes.contains_key(&edge.source_id) {
+                return Err(GraphError::NodeNotFound { id: edge.source_id });
+            }
+            if !store.nodes.contains_key(&edge.target_id) {
+                return Err(GraphError::NodeNotFound { id: edge.target_id });
+            }
+            let (s, t) = (edge.source_id, edge.target_id);
+            store.edges.push(edge);
+            store.outgoing.entry(s).or_default().push(edge_idx);
+            store.incoming.entry(t).or_default().push(edge_idx);
+        }
+        Ok(store)
+    }
 }
 
 impl Default for GaussianGraphStore {
@@ -651,5 +748,64 @@ mod tests {
         let g = GaussianGraphStore::new();
         let neighbors = g.get_neighbors(999);
         assert!(neighbors.is_empty());
+    }
+
+    #[test]
+    fn test_save_load_round_trip() {
+        let dir = std::env::temp_dir().join("splatdb_graph_roundtrip_test");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut g = GaussianGraphStore::new();
+        let d = g.add_document("Doc text", &[1.0, 0.0]).unwrap();
+        let e = g.add_entity("Ent", &[0.0, 1.0], "person").unwrap();
+        g.add_relation(d, e, "MENTIONS", 0.9).unwrap();
+
+        let path = g.save_to_dir(&dir).unwrap();
+        assert!(path.exists());
+
+        let g2 = GaussianGraphStore::load_from_dir(&dir).unwrap();
+        assert_eq!(g2.n_nodes(), 2);
+        assert_eq!(g2.n_edges(), 1);
+        assert_eq!(g2.get_node(d).unwrap().content, "Doc text");
+        // entity_type-derived params survive the round trip
+        assert_eq!(g2.get_node(e).unwrap().alpha, 0.9);
+        // adjacency rebuilt on load
+        assert_eq!(g2.get_neighbors(d), vec![e]);
+        let s1 = g.get_stats();
+        let s2 = g2.get_stats();
+        assert_eq!(s1.total_nodes, s2.total_nodes);
+        assert_eq!(s1.total_edges, s2.total_edges);
+
+        // next_id continues after load: no id reuse across processes
+        let mut g3 = g2;
+        let d2 = g3.add_document("second", &[1.0, 1.0]).unwrap();
+        assert!(d2 > d && d2 > e);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_add_relation_after_load() {
+        // Regression: before persistence, graph-add-relation ALWAYS failed
+        // with NodeNotFound because each process started an empty store.
+        let dir = std::env::temp_dir().join("splatdb_graph_relation_test");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut g1 = GaussianGraphStore::new();
+        let a = g1.add_document("A", &[1.0]).unwrap();
+        g1.save_to_dir(&dir).unwrap();
+
+        let mut g2 = GaussianGraphStore::load_from_dir(&dir).unwrap();
+        let b = g2.add_entity("B", &[0.0], "t").unwrap();
+        assert!(g2.add_relation(a, b, "R", 1.0).is_ok());
+        assert_eq!(g2.get_neighbors(a), vec![b]);
+
+        // The edge survives into the next "process" (fresh load)
+        g2.save_to_dir(&dir).unwrap();
+        let g3 = GaussianGraphStore::load_from_dir(&dir).unwrap();
+        assert_eq!(g3.n_edges(), 1);
+        assert!(g3.get_node(a).is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

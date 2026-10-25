@@ -43,6 +43,46 @@ fn validate_shard_name(name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Atomically write `bytes` to `path`.
+///
+/// Contract (crate-internal, used by `save_vectors`, `save_energy_state` and
+/// `json_store::persist`):
+///
+/// 1. Writes to a unique sibling temp file `<file_name>.tmp.<pid>` in the
+///    same directory as `path` (the pid makes the name unique per process;
+///    the full original name is preserved so two different destinations
+///    never share a temp file).
+/// 2. `write_all` + `sync_all` so the payload reaches stable storage.
+/// 3. `rename` over `path` — atomic on Unix and Windows (replaces the
+///    destination), so readers never observe a partially written file and a
+///    crash mid-write leaves the previous contents intact.
+///
+/// On any failure the temp file is removed and `path` is left untouched.
+pub fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut tmp_name = path
+        .file_name()
+        .map(std::ffi::OsString::from)
+        .unwrap_or_else(|| std::ffi::OsString::from("unnamed"));
+    tmp_name.push(format!(".tmp.{}", std::process::id()));
+    let tmp_path = path.with_file_name(tmp_name);
+
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    })();
+
+    if let Err(err) = result {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(err);
+    }
+    Ok(())
+}
+
 impl SplatsDBPersistence {
     /// Create with a specific backend.
     pub fn with_backend(
@@ -146,18 +186,19 @@ impl SplatsDBPersistence {
             .join("data")
             .join("vectors")
             .join(format!("{}.bin", shard_name));
-        let mut file = std::fs::File::create(path)?;
-        use std::io::Write;
-        file.write_all(&(vectors.nrows() as u64).to_le_bytes())?;
-        file.write_all(&(vectors.ncols() as u64).to_le_bytes())?;
+        // Buffer the full payload, then write it atomically: a crash mid-save
+        // leaves the previous shard file intact instead of a truncated one.
+        let mut buf = Vec::with_capacity(16 + vectors.len() * std::mem::size_of::<f32>());
+        buf.extend_from_slice(&(vectors.nrows() as u64).to_le_bytes());
+        buf.extend_from_slice(&(vectors.ncols() as u64).to_le_bytes());
         for row in vectors.rows() {
             let slice = row.as_slice().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "non-contiguous row")
             })?;
             let bytes: &[u8] = cast_slice(slice);
-            file.write_all(bytes)?;
+            buf.extend_from_slice(bytes);
         }
-        Ok(())
+        atomic_write(&path, &buf)
     }
 
     pub fn load_vectors(&self, shard_name: &str) -> std::io::Result<Option<Array2<f32>>> {
@@ -322,24 +363,25 @@ impl SplatsDBPersistence {
         kappa: &[f32],
     ) -> std::io::Result<()> {
         let path = self.storage_path.join("energy").join("landscape.bin");
-        let mut file = std::fs::File::create(path)?;
-        use std::io::Write;
-        file.write_all(&(mu.nrows() as u64).to_le_bytes())?;
-        file.write_all(&(mu.ncols() as u64).to_le_bytes())?;
+        // Buffer the full payload, then write it atomically: a crash mid-save
+        // leaves the previous energy state intact instead of a truncated one.
+        let mut buf = Vec::with_capacity(
+            32 + (mu.len() + alpha.len() + kappa.len()) * std::mem::size_of::<f32>(),
+        );
+        buf.extend_from_slice(&(mu.nrows() as u64).to_le_bytes());
+        buf.extend_from_slice(&(mu.ncols() as u64).to_le_bytes());
         for row in mu.rows() {
             let s = row.as_slice().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "non-contiguous row")
             })?;
             let bytes: &[u8] = cast_slice(s);
-            file.write_all(bytes)?;
+            buf.extend_from_slice(bytes);
         }
-        file.write_all(&(alpha.len() as u64).to_le_bytes())?;
-        let bytes: &[u8] = cast_slice(alpha);
-        file.write_all(bytes)?;
-        file.write_all(&(kappa.len() as u64).to_le_bytes())?;
-        let bytes: &[u8] = cast_slice(kappa);
-        file.write_all(bytes)?;
-        Ok(())
+        buf.extend_from_slice(&(alpha.len() as u64).to_le_bytes());
+        buf.extend_from_slice(cast_slice(alpha));
+        buf.extend_from_slice(&(kappa.len() as u64).to_le_bytes());
+        buf.extend_from_slice(cast_slice(kappa));
+        atomic_write(&path, &buf)
     }
 
     // ---- Backup ----

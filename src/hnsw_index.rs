@@ -15,6 +15,14 @@ use crate::interfaces::{IndexSearchResult, VectorIndex};
 
 const HNSW_MAGIC: u64 = 0x484E5357; // "HNSW"
 
+/// Upper bounds shared by `new()` and `load()` so an index built in memory
+/// obeys the same limits as one read from disk. m >= 2 keeps
+/// `level_mult = 1/ln(m)` finite and positive (m=1 → +inf, m=0 → -0.0);
+/// m_max0 <= MAX_HNSW_M_MAX0 is checked separately on load because there it
+/// comes from the file header rather than being derived as 2*m.
+const MAX_HNSW_M: usize = 4096;
+const MAX_HNSW_M_MAX0: usize = 8192;
+
 /// Wrapper for (distance, index) that implements Ord for min-heap.
 #[derive(Clone, Copy, Debug)]
 struct DistIdx(f32, usize);
@@ -107,6 +115,13 @@ impl HNSWIndex {
         metric: &str,
         seed: u64,
     ) -> Self {
+        // Same m bounds load() enforces: an index built here must survive its
+        // own save/load round-trip (load rejects m outside [2, MAX_HNSW_M]).
+        // m_max0 = 2*m, so m <= MAX_HNSW_M keeps m_max0 <= MAX_HNSW_M_MAX0.
+        assert!(
+            (2..=MAX_HNSW_M).contains(&m),
+            "m out of valid range [2, {MAX_HNSW_M}]: {m}"
+        );
         Self {
             _dim: dim,
             m,
@@ -259,9 +274,7 @@ impl HNSWIndex {
         }
         // m/m_max0 come from the file header: unbounded values would drive
         // giant Vec::with_capacity allocations (DoS via a ~100-byte hostile
-        // index). m >= 2 also keeps level_mult = 1/ln(m) finite and positive.
-        const MAX_HNSW_M: usize = 4096;
-        const MAX_HNSW_M_MAX0: usize = 8192;
+        // index). Bounds are the module-level consts shared with new().
         if !(2..=MAX_HNSW_M).contains(&m_stored) {
             return Err(format!(
                 "m out of valid range [2, {MAX_HNSW_M}]: {m_stored}"
@@ -793,25 +806,28 @@ mod tests {
 
     #[test]
     fn test_insert_prune_keeps_newest_closest_edge() {
-        // Regression: when a neighbor is already at capacity (m_max0 = 2*m = 2
+        // Regression: when a neighbor is already at capacity (m_max0 = 2*m = 4
         // here), pruning scored the PRE-push list, so the brand-new edge to
         // the freshly inserted node was always discarded. The new closest
-        // edge must survive the prune.
-        let mut idx = HNSWIndex::new(1, 1, 100, 50, "l2", 42);
-        idx.insert(&[0.0]); // node 0
-        idx.insert(&[10.0]); // node 1 → node 0: {1}
-        idx.insert(&[-1.0]); // node 2 → node 0: {1, 2} (at capacity)
-        idx.insert(&[0.5]); // node 3 → node 0 pushed to 3 > m_max0 → prune
+        // edge must survive the prune. (m=2: m_max0=4; m=1 is rejected by
+        // new() since level_mult = 1/ln(m) is undefined there.)
+        let mut idx = HNSWIndex::new(1, 2, 100, 50, "l2", 42);
+        idx.insert(&[0.0]); // node 0 (hub)
+        idx.insert(&[20.0]); // node 1 → n0: {1}
+        idx.insert(&[-6.0]); // node 2 → n0: {1, 2}
+        idx.insert(&[6.0]); // node 3 → n0: {1, 2, 3}
+        idx.insert(&[0.9]); // node 4 → n0: {1, 2, 3, 4} (at capacity)
+        idx.insert(&[0.1]); // node 5 → n0 pushed to 5 > m_max0 → prune
         let n0 = &idx.nodes[0].neighbors[0];
         assert!(
-            n0.contains(&3),
-            "new closest edge (d=0.5) must survive pruning, got {:?}",
+            n0.contains(&5),
+            "new closest edge (d=0.1) must survive pruning, got {:?}",
             n0
         );
-        assert!(n0.contains(&2), "second closest (d=1.0) must survive");
+        assert!(n0.contains(&4), "second closest (d=0.9) must survive");
         assert!(
             !n0.contains(&1),
-            "farthest edge (d=10.0) should be pruned, got {:?}",
+            "farthest edge (d=20.0) should be pruned, got {:?}",
             n0
         );
     }

@@ -224,9 +224,20 @@ pub fn cmd_doc_add(
         eprintln!("Storage error: {}", e);
         std::process::exit(1);
     });
+    // Metadata JSON inválido: avisar y seguir SIN la metadata (antes se
+    // descartaba en silencio y el doc parecía guardado completo).
     let meta_json = metadata
         .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok());
+        .and_then(|s| match serde_json::from_str(s) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!(
+                    "Warning: metadata JSON inválido ({}); guardando doc sin metadata",
+                    e
+                );
+                None
+            }
+        });
     persist
         .save_metadata(&id, 0, 0, meta_json.as_ref(), Some(&text))
         .unwrap_or_else(|e| {
@@ -287,6 +298,16 @@ pub fn cmd_backup(data_dir: String, backend: String, output: PathBuf) {
 }
 
 pub fn cmd_quant_index(input: PathBuf, bits: u8, algorithm: String, seed: u64) {
+    // Validar bits contra el contrato real de los cuantizadores
+    // (TurboQuantizer: 2..=16, PolarQuantizer: 1..=16 — QuantError::InvalidBitWidth)
+    // ANTES de construir el store: `--bits 200` antes paniqueaba en .expect.
+    if bits == 0 || bits > 16 {
+        eprintln!(
+            "Error: bits inválido ({}): soportado 1..=16 (TurboQuant requiere 2..=16)",
+            bits
+        );
+        std::process::exit(1);
+    }
     let vectors = match load_vectors_bin(&input) {
         Ok(v) => v,
         Err(e) => {
@@ -318,7 +339,13 @@ pub fn cmd_quant_index(input: PathBuf, bits: u8, algorithm: String, seed: u64) {
         seed,
         algorithm: algo,
     };
-    let mut qstore = QuantizedStore::new(dim, qcfg).expect("Failed to create QuantizedStore");
+    let mut qstore = match QuantizedStore::new(dim, qcfg) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("Error: Failed to create QuantizedStore: {}", e);
+            std::process::exit(1);
+        }
+    };
     let t0 = std::time::Instant::now();
     let indexed = qstore.add_batch(&vectors, 0);
     let elapsed = t0.elapsed();

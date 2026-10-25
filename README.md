@@ -9,11 +9,11 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 </p>
 
 [![CI](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
+[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-393%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-34.5K-informational.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-34.6K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
@@ -73,9 +73,14 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 - [Knowledge Graph (GraphSplat)](#knowledge-graph-graphsplat)
 - [Vector Compression (TurboQuant / PolarQuant)](#vector-compression-turboquant--polarquant)
 - [Semantic Memory](#semantic-memory)
+- [Energy-Based Model](#energy-based-model)
+- [Module Map](#module-map)
+- [Dependencies](#dependencies)
 - [Roadmap](#roadmap)
 - [Spatial Memory Architecture](#spatial-memory-architecture)
 - [Competitive Landscape](#competitive-landscape)
+- [Security Audit](#security-audit)
+- [Reproducible Benchmarks](#reproducible-benchmarks)
 - [License](#license)
 
 ---
@@ -89,7 +94,7 @@ SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.5K lines of pure Rust + CUDA (34,461 by `wc -l` — Rust `src/` 33,437 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.6K lines of pure Rust + CUDA (34,587 by `wc -l` — Rust `src/` 33,563 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -215,7 +220,7 @@ cargo build --release
 cargo build --release --no-default-features
 
 # Run tests
-cargo test   # full suite: 317 lib tests + 76 integration tests in tests/ (393 total)
+cargo test   # full suite: 315 lib tests + 78 integration tests in tests/ (393 total)
 ```
 
 ### Run
@@ -392,7 +397,7 @@ On synthetic data HNSW delivers **~875× speedup** over linear scan at 10K. Real
 
 \* HRM2 row: **source not preserved** — no result artifact backs the ~0.95 recall or the 76ms/11.0 QPS pair (logged in [BENCHMARKS.md → Removed claims](BENCHMARKS.md#removed-claims)).
 
-### Faiss Comparison (Same Hardware, Same Dataset — k and Recall Stated Per Row)
+### Faiss Comparison (Same Hardware, Same Dataset)
 
 > Same Ryzen 5 3400G + RTX 3090 host, same SIFT-128 100K dataset, 1,000 queries. Faiss from `faiss-cpu` 1.13.2. **Rows are not like-for-like**: the GPU row is brute-force exact search at k=10 (from `bench-gpu`), while the Faiss and CPU HNSW rows are approximate search at k=64 (from `bench_windows.py`). We report both k and recall per row; do not compare across regimes. Full data: `bench-data/benchmark_results_hardware.json` (2026-04-10).
 
@@ -471,9 +476,17 @@ Combined distance + top-k selection in one GPU pass. Dataset persists in VRAM be
 - CPU baseline here is the same brute-force top-k in Rust (rayon), not HNSW — the 4.1× is GPU-vs-CPU of the same exact algorithm
 - Custom PTX `l2_topk_kernel` compiled with nvcc 12.4 + MSVC
 
-#### GPU vs CPU kernel benchmark (2026-10-15)
+#### GPU vs CPU kernel microbenchmark (640D)
 
-Measured today on this repository, WSL2 + RTX 3090, with `cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture` (`src/gpu/mod.rs`): batch L2 distances for 10,000 vectors × 640D over 100 queries — **CPU 565ms vs GPU 27ms = 20.93×** on the same machine. Companion correctness test `test_ptx_kernel_correctness` passes (GPU/CPU agreement within tolerance). This is a kernel-level microbenchmark on synthetic data (fixed seed 12345), not an end-to-end search benchmark.
+Two runs of `cargo test --release --features cuda test_ptx_kernel_performance` (`src/gpu/mod.rs`) on this repository, WSL2 + RTX 3090 — same shape (synthetic data, fixed seed 12345, 10,000 vectors × 640D, 100-query batch), different kernel paths, **not directly comparable**; both rows stay, labeled:
+
+| Run | Kernel path | CPU (single-thread) | GPU (RTX 3090) | Speedup | Source |
+|-----|-------------|--------------------|----------------|---------|--------|
+| 2026-10-15 (single run) | `batch_l2_distances` — full distance matrix, **no top-k** | 565 ms | 27 ms | 20.93× | transcribed from the test log; no persisted artifact |
+| **2026-10-25 (median of 6)** | `l2_topk` — fused top-k, **k=16** | 630 ms | 20 ms | **30.6×** | [`bench-data/gpu_kernel_microbench_2026-10-25.json`](bench-data/gpu_kernel_microbench_2026-10-25.json) |
+
+2026-10-25 per-run spread: 31.28×, 34.32×, 29.0×, 25.45× (GPU outlier during concurrent cargo builds), 30.0×, 33.82× — range GPU 17–29 ms, CPU 563–738 ms. Both runs are kernel-level microbenchmarks on synthetic data, not end-to-end search benchmarks; at this shape GPU time is dominated by the one-time dataset upload (~25 MB amortized over 100 queries per call) — the production win of the VRAM dataset cache (v2.7.0) is at the call-graph level: upload once per dataset version instead of every call. Companion correctness test `test_ptx_kernel_correctness` passes (GPU/CPU agreement within tolerance). Full per-run table and reproduction commands: [BENCHMARKS.md §4](BENCHMARKS.md#4-gpu-vs-cpu-kernel-microbenchmark-640d).
+
 
 ### CUDA Kernel Optimizations
 
@@ -514,6 +527,8 @@ The following benchmarks are implemented in [`benchmarks/benchmark_reproducible.
 
 **BEIR Results** (5 domains, model: all-MiniLM-L6-v2):
 
+**Source:** `bench-data/beir_results.json`
+
 | Domain | Corpus | Queries | NDCG@10 | Recall@10 | MAP@10 | QPS |
 |--------|--------|---------|---------|-----------|--------|------|
 | scifact | 5,183 | 300 | **0.645** | **0.783** | **0.596** | 6,990 |
@@ -538,6 +553,8 @@ The following benchmarks are implemented in [`benchmarks/benchmark_reproducible.
 | temporal | 321 | 31.8% |
 | **Overall** | **1,982** | **68.2%** |
 
+**Source**: `bench-data/locomo_results.json` (v1 pipeline, run 2026-04-11).
+
 **MemoBench-style Results** (15 questions, 5 agents, 20 sessions):
 
 | k | Recall@k |
@@ -545,6 +562,8 @@ The following benchmarks are implemented in [`benchmarks/benchmark_reproducible.
 | 1 | 93.3% |
 | 5 | 100.0% |
 | 10 | **100.0%** |
+
+**Source**: `bench-data/memobench_results.json` (synthetic, seed=42, run 2026-04-11).
 
 Run any benchmark:
 ```bash
@@ -813,6 +832,14 @@ Add to your AI agent's MCP configuration (e.g., Claude Code, Cursor, Hermes):
 | `splatsdb_spatial_search` | `query` | `wing`, `room`, `hall`, `top_k` | Search with spatial filters. Pre-filters by wing/room/hall metadata before vector search for higher recall. |
 | `splatsdb_spatial_info` | — | — | Show spatial memory structure: wings, rooms, halls, tunnels (auto-detected cross-wing connections). |
 
+#### Verbatim & Compression (alpha)
+
+| Tool | Required Params | Optional Params | Description |
+|------|----------------|-----------------|-------------|
+| `splatsdb_verbatim_search` | `query` | `top_k` (default 10) | Search with confidence scoring to prevent hallucination. Results carry HIGH/MEDIUM/LOW confidence based on vector distance, plus the original verbatim text for verification. |
+| `splatsdb_compress` | `text` | — | Compress text with AAAK (semantic + binary compression). Returns semantically compressed text that LLMs can read natively, plus binary compressed data for storage. |
+| `splatsdb_decompress` | `data` | — | Decompress AAAK binary data (hex-encoded) back to LLM-readable semantic text. |
+
 ### Example: AI Agent Session
 
 ```
@@ -1067,7 +1094,7 @@ cargo build --release --features cuda
 
 ### Performance
 
-**Kernel microbenchmark** (2026-10-15, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): batch L2 over 10K×640D × 100 queries — **CPU 565ms vs GPU 27ms = 20.93×** (single-threaded CPU baseline; companion correctness test `test_ptx_kernel_correctness` passes). Full table and reproduction commands: [BENCHMARKS.md §4](BENCHMARKS.md#4-gpu-vs-cpu-kernel-microbenchmark-640d). A previous version of this paragraph quoted "CPU 718ms vs GPU 18ms = 39.89×" — that figure had no preserved run log and was corrected to the logged 20.93× run; **pending re-measure** with a persisted result file either way.
+**Kernel microbenchmark** (re-measured 2026-10-25, `cargo test --release --features cuda test_ptx_kernel_performance`, RTX 3090): 6 runs over 10K×640D × 100 queries with the fused `l2_topk` kernel (**k=16**) — median **CPU 630ms vs GPU 20ms = 30.6×** (per-run 25.45×–34.32×; single-threaded CPU baseline; companion correctness test `test_ptx_kernel_correctness` passes). Persisted artifact: `bench-data/gpu_kernel_microbench_2026-10-25.json`. An earlier single run (2026-10-15) measured the batch-L2 path without top-k at **20.93×** (565ms/27ms) — different kernel path, not directly comparable; full labeled table and reproduction commands: [BENCHMARKS.md §4](BENCHMARKS.md#4-gpu-vs-cpu-kernel-microbenchmark-640d). A previous version of this paragraph quoted "CPU 718ms vs GPU 18ms = 39.89×" — that figure had no preserved run log and was corrected to the logged runs above.
 
 **Serve integration (v2.6.0, 2026-10-20)** — `splatsdb serve --gpu` uploads the dataset to VRAM at boot and routes `/search` (with embedding) through the PTX `l2_topk_kernel`. Measured on the semantic-hub dataset (26,273×768d, RTX 3090, WSL2), 30 queries against exact brute-force ground truth + 600-query soak:
 
@@ -1336,7 +1363,7 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 
 ## Module Map
 
-34,461 lines of Rust + CUDA by `wc -l` (raw lines: 33,437 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
+34,587 lines of Rust + CUDA by `wc -l` (raw lines: 33,563 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
@@ -1349,7 +1376,6 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `semantic_memory` | `src/semantic_memory.rs` | BM25 + vector RRF fusion with temporal decay |
 | `hnsw_index` | `src/hnsw_index.rs` | HNSW approximate nearest neighbor with incremental insertion |
 | `lsh_index` | `src/lsh_index.rs` | Locality-sensitive hashing |
-| `energy` | `src/energy.rs` | Energy landscape computation |
 | `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (5 endpoints: health, status, store, search, field-search) |
@@ -1628,7 +1654,7 @@ Uses SplatsDB's full pipeline: BM25 from `bm25_index.rs`, RRF from `cluster/aggr
 
 > **Note**: trec-covid and fiqa v2 results not completed due to BM25 scoring performance on >50K corpora in Python. The Rust implementation would handle this efficiently.
 >
-> **Source**: v1 results from `bench-data/beir_results.json` (BEIR v1.0, all-MiniLM-L6-v2, standard protocol). v2 results from internal benchmark runs — result file not yet published.
+> **Source**: v1 results from `bench-data/beir_results.json` (BEIR v1.0, all-MiniLM-L6-v2, standard protocol). v2 rows: **NOT VALIDATED — no result file preserved** (internal benchmark runs; the 0.5507 average is not citable until re-run with a persisted artifact).
 
 **Alternative Approaches — A/B tested on scifact/arguana/nfcorpus**
 
@@ -1659,6 +1685,8 @@ Key insight: the biggest improvement (+3% NDCG) comes from using a better embedd
 | Counterfactual | 38.0% | 41.3% | +3.3% |
 | **Overall** | **68.2%** | **72.9%** | **+4.7%** |
 
+**Source**: v1 — `bench-data/locomo_results.json`; v2 — `bench-data/locomo_v2_results.json` (both run 2026-04-11; 1,982 questions, 10 conversations).
+
 v2 uses BGE-small + session-level retrieval + BM25 hybrid via RRF. The +19% improvement on temporal queries shows BM25 helps when queries contain specific keywords (dates, names).
 
 ### HotpotQA Multi-hop Reasoning
@@ -1675,6 +1703,8 @@ Example: "Were Scott Derrickson and Ed Wood of the same nationality?" → Need d
 | Graph 2-hop + dense seed | 4 | 83.8% | 209/300 | **-2.9%** |
 | Entity lookup + dense hybrid | 4 | — | 176/300 | **-16.0%** |
 
+**Source**: `bench-data/hotpotqa_results.json` (300 questions, distractor mode, dense BGE-small; graph rows = dense seed + graph expansion).
+
 **Conclusion**: The knowledge graph does NOT improve retrieval, even for multi-hop questions where you'd expect it to help. Dense embeddings with BGE-small are already strong enough to find relevant documents. Graph expansion adds topologically-connected but semantically irrelevant docs.
 
 **When the graph IS useful**: Exploration and discovery — finding connected topics you didn't search for, tracing entity relationships, content recommendation. These are different tasks from retrieval ranking.
@@ -1683,7 +1713,7 @@ Example: "Were Scott Derrickson and Ed Wood of the same nationality?" → Need d
 
 We publish negative results because they're more valuable than positive ones. They tell you what NOT to waste time on.
 
-| Technique | Tested on | NDCG change | Why it failed |
+| Technique | Tested on | Metric Δ | Why it failed |
 |-----------|-----------|-------------|---------------|
 | Graph traversal | scifact, arguana | 0.0000 | Dense already finds relevant docs; graph expansion adds topologically-connected but irrelevant docs |
 | Query expansion via entities | scifact, arguana | -0.0474 | Weighted average of query + entity embeddings dilutes original query signal |
@@ -1693,6 +1723,10 @@ We publish negative results because they're more valuable than positive ones. Th
 | Graph 1-hop expansion | HotpotQA (300 questions) | -4.3% | Topologically-connected ≠ semantically relevant |
 | Graph 2-hop expansion | HotpotQA (300 questions) | -2.9% | More hops = more noise |
 | Entity lookup hybrid | HotpotQA (300 questions) | -16.0% | Entities match docs that MENTION the entity, not ABOUT it |
+
+*Metric Δ: NDCG@10 for BEIR experiments; HotpotQA rows report Sparse-Provenance recall change (each experiment uses its task's eval harness — see the cited result JSONs).*
+
+**Source**: scifact A/B rows — `bench-data/ab_test_results.json` (covers scifact only); HotpotQA rows — `bench-data/hotpotqa_results.json`. The title-only (-0.4085) and passage-level (-0.0075) rows have no preserved artifact — see the [source-not-preserved note](#beir-information-retrieval).
 
 **Takeaway**: For standard information retrieval, the ranking of improvement levers is:
 

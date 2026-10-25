@@ -3,7 +3,7 @@
 Every number in this file is tied to a source: either a committed result JSON or an exact reproduction command. `k` and `recall@k` are stated next to every QPS figure — QPS numbers are only comparable at the same k, same search type (exact vs approximate), and same hardware.
 
 - Hardware (all tables unless noted): Ryzen 5 3400G (4C/8T) + RTX 3090 24GB + 16GB DDR4, Windows 11 + WSL2
-- Last full regeneration: **2026-10-15** (partial — see per-table dates)
+- Last full regeneration: **2026-10-25** (partial — see per-table dates)
 - Numbers without a preserved source have been removed from the docs (see [Removed claims](#removed-claims))
 - Reproduction commands are being consolidated by the benchmark harness work (TODO-B4); placeholders below are marked `[COMANDO: ...]`
 
@@ -97,17 +97,33 @@ Reproduce:
 
 ## 4. GPU vs CPU kernel microbenchmark (640D)
 
-**Source**: `cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture` (test in `src/gpu/mod.rs`), run **2026-10-15** on this repository, WSL2 + RTX 3090
-**Conditions**: synthetic data (LCG seed 12345), 10,000 vectors × 640D, batch of 100 queries, batch L2 distances (full distance matrix per query, no top-k), GPU dataset persistent in VRAM
+Two runs of `cargo test --release --features cuda test_ptx_kernel_performance -- --nocapture` (test in `src/gpu/mod.rs`) on this repository, WSL2 + RTX 3090 — same shape, different kernel paths, **not directly comparable**; both rows stay, labeled:
+
+**Run A — 2026-10-15 (single run, batch L2, no top-k)** — transcribed from the test log, no persisted artifact
+**Conditions**: synthetic data (LCG seed 12345), 10,000 vectors × 640D, batch of 100 queries, `batch_l2_distances` (full distance matrix per query, **no top-k**), GPU dataset persistent in VRAM
 
 | Path | Time (100-query batch) | Speedup |
 |------|------------------------|---------|
 | CPU (single-threaded Rust loop) | 565 ms | — |
 | GPU (`batch_l2_distances`, RTX 3090) | **27 ms** | **20.93×** |
 
+**Run B — 2026-10-25 (6 runs, fused top-k k=16)**
+**Source**: [`bench-data/gpu_kernel_microbench_2026-10-25.json`](bench-data/gpu_kernel_microbench_2026-10-25.json) — `cargo test --release test_ptx_kernel_performance -- --nocapture`
+**Conditions**: same shape; `l2_topk` fused kernel, **k=16**; the public batch wrapper uploads the dataset per call (VRAM cache not exercised — the production `/search` path uses `cached_dataset_index` since `384e205`)
+
+| Run | CPU ms | GPU ms | Speedup | Note |
+|-----|--------|--------|---------|------|
+| 1 | 563 | 18 | 31.28× | pre-VRAM-cache baseline, quiet machine |
+| 2 | 652 | 19 | 34.32× | |
+| 3 | 580 | 20 | 29.0× | |
+| 4 | 738 | 29 | 25.45× | GPU outlier: concurrent cargo builds on host |
+| 5 | 630 | 21 | 30.0× | |
+| 6 | 575 | 17 | 33.82× | |
+| **Median** | **630** | **20** | **30.6×** | range: GPU 17–29 ms, CPU 563–738 ms |
+
 Companion correctness test `test_ptx_kernel_correctness`: **PASS** (GPU/CPU agreement within 1e-2).
 
-This is a kernel-level microbenchmark, not an end-to-end search benchmark; the CPU baseline is a single-threaded loop (worst-case CPU).
+This is a kernel-level microbenchmark, not an end-to-end search benchmark; the CPU baseline is a single-threaded loop (worst-case CPU). At this shape the GPU time is dominated by the one-time dataset upload (~25 MB amortized over 100 queries per call): per the source JSON's honesty note, the production win of the VRAM dataset cache (v2.7.0) is at the call-graph level — upload once per dataset version instead of every call.
 
 Reproduce:
 ```bash
@@ -176,7 +192,7 @@ The following numbers appeared in previous versions of README.md / BENCHMARKS.md
 | LongMemEval "beats all published systems" | README, `benchmark_results_hardware.json` analysis note | Retrieval-only (96.6%) vs paper's end-to-end systems (86.2%) — different tasks; caveat added, no system-level claim. |
 | HRM2 "Validated Rust result" table — Linear scan 94.79 ms / 10.55 QPS vs HRM2 0.99 ms / 1,012.77 QPS = "32.4×" | README "HRM2 vs Linear Scan" section | No source artifact (no JSON, no run log) and internally inconsistent arithmetic (1,012.77/10.55 ≈ 96×, not 32.4×). Table removed; replaced by an explicit NOT VALIDATED note. The historical "32× Python prototype" claim remains labeled as unvalidated context. |
 | LongMemEval throughput "3,125 QPS / p50 0.029 ms / build 105.3 s" attributed to the "SplatDB v2.5.0 native pipeline" (recall 0.966) | `bench-data/benchmark_results_hardware.json` `longmemeval` block; previous BENCHMARKS.md §5 | Numbers exist in no source JSON: `longmemeval_full_results.json` (NumPy reference — recall 0.966, p50 0.056 ms, no QPS) and `longmemeval_splatdb_native.json` (native — 671.63 QPS, p50 1.448 ms, recall@10 0.304) disagree with every figure. §5 rewritten as 5a (NumPy) / 5b (native) citing both JSONs; the JSON block itself still needs the same fix (owned by another agent). |
-| GPU microbenchmark "CPU 718 ms vs GPU 18 ms = 39.89×" (`test_ptx_kernel_performance`, 10K×640D×100q, 2026-10-15) | README "GPU Acceleration → Performance" | Contradicted the same test's logged run (565 ms / 27 ms / 20.93×, documented in §4 and README's benchmark section) and had no preserved run log. Replaced by the 20.93× figure; pending re-measure with a persisted result file. |
+| GPU microbenchmark "CPU 718 ms vs GPU 18 ms = 39.89×" (`test_ptx_kernel_performance`, 10K×640D×100q, 2026-10-15) | README "GPU Acceleration → Performance" | Contradicted the same test's logged run (565 ms / 27 ms / 20.93×, documented in §4 and README's benchmark section) and had no preserved run log. Replaced by the 20.93× figure; re-measured 2026-10-25 with a persisted artifact (`bench-data/gpu_kernel_microbench_2026-10-25.json`) — see §4. |
 | TurboQuant ">95% top-10 recall at 5% search fraction" (4-bit, 640D) | README "Vector Compression → Compression Ratio" | No preserved result artifact. Replaced by a "source not preserved" note pointing at `quant-index`/`quant-search` for self-measurement. |
 | BEIR "Alternative Approaches" A/B table — BGE-base 0.5806 avg NDCG@10, passage-level 0.5432, title-only 0.1422, BM25+RRF ~0.55 | README "BEIR Information Retrieval → Alternative Approaches" | No preserved result files (`bench-data/alternative_results.json` covers only the fiqa baseline, NDCG@10 0.3848). Kept in README with a visible "source not preserved" label as directional findings; not citable as measured results. |
 

@@ -21,7 +21,7 @@
 
 use ndarray::{Array1, Array2, Axis};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 /// Asigna cada vector crudo al splat más cercano (gemm), calcula radios y
@@ -92,25 +92,30 @@ pub fn persist_field(
     let dir = Path::new(data_dir).join("field");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let mut f = fs::File::create(dir.join("members.idx")).map_err(|e| e.to_string())?;
-    f.write_all(&(n as u64).to_le_bytes())
-        .map_err(|e| e.to_string())?;
-    f.write_all(&(k as u64).to_le_bytes())
-        .map_err(|e| e.to_string())?;
-    for o in &offsets {
-        f.write_all(&o.to_le_bytes()).map_err(|e| e.to_string())?;
+    // Atomic writes: a crash mid-ingest must not leave a truncated
+    // members.idx/radii.bin that load_field would reject (or worse, trust).
+    {
+        let mut buf = Vec::with_capacity(16 + (offsets.len() + ids.len()) * 8);
+        buf.extend_from_slice(&(n as u64).to_le_bytes());
+        buf.extend_from_slice(&(k as u64).to_le_bytes());
+        for o in &offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        for id in &ids {
+            buf.extend_from_slice(&id.to_le_bytes());
+        }
+        splatsdb::storage::persistence::atomic_write(&dir.join("members.idx"), &buf)
+            .map_err(|e| e.to_string())?;
     }
-    for id in &ids {
-        f.write_all(&id.to_le_bytes()).map_err(|e| e.to_string())?;
+    {
+        let mut buf = Vec::with_capacity(8 + rmax.len() * 4);
+        buf.extend_from_slice(&(k as u64).to_le_bytes());
+        for r in &rmax {
+            buf.extend_from_slice(&r.to_le_bytes());
+        }
+        splatsdb::storage::persistence::atomic_write(&dir.join("radii.bin"), &buf)
+            .map_err(|e| e.to_string())?;
     }
-    drop(f);
-    let mut f = fs::File::create(dir.join("radii.bin")).map_err(|e| e.to_string())?;
-    f.write_all(&(k as u64).to_le_bytes())
-        .map_err(|e| e.to_string())?;
-    for r in &rmax {
-        f.write_all(&r.to_le_bytes()).map_err(|e| e.to_string())?;
-    }
-    drop(f);
 
     let empty = counts.iter().filter(|&&c| c == 0).count();
     let mut sorted_r = rmax.clone();
@@ -204,6 +209,17 @@ pub fn field_search_two_phase(
         .load_vectors("default")
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no hay shard default (splats)".to_string())?;
+
+    // Validar dimensión ANTES de map_axis/dot: q más corta o más larga que el
+    // campo paniquea (subtract shape mismatch) en vez de devolver error limpio.
+    if q.len() != splats.ncols() || q.len() != raw.ncols() {
+        return Err(format!(
+            "dim mismatch: query={} splats={} raw={}",
+            q.len(),
+            splats.ncols(),
+            raw.ncols()
+        ));
+    }
 
     let mpath = base.join("field").join("members.idx");
     let hdr = load_u64s(&mpath, 2, 0)?;
@@ -319,6 +335,17 @@ pub fn field_search(data_dir: &str, q: &[f32], kq: usize) -> Result<serde_json::
         .load_vectors("default")
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no hay shard default (splats)".to_string())?;
+
+    // Validar dimensión ANTES de map_axis: q != ncols() paniquea en el
+    // subtract (shape mismatch) en vez de devolver error limpio.
+    if q.len() != splats.ncols() || q.len() != raw.ncols() {
+        return Err(format!(
+            "dim mismatch: query={} splats={} raw={}",
+            q.len(),
+            splats.ncols(),
+            raw.ncols()
+        ));
+    }
 
     let mpath = base.join("field").join("members.idx");
     let hdr = load_u64s(&mpath, 2, 0)?;

@@ -75,3 +75,4 @@ emb-test/**/*.db
 # local run artifacts
 splatsdb_data/
 emb-test/*.png
+_swarm/

@@ -23,6 +23,11 @@ pub fn cmd_search(
         }
     };
     let (store, _) = load_shard_store(&data_dir, &config, &shard);
+    let dim = store.get_statistics().embedding_dim;
+    if q.len() != dim {
+        eprintln!("Error: dim mismatch: query={} store={}", q.len(), dim);
+        std::process::exit(1);
+    }
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
@@ -43,6 +48,11 @@ pub fn cmd_search_file(
         }
     };
     let (store, _) = load_shard_store(&data_dir, &config, &shard);
+    let dim = store.get_statistics().embedding_dim;
+    if q.len() != dim {
+        eprintln!("Error: dim mismatch: query={} store={}", q.len(), dim);
+        std::process::exit(1);
+    }
     let results = store.find_neighbors(&q.view(), k);
     println!("{}", format_neighbors(&results, &format));
 }
@@ -318,6 +328,10 @@ pub fn cmd_bench_hnsw(
     });
     let n_total = all_queries.nrows();
     let n_samples = samples.unwrap_or(n_total).min(n_total);
+    if n_samples == 0 {
+        eprintln!("[bench-hnsw] Error: no queries to benchmark (empty query file or --samples 0)");
+        std::process::exit(1);
+    }
     eprintln!(
         "[bench-hnsw] {} total queries, testing {}",
         n_total, n_samples,
@@ -361,10 +375,15 @@ pub fn cmd_bench_hnsw(
     // Sort latencies for percentiles
     latencies_us.sort_unstable();
 
-    let p50 = latencies_us[n_samples * 50 / 100];
-    let p95 = latencies_us[n_samples * 95 / 100];
-    let p99 = latencies_us[n_samples * 99 / 100.min(n_samples)];
-    let median = latencies_us[n_samples / 2];
+    // Percentile helper: clamp the index to the last element. The old
+    // expression `n*99/100.min(n)` bound the divisor, not the index, and
+    // panicked for n_samples < 100 (index 99 > len-1). n_samples >= 1 is
+    // guaranteed by the early exit above, so clamping to n_samples-1 is safe.
+    let pct = |p: usize| latencies_us[(n_samples * p / 100).min(n_samples - 1)];
+    let p50 = pct(50);
+    let p95 = pct(95);
+    let p99 = pct(99);
+    let median = latencies_us[(n_samples / 2).min(n_samples - 1)];
     let total_search_s = total_search_us as f64 / 1_000_000.0;
     let qps = if total_search_s > 0.0 {
         n_samples as f64 / total_search_s

@@ -9,7 +9,6 @@ pub mod ebm;
 pub mod embedding_config;
 pub mod embedding_model;
 pub mod encoding;
-pub mod energy;
 pub mod entity_extractor;
 pub mod evaluate_embeddings;
 pub mod geometry;

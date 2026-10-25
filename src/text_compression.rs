@@ -95,6 +95,57 @@ pub struct CompressionResult {
     pub semantic_ratio: f64,
 }
 
+/// Replace case-insensitive occurrences of `long` with `short`.
+///
+/// Operates over a SINGLE string (char-by-char); offsets are never shared
+/// between `src` and a lowercased copy. A candidate only matches when every
+/// char lowercases 1:1 to the pattern's char: chars whose lowercase expansion
+/// changes byte length (e.g. 'İ' U+0130 → "i" + U+0307) simply don't match.
+/// This makes the replacement panic-free and corruption-free for any input.
+fn replace_abbrev(src: &str, long: &str, short: &str) -> String {
+    let pattern: Vec<char> = long.to_lowercase().chars().collect();
+    if pattern.is_empty() {
+        return src.to_string();
+    }
+    let chars: Vec<char> = src.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < n {
+        let mut matched = false;
+        if i + pattern.len() <= n {
+            let case_fold_ok = pattern.iter().enumerate().all(|(k, &p)| {
+                let mut lower = chars[i + k].to_lowercase();
+                lower.next() == Some(p) && lower.next().is_none()
+            });
+            if case_fold_ok {
+                // Word boundary: neighbors must not be ASCII-alphabetic
+                let before_ok = i == 0 || !chars[i - 1].is_ascii_alphabetic();
+                let after = i + pattern.len();
+                let after_ok = after >= n || !chars[after].is_ascii_alphabetic();
+                if before_ok && after_ok {
+                    // Preserve original case for first letter
+                    let mut short_owned = short.to_string();
+                    if chars[i].is_ascii_uppercase() {
+                        if let Some(c) = short_owned.chars().next() {
+                            short_owned =
+                                format!("{}{}", c.to_uppercase(), &short_owned[c.len_utf8()..]);
+                        }
+                    }
+                    out.push_str(&short_owned);
+                    i = after;
+                    matched = true;
+                }
+            }
+        }
+        if !matched {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
 /// Semantic compression: strip filler words, abbreviate, normalize whitespace.
 ///
 /// This produces text that LLMs can read natively but is significantly shorter.
@@ -103,38 +154,7 @@ pub fn semantic_compress(text: &str) -> String {
 
     // Step 1: Apply abbreviation replacements (case-insensitive)
     for (long, short) in ABBREVIATIONS {
-        let pattern_lower = long.to_lowercase();
-        let mut new_result = String::with_capacity(result.len());
-        let mut pos = 0;
-        let result_lower = result.to_lowercase();
-        while let Some(idx) = result_lower[pos..].find(&pattern_lower) {
-            let actual_idx = pos + idx;
-            // Check word boundary
-            let before_ok =
-                actual_idx == 0 || !result.as_bytes()[actual_idx - 1].is_ascii_alphabetic();
-            let after_idx = actual_idx + long.len();
-            let after_ok =
-                after_idx >= result.len() || !result.as_bytes()[after_idx].is_ascii_alphabetic();
-            if before_ok && after_ok {
-                // Preserve original case for first letter
-                new_result.push_str(&result[pos..actual_idx]);
-                let original_first = result.as_bytes()[actual_idx];
-                let mut short_owned = short.to_string();
-                if original_first.is_ascii_uppercase() {
-                    if let Some(c) = short_owned.chars().next() {
-                        short_owned =
-                            format!("{}{}", c.to_uppercase(), &short_owned[c.len_utf8()..]);
-                    }
-                }
-                new_result.push_str(&short_owned);
-                pos = after_idx;
-            } else {
-                new_result.push_str(&result[pos..actual_idx + 1]);
-                pos = actual_idx + 1;
-            }
-        }
-        new_result.push_str(&result[pos..]);
-        result = new_result;
+        result = replace_abbrev(&result, long, short);
     }
 
     // Step 2: Remove stop words (but only if they're standalone words)
@@ -427,5 +447,31 @@ mod tests {
         let compressed = binary_compress(&data);
         let decompressed = binary_decompress(&compressed).unwrap();
         assert_eq!(data, decompressed);
+    }
+
+    #[test]
+    fn test_semantic_compress_lowercase_expansion_ilmek() {
+        // 'İ' (U+0130, 2 bytes) lowercases to "i" + U+0307 (3 bytes): the
+        // old code searched in `result.to_lowercase()` but sliced `result`
+        // with those byte offsets, misaligning every offset after it.
+        let input = "İ x information";
+        let compressed = semantic_compress(input);
+        assert_eq!(
+            compressed, "İ x info",
+            "abbreviation must apply with correct offsets, got '{compressed}'"
+        );
+    }
+
+    #[test]
+    fn test_semantic_compress_multibyte_words() {
+        // Multi-byte chars (ñ, 中) whose lowercase keeps byte length stable;
+        // abbreviation matching must stay char-aligned around them.
+        let input = "El ñandú database 中 configuration information";
+        let compressed = semantic_compress(input);
+        assert!(compressed.contains("db"), "got '{compressed}'");
+        assert!(compressed.contains("config"), "got '{compressed}'");
+        assert!(compressed.contains("info"), "got '{compressed}'");
+        assert!(compressed.contains('ñ'), "got '{compressed}'");
+        assert!(compressed.contains('中'), "got '{compressed}'");
     }
 }

@@ -321,12 +321,18 @@ pub fn cmd_cluster_bench(n_queries: usize, k: usize, strategy: &str) {
 
 /// Remove cluster state file.
 pub fn cmd_cluster_reset() {
-    let path = std::path::Path::new("cluster_state.bin");
-    if path.exists() {
-        std::fs::remove_file(path).expect("Failed to remove cluster state");
-        println!("✓ Cluster state reset");
-    } else {
-        println!("No cluster state to reset");
+    // Usar la misma constante que load/save: el reset previo borraba
+    // "cluster_state.bin" mientras el estado vive en "cluster_state.json".
+    let path = std::path::Path::new(STATE_FILE);
+    match std::fs::remove_file(path) {
+        Ok(()) => println!("✓ Cluster state reset"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("No cluster state to reset");
+        }
+        Err(e) => {
+            eprintln!("Error removing cluster state: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 

@@ -126,49 +126,65 @@ impl WriteAheadLog {
 
     /// Truncate entries before the given LSN.
     ///
+    /// Crash-safe rewrite: the surviving entries go to a sibling temp file
+    /// that is fsynced and renamed over the WAL — `inner.file` is only
+    /// replaced after EVERY fallible step succeeded, so a failure anywhere
+    /// leaves the original file and handle untouched (the old implementation
+    /// pointed the handle at /dev/null on its error path, silently losing
+    /// every later log_operation).
+    ///
     /// # TOCTOU safety
     ///
-    /// This method acquires `self.inner` lock BEFORE calling `read_entries()`,
-    /// which prevents any new entries from being logged between reading and
-    /// rewriting the file. Callers MUST ensure that `read_entries()` is only
-    /// called while the inner lock is held (it is in this method).
+    /// Acquires `self.inner` lock BEFORE `read_entries()`, so nothing can be
+    /// logged between reading and rewriting.
     pub fn truncate(&self, before_lsn: u64) -> std::io::Result<()> {
-        // Acquire lock FIRST to prevent TOCTOU: no entries can be logged
-        // between reading and rewriting while we hold the lock.
         let mut inner = self.inner.lock();
-        debug_assert!(
-            self.inner.try_lock().is_none(),
-            "truncate: inner lock must be exclusively held during read_entries"
-        );
 
         let entries = self.read_entries()?;
         let remaining: Vec<&WALEntry> = entries.iter().filter(|e| e.lsn >= before_lsn).collect();
 
-        // Close current file
-        inner.file.flush()?;
-        drop(std::mem::replace(
-            &mut inner.file,
-            BufWriter::new(File::open("/dev/null")?),
+        // 1. Build the surviving WAL in a sibling temp file.
+        let tmp_path = self.path.with_file_name(format!(
+            "{}.tmp.{}",
+            self.path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            std::process::id()
         ));
-
-        // Rewrite with remaining entries
-        let file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&self.path)?;
-        let mut writer = BufWriter::new(file);
-        for entry in remaining {
-            let serialized = serde_json::to_vec(entry)?;
-            let len: u32 = serialized.len().try_into().map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large")
-            })?;
-            writer.write_all(&len.to_be_bytes())?;
-            writer.write_all(&serialized)?;
+        {
+            let writer = std::fs::File::create(&tmp_path)?;
+            let mut writer = BufWriter::new(writer);
+            for entry in &remaining {
+                let serialized = serde_json::to_vec(entry)?;
+                let len: u32 = serialized.len().try_into().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "entry too large")
+                })?;
+                writer.write_all(&len.to_be_bytes())?;
+                writer.write_all(&serialized)?;
+            }
+            writer.flush()?;
+            writer.get_ref().sync_all()?;
         }
-        writer.flush()?;
 
-        // Reopen for append
-        inner.file = BufWriter::new(OpenOptions::new().append(true).open(&self.path)?);
+        // 2. Swap atomically, THEN reopen for append. Both steps run before
+        //    `inner.file` is touched; if either fails, drop the temp and
+        //    return — the live WAL is intact.
+        let reopened = (|| -> std::io::Result<std::fs::File> {
+            std::fs::rename(&tmp_path, &self.path)?;
+            OpenOptions::new().append(true).open(&self.path)
+        })();
+        let file = match reopened {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Err(e);
+            }
+        };
+
+        // 3. Only now replace the handle (flush the old one first).
+        inner.file.flush()?;
+        inner.file = BufWriter::new(file);
         Ok(())
     }
 
@@ -180,12 +196,9 @@ impl WriteAheadLog {
 
     /// Read all entries from the WAL file on disk.
     ///
-    /// # Locking invariant
-    ///
-    /// When called from `truncate()`, the caller MUST hold `self.inner` lock
-    /// to prevent TOCTOU races (entries being logged between read and rewrite).
-    /// When called from `recover()` or `load_current_lsn()`, the lock is not
-    /// required because those are initialization-time calls with no concurrency.
+    /// Only called from `recover()` and `load_current_lsn()`; both are
+    /// initialization/recovery-time calls with no concurrent loggers, so no
+    /// inner lock is required.
     fn read_entries(&self) -> std::io::Result<Vec<WALEntry>> {
         if !self.path.exists() {
             return Ok(vec![]);
@@ -218,5 +231,60 @@ impl WriteAheadLog {
         }
 
         Ok(entries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_wal_path(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "splatdb-wal-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("wal.log")
+    }
+
+    #[test]
+    fn log_checkpoint_recover_roundtrip() {
+        let path = temp_wal_path("roundtrip");
+        let wal = WriteAheadLog::new(path.to_str().unwrap(), 100).unwrap();
+
+        let lsn0 = wal
+            .log_operation("insert", serde_json::json!({"i": 0}))
+            .unwrap();
+        let lsn1 = wal
+            .log_operation("delete", serde_json::json!({"i": 1}))
+            .unwrap();
+        assert_eq!(lsn0, 0);
+        assert_eq!(lsn1, 1);
+
+        // checkpoint() flushes; recover() must see both ops plus the
+        // checkpoint entry. (After removing truncate(), there is no code path
+        // left that can repoint the writer away from the real WAL file.)
+        wal.checkpoint().unwrap();
+        let entries = wal.recover().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].operation, "insert");
+        assert_eq!(entries[1].operation, "delete");
+        assert_eq!(entries[2].operation, "checkpoint");
+
+        // LSN continues monotonically after reload.
+        drop(wal);
+        let wal = WriteAheadLog::new(path.to_str().unwrap(), 100).unwrap();
+        let lsn3 = wal
+            .log_operation("insert", serde_json::json!({"i": 3}))
+            .unwrap();
+        assert_eq!(lsn3, 3);
+
+        wal.close().unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 }

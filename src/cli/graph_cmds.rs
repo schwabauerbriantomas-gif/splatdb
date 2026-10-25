@@ -1,10 +1,46 @@
 //! Graph Splat CLI command handlers.
 //!
 //! Wraps the `graph_splat::GaussianGraphStore` operations for CLI use.
+//!
+//! Persistencia: el grafo vive en `graph_state.json` (CWD, misma convención
+//! que `cluster_state.json` — el dispatch no pasa data_dir a los subcomandos
+//! graph). Cada subcomando carga el estado al inicio; los mutadores guardan
+//! al final, así el node_id reportado sobrevive al proceso y
+//! graph-add-relation encuentra los nodos de sesiones anteriores.
 
-use splatsdb::graph_splat::GaussianGraphStore;
+use splatsdb::graph_splat::{GaussianGraphStore, GRAPH_STATE_FILENAME};
+use std::path::{Path, PathBuf};
 
 use super::helpers::*;
+
+/// Dir de estado del grafo (CWD).
+const GRAPH_STATE_DIR: &str = ".";
+
+fn graph_state_path() -> PathBuf {
+    Path::new(GRAPH_STATE_DIR).join(GRAPH_STATE_FILENAME)
+}
+
+/// Cargar el grafo persistido; store vacío si todavía no existe estado.
+fn load_graph() -> GaussianGraphStore {
+    if !graph_state_path().exists() {
+        return GaussianGraphStore::new();
+    }
+    match GaussianGraphStore::load_from_dir(GRAPH_STATE_DIR) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error loading graph state: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Persistir el grafo (falla ruidosamente: perder mutaciones en silencio no).
+fn save_graph(store: &GaussianGraphStore) {
+    if let Err(e) = store.save_to_dir(GRAPH_STATE_DIR) {
+        eprintln!("Error saving graph state: {}", e);
+        std::process::exit(1);
+    }
+}
 
 /// Graph-Add-Doc: add a document node to the graph.
 ///
@@ -19,9 +55,10 @@ pub fn cmd_graph_add_doc(text: String, embedding: String) {
     };
 
     let emb_vec: Vec<f32> = emb.to_vec();
-    let mut store = GaussianGraphStore::new();
+    let mut store = load_graph();
     match store.add_document(&text, &emb_vec) {
         Ok(id) => {
+            save_graph(&store);
             println!(
                 "{}",
                 serde_json::json!({
@@ -49,9 +86,10 @@ pub fn cmd_graph_add_entity(name: String, embedding: String, entity_type: String
     };
 
     let emb_vec: Vec<f32> = emb.to_vec();
-    let mut store = GaussianGraphStore::new();
+    let mut store = load_graph();
     match store.add_entity(&name, &emb_vec, &entity_type) {
         Ok(id) => {
+            save_graph(&store);
             println!(
                 "{}",
                 serde_json::json!({
@@ -75,9 +113,10 @@ pub fn cmd_graph_add_relation(
     relation_type: String,
     weight: f64,
 ) {
-    let mut store = GaussianGraphStore::new();
+    let mut store = load_graph();
     match store.add_relation(source_id, target_id, &relation_type, weight) {
         Ok(()) => {
+            save_graph(&store);
             println!(
                 "{}",
                 serde_json::json!({
@@ -98,9 +137,10 @@ pub fn cmd_graph_add_relation(
 
 /// Graph-Traverse: BFS traversal from a start node.
 pub fn cmd_graph_traverse(text: String, embedding: String, max_depth: usize, add_doc: bool) {
-    let mut store = GaussianGraphStore::new();
+    let mut store = load_graph();
 
-    // If --add-doc is set, first insert a document node then traverse from it.
+    // If --add-doc is set, first insert a document node (persisted) then
+    // traverse from it.
     let start_id = if add_doc {
         let emb = match parse_query(&embedding) {
             Ok(v) => v,
@@ -111,7 +151,10 @@ pub fn cmd_graph_traverse(text: String, embedding: String, max_depth: usize, add
         };
         let emb_vec: Vec<f32> = emb.to_vec();
         match store.add_document(&text, &emb_vec) {
-            Ok(id) => id,
+            Ok(id) => {
+                save_graph(&store);
+                id
+            }
             Err(e) => {
                 eprintln!("Error adding document: {}", e);
                 std::process::exit(1);
@@ -140,7 +183,7 @@ pub fn cmd_graph_traverse(text: String, embedding: String, max_depth: usize, add
     );
 }
 
-/// Graph-Search: hybrid vector + graph search.
+/// Graph-Search: hybrid vector + graph search over the persisted graph.
 pub fn cmd_graph_search(query: String, k: usize, search_type: String) {
     let emb = match parse_query(&query) {
         Ok(v) => v,
@@ -151,12 +194,22 @@ pub fn cmd_graph_search(query: String, k: usize, search_type: String) {
     };
 
     let emb_vec: Vec<f32> = emb.to_vec();
+    let store = load_graph();
 
-    let mut store = GaussianGraphStore::new();
-
-    // Add a demo document so search has something to return.
-    // In real usage the store would be pre-loaded.
-    let _ = store.add_document("demo", &emb_vec);
+    if store.n_nodes() == 0 {
+        // Sin grafo: resultados vacíos honestos (antes se inyectaba un doc
+        // demo falso que "encontraba" siempre lo buscado).
+        println!(
+            "{}",
+            serde_json::json!({
+                "search_type": search_type,
+                "n_results": 0,
+                "results": [],
+                "message": "graph is empty — add nodes with graph-add-doc / graph-add-entity",
+            })
+        );
+        return;
+    }
 
     match search_type.as_str() {
         "hybrid" => {
@@ -210,9 +263,9 @@ pub fn cmd_graph_search(query: String, k: usize, search_type: String) {
     }
 }
 
-/// Graph-Stats: print graph statistics.
+/// Graph-Stats: print real graph statistics from the persisted state.
 pub fn cmd_graph_stats() {
-    let store = GaussianGraphStore::new();
+    let store = load_graph();
     let stats = store.get_stats();
     println!(
         "{}",

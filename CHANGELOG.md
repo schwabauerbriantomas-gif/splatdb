@@ -1,5 +1,27 @@
 # Changelog
 
+## [v2.7.1] - 2026-10-25
+
+### Fixed
+- **storage**: atomic tmp+rename writes for metadata JSON, vector shards, energy state and `field/` members.idx/radii.bin — a crash or disk-full mid-write no longer truncates shards or silently discards metadata; a corrupt metadata file is quarantined to `*.corrupt-<timestamp>` with a loud stderr note instead of being dropped
+- **storage**: `WriteAheadLog::truncate` rewritten crash-safe — the old error path pointed the file handle at `/dev/null`, silently losing every later `log_operation` (and always failing on Windows); it now builds a fsynced sibling temp and swaps the handle only after every fallible step succeeds
+- **cli**: `bench-hnsw` panicked (index out of bounds) with fewer than 100 query samples — percentiles clamp to `n-1` and zero samples exits with an error
+- **cli**: `field-search` panicked on query-dim mismatch (ndarray shape panic); clean error naming query/splats/raw dims now (also validated in `search`/`search-file`)
+- **cli**: `cluster-reset` removed the wrong file (`cluster_state.bin` vs the real `cluster_state.json`) and panicked on IO errors
+- **cli**: `quant-index --bits` validated against the library contract (1..=16; TurboQuant 2..=16) instead of panicking; `doc-add` warns instead of silently discarding invalid metadata JSON
+- **cli**: `verbatim store` never inserted the embedded vector — searches attributed neighbor vectors to documents whose metadata pointed at indices no vector occupied, defeating the anti-hallucination purpose; vectors are now really inserted and persisted with their real index, and `decompress` no longer panics on non-ASCII hex (invalid hex is an error, not silently dropped digits)
+- **cli**: `graph-*` commands were in-memory only — `graph-add-relation` always failed with `NodeNotFound`, `graph-stats` always printed zeros, and `graph-search` injected a fake demo document; `GaussianGraphStore` now persists to `graph_state.json` (atomic write, duplicate-id/dangling-edge rejection on load) and every subcommand loads and saves; the fake injection is gone
+- **ebm**: `soc-avalanche` panicked on NaN energies (`partial_cmp().unwrap()`); Ordering fallback now
+- **text_compression**: `semantic_compress` panicked or silently corrupted output on Unicode whose lowercase changes byte length (`İ` U+0130 → 3 bytes); single-string char-wise matching now, with regression tests
+- **hnsw**: `HNSWIndex::new` enforces the same `m` range as `load` ([2, 4096]) — an index saved by `new` can always be reloaded
+- **cli**: `.bin` loaders cap header-driven allocations (1e9 elements) and validate real file size before allocating — a hostile header can no longer OOM the ingest/search/bench paths
+
+### Removed
+- Dead code (zero callers verified by search): `src/energy.rs` (239 LOC), `src/ebm/exploration.rs` (447 LOC)
+
+### Docs
+- Consistency pass: measured test counts, every benchmark table cites its persisted artifact in `bench-data/`, BEIR v2 labeled NOT VALIDATED, broken anchors fixed, TOC completed, MCP tool tables completed (18/18), stale PDFs with superseded claims removed
+
 ## [v2.7.0] - 2026-10-25
 
 ### Added
@@ -16,13 +38,13 @@
 - GPU: no more global panic-hook swap (fallback causes now logged once); extended-kernel PTX cached per process (was JIT-loaded from disk per call, even inside the k-means loop); l2/cosine top-k honors >48KB shared-memory opt-in (silent failures for K≥24); sentinel −1 no longer surfaces as vector 0; CPU fallbacks log once instead of silently degrading
 - CI: `cargo-audit` job; `Cargo.lock` versioned; release binaries smoke-tested before publish; dead Python tests (m2m-memory inheritance) removed; pentest setups fail loudly instead of passing empty
 - MCP stdio dispatcher runs behind `catch_unwind`: a panic in a tool handler returns JSON-RPC `-32603` instead of killing the server process; GPU clamp test asserts exact result length and sentinel/NaN-free outputs under CUDA
-- docs: badge/tests count measured (427), GPU microbenchmark re-measured with persisted artifact (`bench-data/gpu_kernel_microbench_2026-10-25.json`: 6 runs, median 30.6×, GPU 20ms @ 10K×640D×100q), longmemeval NumPy-vs-native results separated (native: 0.304 recall / 671.63 QPS), unsourced HRM2/TurboQuant claims marked NOT VALIDATED, 15 missing CLI commands documented, verbatim/compression status corrected, inert config keys (`semantic_fusion`, `semantic_vector_weight`, `semantic_bm25_*`, `semantic_decay_halflife`, `autoscale_*`) documented as unused, `build_single` input preconditions documented, LOC badge recount (34,461)
+- docs: badge/tests count measured (393), GPU microbenchmark re-measured with persisted artifact (`bench-data/gpu_kernel_microbench_2026-10-25.json`: 6 runs, median 30.6×, GPU 20ms @ 10K×640D×100q), longmemeval NumPy-vs-native results separated (native: 0.304 recall / 671.63 QPS), unsourced HRM2/TurboQuant claims marked NOT VALIDATED, 15 missing CLI commands documented, verbatim/compression status corrected, inert config keys (`semantic_fusion`, `semantic_vector_weight`, `semantic_bm25_*`, `semantic_decay_halflife`, `autoscale_*`) documented as unused in code (doc-comments in `src/config/mod.rs`), `build_single` input preconditions documented in code (doc-comment in `src/encoding.rs`), LOC badge recount (34,461)
 
 ### Removed
 - Dead code, wave-4 audit (zero callers verified by search before each deletion): `error::SplatsDBError`, `engine::SplatsDBEngine` + `compute_expert_distances*`, geometry helpers (`normalize_sphere_1d`, `geodesic_distance_batch`, `exp_map`, `log_map`, `project_to_tangent`, `knn_geodesic`), `BM25Index::search_ids`, `SplatStore::decay_frequencies`, cluster `protocol`/`edge_node`/`sync` modules + `HealthChecker` (`EdgeNodeInfo`/`LoadMetrics`/`GeoLocation` kept — router/sharding use them), `backend_comm`, `auto_scaling`, `api::coordinator_api` + `api::edge_api` — ~2.8K lines
 
 ### Verified
-- 427 tests green, `clippy -D warnings` clean on cuda + cpu-only, GPU kernel benchmark 31.28× → 34.32× (10K×640D×100q, same-run CPU control)
+- 393 tests green (317 lib + 76 integration), `clippy -D warnings` clean on cuda + cpu-only, GPU kernel benchmark median 30.6× across 6 runs (range 25.45×–34.32×, GPU median 20ms @ 10K×640D×100q, same-run CPU control)
 
 ## [v2.6.1] - 2026-10-25
 

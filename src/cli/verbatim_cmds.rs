@@ -16,16 +16,43 @@ pub fn cmd_verbatim_store(
     category: Option<String>,
 ) {
     let config = SplatsDBConfig::default();
-    let (store, persist) = load_or_create_store(&data_dir, &config);
+    let (mut store, persist) = load_or_create_store(&data_dir, &config);
 
     let dim = store.get_statistics().embedding_dim;
     let embedding = simcos_embed(&text, dim);
-    let _arr = ndarray::Array2::from_shape_vec((1, dim), embedding).unwrap();
-    let vector_idx = store.n_active() as i64;
-    drop(store); // Release store before persistence operations
 
-    // Store metadata with verbatim text
+    // Insertar el vector DE VERDAD en el store y usar el idx REAL devuelto.
+    // Antes solo se guardaba metadata con vector_idx=n_active() sin insertar:
+    // dos docs colisionaban en el mismo índice y la búsqueda atribuía el
+    // texto del doc equivocado.
+    let vector_idx = match store.insert(&embedding) {
+        Some(idx) => idx as i64,
+        None => {
+            eprintln!(
+                "Error: no se pudo insertar el embedding (dim {} o capacidad llena)",
+                dim
+            );
+            std::process::exit(1);
+        }
+    };
+
+    // Persistir el store (mismo patrón que cmd_save) para que el vector
+    // sobreviva al proceso: shard "default" + energy landscape.
     if let Some(ref p) = persist {
+        if let (Some(mu), Some(alpha), Some(kappa)) =
+            (store.get_mu(), store.get_alpha(), store.get_kappa())
+        {
+            if let Err(e) = p.save_vectors(&mu, "default") {
+                eprintln!("Error persisting vectors: {}", e);
+                std::process::exit(1);
+            }
+            if let Err(e) = p.save_energy_state(&mu, &alpha.to_vec(), &kappa.to_vec()) {
+                eprintln!("Error persisting energy state: {}", e);
+                std::process::exit(1);
+            }
+        }
+
+        // Store metadata with verbatim text (apuntando al idx real insertado)
         let mut meta_json = serde_json::json!({
             "verbatim": true,
         });
@@ -183,14 +210,43 @@ pub fn cmd_compress(text: String, verbose: bool) {
     }
 }
 
+/// Dígito hex → valor. Error explícito en inválido (antes los bytes inválidos
+/// se dropeaban en silencio y el binario resultante era otro).
+fn hex_val(b: u8) -> Result<u8, String> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => Err(format!(
+            "hex inválido: '{}' (byte 0x{:02x})",
+            char::from(b).escape_default(),
+            b
+        )),
+    }
+}
+
 pub fn cmd_decompress(hex_data: String) {
-    let binary_data: Vec<u8> = (0..hex_data.len())
-        .step_by(2)
-        .filter_map(|i| {
-            let byte_str = &hex_data[i..i + 2];
-            u8::from_str_radix(byte_str, 16).ok()
-        })
-        .collect();
+    // Parseo byte-seguro: as_bytes + chunks_exact(2) no paniquea en
+    // char-boundaries con input no-ASCII (el viejo &s[i..i+2] sí).
+    let hex = hex_data.trim();
+    if !hex.len().is_multiple_of(2) {
+        eprintln!("Error: hex inválido: longitud {} no es par", hex.len());
+        std::process::exit(1);
+    }
+    let binary_data: Vec<u8> = match hex
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| -> Result<u8, String> { Ok((hex_val(pair[0])? << 4) | hex_val(pair[1])?) })
+        .collect::<Result<Vec<u8>, String>>()
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     match text_compression::decompress(&binary_data) {
         Ok(text) => {
