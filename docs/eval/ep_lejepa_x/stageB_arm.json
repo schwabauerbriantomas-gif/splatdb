@@ -1,0 +1,75 @@
+{
+  "per_class": {
+    "15": {
+      "n_train": 727,
+      "K_splats": 256,
+      "ep_real": 0.09675,
+      "ep_synth": 0.00164,
+      "ep_gap_ratio": 0.0169,
+      "auroc_splats": 0.9793
+    },
+    "5": {
+      "n_train": 720,
+      "K_splats": 256,
+      "ep_real": 0.07959,
+      "ep_synth": 0.00121,
+      "ep_gap_ratio": 0.0152,
+      "auroc_splats": 0.9716
+    },
+    "3": {
+      "n_train": 716,
+      "K_splats": 256,
+      "ep_real": 0.08041,
+      "ep_synth": 0.00171,
+      "ep_gap_ratio": 0.0213,
+      "auroc_splats": 0.9585
+    },
+    "10": {
+      "n_train": 715,
+      "K_splats": 256,
+      "ep_real": 0.12079,
+      "ep_synth": 0.00167,
+      "ep_gap_ratio": 0.0138,
+      "auroc_splats": 0.9912
+    },
+    "13": {
+      "n_train": 713,
+      "K_splats": 256,
+      "ep_real": 0.06533,
+      "ep_synth": 0.00153,
+      "ep_gap_ratio": 0.0234,
+      "auroc_splats": 0.9787
+    },
+    "11": {
+      "n_train": 711,
+      "K_splats": 256,
+      "ep_real": 0.10568,
+      "ep_synth": 0.00159,
+      "ep_gap_ratio": 0.0151,
+      "auroc_splats": 0.9603
+    },
+    "14": {
+      "n_train": 709,
+      "K_splats": 256,
+      "ep_real": 0.04905,
+      "ep_synth": 0.00154,
+      "ep_gap_ratio": 0.0314,
+      "auroc_splats": 0.9486
+    },
+    "6": {
+      "n_train": 708,
+      "K_splats": 256,
+      "ep_real": 0.11522,
+      "ep_synth": 0.00172,
+      "ep_gap_ratio": 0.0149,
+      "auroc_splats": 0.9649
+    }
+  },
+  "gap_ratio_median": 0.016,
+  "gap_ratio_iqr": [
+    0.0151,
+    0.0218
+  ],
+  "prediccion_H2": "ratio ~ 1 (los splats preservan las estad\u00edsticas que EP mide)",
+  "date": "2026-11-05 13:25:44"
+}

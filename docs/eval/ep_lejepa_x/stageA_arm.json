@@ -1,0 +1,145 @@
+{
+  "per_class": {
+    "0": {
+      "n_train": 574,
+      "auroc_knn": 0.9238,
+      "ep_dist": 0.07694
+    },
+    "1": {
+      "n_train": 705,
+      "auroc_knn": 0.9487,
+      "ep_dist": 0.08673
+    },
+    "2": {
+      "n_train": 700,
+      "auroc_knn": 0.9514,
+      "ep_dist": 0.08496
+    },
+    "3": {
+      "n_train": 716,
+      "auroc_knn": 0.9537,
+      "ep_dist": 0.08041
+    },
+    "4": {
+      "n_train": 689,
+      "auroc_knn": 0.946,
+      "ep_dist": 0.08285
+    },
+    "5": {
+      "n_train": 720,
+      "auroc_knn": 0.9736,
+      "ep_dist": 0.07959
+    },
+    "6": {
+      "n_train": 708,
+      "auroc_knn": 0.9645,
+      "ep_dist": 0.11522
+    },
+    "7": {
+      "n_train": 688,
+      "auroc_knn": 0.9551,
+      "ep_dist": 0.07074
+    },
+    "8": {
+      "n_train": 704,
+      "auroc_knn": 0.963,
+      "ep_dist": 0.06402
+    },
+    "9": {
+      "n_train": 693,
+      "auroc_knn": 0.9862,
+      "ep_dist": 0.12535
+    },
+    "10": {
+      "n_train": 715,
+      "auroc_knn": 0.9898,
+      "ep_dist": 0.12079
+    },
+    "11": {
+      "n_train": 711,
+      "auroc_knn": 0.9679,
+      "ep_dist": 0.10568
+    },
+    "12": {
+      "n_train": 708,
+      "auroc_knn": 0.9278,
+      "ep_dist": 0.0448
+    },
+    "13": {
+      "n_train": 713,
+      "auroc_knn": 0.9847,
+      "ep_dist": 0.06533
+    },
+    "14": {
+      "n_train": 709,
+      "auroc_knn": 0.9527,
+      "ep_dist": 0.04905
+    },
+    "15": {
+      "n_train": 727,
+      "auroc_knn": 0.9729,
+      "ep_dist": 0.09675
+    },
+    "16": {
+      "n_train": 656,
+      "auroc_knn": 0.9608,
+      "ep_dist": 0.10532
+    },
+    "17": {
+      "n_train": 670,
+      "auroc_knn": 0.971,
+      "ep_dist": 0.13846
+    },
+    "18": {
+      "n_train": 560,
+      "auroc_knn": 0.9366,
+      "ep_dist": 0.07184
+    },
+    "19": {
+      "n_train": 447,
+      "auroc_knn": 0.9067,
+      "ep_dist": 0.07231
+    }
+  },
+  "pearson_ep_auroc": {
+    "r": 0.5469,
+    "p": 0.01259
+  },
+  "spearman_ep_auroc": {
+    "rho": 0.5023,
+    "p": 0.02402
+  },
+  "pearson_ep_ntrain": {
+    "r": 0.1364,
+    "p": 0.5663
+  },
+  "escalera_ruido": [
+    {
+      "lambda": 0.0,
+      "auroc_mean": 0.9563,
+      "ep_dist_mean": 0.08686
+    },
+    {
+      "lambda": 0.25,
+      "auroc_mean": 0.9583,
+      "ep_dist_mean": 0.07713
+    },
+    {
+      "lambda": 0.5,
+      "auroc_mean": 0.9547,
+      "ep_dist_mean": 0.04117
+    },
+    {
+      "lambda": 0.75,
+      "auroc_mean": 0.9395,
+      "ep_dist_mean": 0.00912
+    },
+    {
+      "lambda": 1.0,
+      "auroc_mean": 0.5,
+      "ep_dist_mean": 0.00159
+    }
+  ],
+  "prediccion_H1": "positiva (EP alto -> AUROC alto)",
+  "date": "2026-11-05 13:24:24"
+}
