@@ -151,17 +151,17 @@ filtra 18/21 pero pierde 14/27). La mitad de la "basura" son comandos
 extremos elegidos a mano. El hook NO consulta el gate (fail-open total);
 los tiers de distancia + FTS5 siguen siendo el único criterio.
 
-Infraestructura viva para reintentar: KEV-4B servido en :8008 desde
-/mnt/d/kev con `uv run --extra serve` (jaredpalmer/kev-4b: pointer head
-sobre Qwen3.5-4B-Base, API System One de TypeSafe), autostart por
-`hermes-hub-ensure.sh` (`KEV_CUDA_GRAPHS=0`, `KEV_PREFIX_CACHE=0`,
-`KEV_DEVICE_PROBE_TIMEOUT=180`; requiere `flash-linear-attention` en el
-venv — sin él, el backbone DeltaNet de Qwen3.5 corre en referencia
-PyTorch y el load no termina). RSS ~3.6 GB residente. Set de calibración
-guardado en scratch (`kev_calib_set.json`). El 0.8B no sirve ni como
-experimento (1/4, todo lo manda a "no"). Camino futuro: reformular la
-pregunta (comandos vs preguntas), recolectar p en log-only y
-recalibrar, o probar Clef-Flash 9B si hay VRAM.
+Infraestructura desmontada del stack (9b61d0d, a pedido del usuario tras
+la calibración): servicio muerto, autostart fuera del ensure, pidfile
+borrada. El clon /mnt/d/kev y los caches HF quedan en disco. Para
+reactivar: `cd /mnt/d/kev && HF_HOME=/mnt/d/huggingface
+KEV_CUDA_GRAPHS=0 KEV_PREFIX_CACHE=0 KEV_DEVICE_PROBE_TIMEOUT=180
+nohup uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b
+--port 8008 --device cuda &` (requiere `flash-linear-attention` en el
+venv — sin él el load no termina). Set de calibración en scratch
+(`kev_calib_set.json`). El 0.8B no sirve ni como experimento (1/4).
+Camino futuro: reformular la pregunta (comandos vs preguntas),
+recolectar p en log-only, o Clef-Flash 9B si hay VRAM.
 
 ## Limitaciones conocidas
 
