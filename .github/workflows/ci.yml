@@ -77,3 +77,8 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # RUSTSEC-2026-0441 (pin-utils unmaintained): informational only —
+          # zero vulnerabilities (verified in run 42041983518). Transitive
+          # via hyper -> axum, no patched version exists (upstream archived
+          # 2026-10-01). Re-evaluate when hyper/axum drop pin-utils.
+          ignore: RUSTSEC-2026-0441
