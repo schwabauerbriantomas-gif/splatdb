@@ -137,6 +137,23 @@ el ciclo diario con smoke que escribe PASS/FAIL al log existen para que eso
 no se repita. Si algo falla, `hermes-cycle.sh` aborta **antes** del merge —
 el hub sigue sirviendo el índice de ayer en vez de romperse.
 
+## Gate de decisión (KEV / System One)
+
+El hook `pre_llm_call` (~/.hermes/agent-hooks/) consulta antes un clasificador
+binario calibrado — **KEV-4B** (jaredpalmer/kev-4b: pointer head sobre
+Qwen3.5-4B-Base, API System One de TypeSafe) servido en :8008 desde /mnt/d/kev
+con `uv run --extra serve`. Pregunta `noul` "¿recuperar memoria mejora la
+respuesta?" → p(sí). Semántica: **filtro de basura conservador** — p < 0.12
+corta sin embed ni inyección; todo lo demás sigue a los tiers de distancia
+(calibrados sobre el corpus real). Calibración medida en 8 casos: junk
+≤ 0.137, reales ≥ 0.186; latencia 250-570 ms, fail-open si :8008 no responde.
+Autostart por cron en `hermes-hub-ensure.sh` (flags: `KEV_CUDA_GRAPHS=0`,
+`KEV_PREFIX_CACHE=0`, `KEV_DEVICE_PROBE_TIMEOUT=180` — tras un freeze del
+host la init de CUDA tarda >30 s y el probe default muere). Requiere
+`flash-linear-attention` en el venv de kev (sin él, el backbone híbrido
+DeltaNet de Qwen3.5 corre en referencia PyTorch y el load se eterniza).
+El 0.8B no alcanza para un gate genérico (accuracy 1/4 en casos propios).
+
 ## Limitaciones conocidas
 
 - Mensajes con contenido thin (blobs JSON de health-checks) no son
