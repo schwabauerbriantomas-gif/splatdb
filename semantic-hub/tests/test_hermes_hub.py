@@ -16,7 +16,7 @@ import tempfile
 import threading
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hermes_lib import (DIMS, parse_message_row, pack_shard_bin,
                         read_shard_bin_header, vec_blob, fts_query,
                         join_hits, meta_json)
