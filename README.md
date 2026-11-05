@@ -73,6 +73,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 - [Knowledge Graph (GraphSplat)](#knowledge-graph-graphsplat)
 - [Vector Compression (TurboQuant / PolarQuant)](#vector-compression-turboquant--polarquant)
 - [Semantic Memory](#semantic-memory)
+- [Hermes Memory Hub (Session Recall)](#hermes-memory-hub-session-recall)
 - [Energy-Based Model](#energy-based-model)
 - [Module Map](#module-map)
 - [Dependencies](#dependencies)
@@ -1744,6 +1745,34 @@ We publish this checklist because the vector search industry has a [credibility 
 - [x] Can you reproduce the exact numbers on your own hardware?
 
 If a project can't answer "yes" to all of these, their benchmarks are not trustworthy.
+
+---
+
+## Hermes Memory Hub (Session Recall)
+
+Semantic recall over Hermes Agent session history: messages are embedded
+locally with **embeddinggemma-2** (768d, RTX 3090) and served by a dedicated
+SplatsDB instance on port **8872** (the 8871 hub keeps the legacy m2m corpus).
+Measured on real sessions (2026-11-05): for paraphrase queries that share no
+keywords with the target message, session recall@10 was **7/8** vs **2/8**
+for SQLite FTS5 (MRR 0.60 vs 0.27); FTS still wins on exact identifiers
+(literal 3/3, ~14 ms vs ~120–220 ms end-to-end for vector recall).
+
+```bash
+# incremental ingest of new messages → merge → restart hub → smoke
+bash semantic-hub/hermes-cycle.sh
+
+# semantic recall (paraphrase-tolerant)
+python3 semantic-hub/hermes_recall.py "dónde quedó el túnel sin autoupdate"
+
+# hybrid: vector + literal FTS5 in one output
+python3 semantic-hub/hermes_recall.py "C5120257 ZED-F9P stock" --fts
+```
+
+Key properties: the Hermes live DB is opened **read-only**; ingest is
+incremental and hash-deduplicated; everything local (no cloud embeddings);
+session data lives in `hermes-hub/` which is gitignored — never committed.
+Full architecture, runbook and measured numbers: [docs/hermes-memory.md](docs/hermes-memory.md).
 
 ---
 
