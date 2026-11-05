@@ -163,6 +163,37 @@ venv — sin él el load no termina). Set de calibración en scratch
 Camino futuro: reformular la pregunta (comandos vs preguntas),
 recolectar p en log-only, o Clef-Flash 9B si hay VRAM.
 
+## Señales nativas para filtrado (auditoría 5-nov-2026)
+
+Pregunta: ¿alguna función existente de splatdb filtra queries-basura en ms?
+Medido sobre 48 mensajes reales del usuario (labels ruidosos documentados):
+
+- **Confidence espacial (κ)**: el campo `confidence` de /search NUNCA
+  existió en los hubs — requiere `field/` persistido en el data-dir
+  (`field_cmds::persist_field`, invocado solo por el comando CLI `ingest`,
+  NO por `/store` HTTP ni por `index`). El pipeline hermes nunca lo corrió
+  → `state.field = None` → `enrich_topics` early-return. **No es un bug**:
+  el código funciona (verificado: `ingest` CLI sobre copia del hub →
+  field/ creado → confidence poblado). Pero **no separa**: junk
+  0.012-0.063 vs reales 0.003-0.080, solapados (75 splats para 5.638
+  chunks = celdas demasiado gruesas para OOD). Consistente con A5.
+- **BM25 híbrido**: el módulo existe y está cableado en `semantic_memory`
+  (fusión weight 0.6), pero el serve HTTP NO lo expone en /search — solo
+  vive dentro del módulo de memoria MCP. Wire-able con un cambio en
+  api_server.rs; el equivalente léxico ya existe en el hook (FTS5) y el
+  conteo léxico tampoco separa (comandos reales comparten vocabulario
+  técnico con el corpus).
+- **Distancia vectorial ≤ 0.25**: ÚNICA señal nativa limpia — 0/21 falsos
+  positivos, captura 16/27 reales. Es un aceptador positivo (fast-accept,
+  ahorra FTS en el caso fuerte), no un filtro de basura.
+- **`?rescore=gaussian`**: expuesto pero destruye el ranking en 768d
+  (comentario propio en api_server.rs + A5) y no setea confidence.
+  No usar para ranking ni para gating.
+
+Veredicto: no hay señal nativa que filtre basura sin coste; la ambigüedad
+está en los datos (mitad de la "basura" son continuaciones de trabajo).
+El hook mantiene fast-path + tiers + FTS5.
+
 ## Limitaciones conocidas
 
 - Mensajes con contenido thin (blobs JSON de health-checks) no son
