@@ -139,20 +139,29 @@ el hub sigue sirviendo el índice de ayer en vez de romperse.
 
 ## Gate de decisión (KEV / System One)
 
-El hook `pre_llm_call` (~/.hermes/agent-hooks/) consulta antes un clasificador
-binario calibrado — **KEV-4B** (jaredpalmer/kev-4b: pointer head sobre
-Qwen3.5-4B-Base, API System One de TypeSafe) servido en :8008 desde /mnt/d/kev
-con `uv run --extra serve`. Pregunta `noul` "¿recuperar memoria mejora la
-respuesta?" → p(sí). Semántica: **filtro de basura conservador** — p < 0.12
-corta sin embed ni inyección; todo lo demás sigue a los tiers de distancia
-(calibrados sobre el corpus real). Calibración medida en 8 casos: junk
-≤ 0.137, reales ≥ 0.186; latencia 250-570 ms, fail-open si :8008 no responde.
-Autostart por cron en `hermes-hub-ensure.sh` (flags: `KEV_CUDA_GRAPHS=0`,
-`KEV_PREFIX_CACHE=0`, `KEV_DEVICE_PROBE_TIMEOUT=180` — tras un freeze del
-host la init de CUDA tarda >30 s y el probe default muere). Requiere
-`flash-linear-attention` en el venv de kev (sin él, el backbone híbrido
-DeltaNet de Qwen3.5 corre en referencia PyTorch y el load se eterniza).
-El 0.8B no alcanza para un gate genérico (accuracy 1/4 en casos propios).
+**Estado: NO shippable como filtro — server disponible para experimentos.**
+
+Calibración con 48 mensajes reales del usuario (state.db): las distribuciones
+de p(sí) se solapan — basura real 0.09-0.41 (mediana 0.23), mensajes de
+proyecto 0.10-0.80 (mediana 0.38). Ningún threshold filtra basura sin
+perder reales (th=0.12 filtra ~20% de la basura y pierde reales; th=0.40
+filtra 18/21 pero pierde 14/27). La mitad de la "basura" son comandos
+("Apaga la PC") con etiqueta genuinamente ambigua para la pregunta `noul
+"¿recuperar memoria mejora la respuesta?"`. El 8/8 inicial fue overfit a
+extremos elegidos a mano. El hook NO consulta el gate (fail-open total);
+los tiers de distancia + FTS5 siguen siendo el único criterio.
+
+Infraestructura viva para reintentar: KEV-4B servido en :8008 desde
+/mnt/d/kev con `uv run --extra serve` (jaredpalmer/kev-4b: pointer head
+sobre Qwen3.5-4B-Base, API System One de TypeSafe), autostart por
+`hermes-hub-ensure.sh` (`KEV_CUDA_GRAPHS=0`, `KEV_PREFIX_CACHE=0`,
+`KEV_DEVICE_PROBE_TIMEOUT=180`; requiere `flash-linear-attention` en el
+venv — sin él, el backbone DeltaNet de Qwen3.5 corre en referencia
+PyTorch y el load no termina). RSS ~3.6 GB residente. Set de calibración
+guardado en scratch (`kev_calib_set.json`). El 0.8B no sirve ni como
+experimento (1/4, todo lo manda a "no"). Camino futuro: reformular la
+pregunta (comandos vs preguntas), recolectar p en log-only y
+recalibrar, o probar Clef-Flash 9B si hay VRAM.
 
 ## Limitaciones conocidas
 
