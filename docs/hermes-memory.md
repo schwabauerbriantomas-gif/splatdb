@@ -78,6 +78,25 @@ automático de rechazo.
 Operación real: primera ingesta 5.585 docs en 81 s (~69 msg/s), bin 17.2 MB.
 Smoke post-restart: 3 casos de paráfrasis en rank 5/2/1.
 
+## Semántica del score (importante)
+
+El `score` que devuelve el server es una **DISTANCIA: menor = más cerca**.
+El server ya ordena best-first (ascendente); no re-invertir en el cliente.
+Calibración medida sobre este corpus:
+
+| tipo de query | sesiones (8872) | código (8873) |
+| --- | --- | --- |
+| frase literal de la fuente | 0.42–0.51 | — |
+| paráfrasis / tema del corpus | 0.53–0.60 | 0.67–0.70 |
+| pregunta válida fuera del corpus | — | 0.70–0.76 |
+| basura sin relación | 0.77+ | 0.81+ |
+
+Corte de relevancia: `--max-dist 0.60` (sesiones) / `≤ 0.70` (código).
+El smoke incluye un check de sanidad (`literal < basura`) que detecta
+inversiones de esta semántica. Lección: la hipótesis "no se puede rechazar
+basura por score" del benchmark inicial era un artefacto de interpretar el
+score como similitud — con la semántica correcta la separación es limpia.
+
 ## Operación (runbook)
 
 ```bash

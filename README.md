@@ -1757,6 +1757,19 @@ A second pure-code hub on **8873** indexes 14 local repos (~6.5k chunks) —
 kept separate because embeddinggemma is prose-biased: in a mixed hub,
 session messages *discussing* code outrank the code itself (code hits only
 reached rank ~25 in top-30; in the pure hub they rank top-3).
+
+**Score semantics — the server `score` is a DISTANCE (lower = closer).**
+Calibrated live on this corpus:
+
+| query type | sessions hub | code hub |
+| --- | --- | --- |
+| literal (sentence from the source) | 0.42–0.51 | — |
+| paraphrase / on-corpus topic | 0.53–0.60 | 0.67–0.70 |
+| valid but off-corpus | — | 0.70–0.76 |
+| unrelated junk | 0.77+ | 0.81+ |
+
+Use `--max-dist` (e.g. `--max-dist 0.60`) as the hard relevance cutoff;
+anything > 0.65 (sessions) / > 0.76 (code) is almost surely unrelated.
 Measured on real sessions (2026-11-05): for paraphrase queries that share no
 keywords with the target message, session recall@10 was **7/8** vs **2/8**
 for SQLite FTS5 (MRR 0.60 vs 0.27); FTS still wins on exact identifiers

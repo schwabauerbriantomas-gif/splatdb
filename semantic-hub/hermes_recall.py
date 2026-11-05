@@ -27,8 +27,12 @@ HERMES_STATE_DB = os.path.expanduser(
 
 
 def recall(query, k=5, hub=HERMES_HUB, port=8872,
-           embed_url=EMBED_URL_DEFAULT, min_score=None):
-    """Query semántica. Devuelve lista de hits enriquecidos + scores."""
+           embed_url=EMBED_URL_DEFAULT, max_dist=None):
+    """Query semántica. Devuelve lista de hits enriquecidos + scores.
+
+    score = DISTANCIA: menor = más cerca (literal ~0.42-0.51, paráfrasis
+    ~0.53-0.60, basura ~0.77+ en sesiones). max_dist corta por distancia.
+    """
     hub_url = f"http://127.0.0.1:{port}"
     qv = embed_texts([query], embed_url=embed_url, dims=DIMS,
                      prompt_name=QUERY_PROMPT)[0]
@@ -37,8 +41,8 @@ def recall(query, k=5, hub=HERMES_HUB, port=8872,
                               uri=True)
     joined = join_hits(hits, sidecar)
     sidecar.close()
-    if min_score is not None:
-        joined = [h for h in joined if h["score"] >= min_score]
+    if max_dist is not None:
+        joined = [h for h in joined if h["score"] <= max_dist]
     return joined
 
 
@@ -57,7 +61,7 @@ def recall_any(query, k=5, target="sessions", **kw):
         merged = []
         for t in TARGETS.values():
             merged.extend(recall(query, k=k, hub=t[0], port=t[1], **kw))
-        merged.sort(key=lambda h: -h["score"])
+        merged.sort(key=lambda h: h["score"])   # distancia: menor = mejor
         return merged[:k]
     raise ValueError(f"target inválido: {target}")
 
@@ -99,15 +103,15 @@ def main():
     ap.add_argument("--target", choices=["sessions", "code", "all"], default="sessions",
                     help="sessions=:8872, code=:8873, all=ambos intercalado por score")
     ap.add_argument("--embed-url", default=EMBED_URL_DEFAULT)
-    ap.add_argument("--min-score", type=float, default=None,
-                    help="corte duro de score (opcional)")
+    ap.add_argument("--max-dist", type=float, default=None,
+                    help="corte duro de DISTANCIA (menor = más cerca; p.ej. 0.60)")
     ap.add_argument("--fts", action="store_true",
                     help="agrega hits FTS5 literales de la DB viva")
     ap.add_argument("--json", action="store_true", dest="as_json")
     args = ap.parse_args()
     t0 = time.monotonic()
     hits = recall_any(args.query, k=args.k, target=args.target,
-                      embed_url=args.embed_url, min_score=args.min_score)
+                      embed_url=args.embed_url, max_dist=args.max_dist)
     dt = (time.monotonic() - t0) * 1000
     if args.as_json:
         print(json.dumps({"query": args.query, "target": args.target,

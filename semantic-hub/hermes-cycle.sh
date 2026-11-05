@@ -25,9 +25,15 @@ if ! curl -s --max-time 2 http://127.0.0.1:8860/health | grep -q status; then
     exit 1
 fi
 
-# 2. ingesta incremental
+# 2. ingesta incremental de sesiones
 if ! python3 "$SH/hermes_ingest.py" >> "$LOG" 2>&1; then
     say "ERROR: ingesta falló — ciclo abortado (sin merge ni restart)"
+    exit 1
+fi
+
+# 2b. merge del part de sesiones → sidecar/bin del hub 8872
+if ! python3 "$SH/hermes_merge.py" --parts hermes >> "$LOG" 2>&1; then
+    say "ERROR: merge de sesiones falló — ciclo abortado"
     exit 1
 fi
 

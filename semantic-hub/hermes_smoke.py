@@ -31,7 +31,7 @@ HUB_PORT = 8872
 CASES = [
     ("tunel_autoupdate",
      "reiniciar el demonio que publica los sitios y dejarlo actualizandose solo",
-     "20261026_191031", 5),
+     "20261026_191031", 8),
     ("token_crontab",
      "revision de seguridad: clave secreta expuesta en tareas programadas del sistema",
      "20260911_120551", 5),
@@ -66,6 +66,7 @@ def main():
     # 2. consistencia sidecar/bin (ambos hubs)
     for label, hub in (("sesiones", HERMES_HUB),
                        ("código", "/mnt/d/splatdb/hermes-hub-code")):
+        ndocs = -1
         try:
             bin_path = os.path.join(hub, "data", "vectors", "default.bin")
             nrows, ncols = read_shard_bin_header(bin_path)
@@ -80,6 +81,23 @@ def main():
         except Exception as e:
             failures += 1
             check(f"sidecar/bin consistentes ({label})", False, str(e)[:80])
+
+    # 4. drift part vs sidecar: si el part creció sin merge, el índice queda
+    #    viejo (bug real detectado: ciclo sin merge de sesiones)
+    try:
+        part_db = os.path.join(hub, "parts")
+        parts = [f for f in os.listdir(part_db) if f.endswith(".db")]
+        con = sqlite3.connect(f"file:{os.path.join(part_db, parts[0])}?mode=ro",
+                              uri=True)
+        npart = con.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        con.close()
+        ok = npart == ndocs
+        check(f"part/sidecar sin drift ({label})", ok,
+              f"part={npart}, sidecar={ndocs}" + ("" if ok else " — falta merge"))
+        failures += 0 if ok else 1
+    except Exception as e:
+        failures += 1
+        check(f"part/sidecar sin drift ({label})", False, str(e)[:80])
 
     # 3. health del hub de código
     try:
@@ -124,6 +142,31 @@ def main():
     except Exception as e:
         failures += 1
         check("recall código (top-3 = kind repo)", False, str(e)[:80])
+
+    # 5. sanidad de la métrica: la distancia del literal DEBE ser menor que
+    #    la de basura (detecta inversiones de semántica score/distance)
+    try:
+        from hermes_lib import embed_texts, search_hub, QUERY_PROMPT, DIMS
+        import sqlite3 as _sq
+        _con = _sq.connect(f"file:{os.path.join(HERMES_HUB, 'sidecar.db')}?mode=ro",
+                           uri=True)
+        _lit = _con.execute(
+            "SELECT text FROM chunks WHERE meta LIKE '%20261026_191031%' "
+            "LIMIT 1").fetchone()[0][:120]
+        _con.close()
+        d = {}
+        for lbl, q in (("literal", _lit),
+                       ("basura", "receta de tallarines con estofado")):
+            _qv = embed_texts([q], dims=DIMS, prompt_name=QUERY_PROMPT)[0]
+            d[lbl] = search_hub(_qv, q, top_k=1,
+                                hub_url="http://127.0.0.1:8872")[0]["score"]
+        ok = d["literal"] < d["basura"]
+        check("métrica: literal < basura (distancia)", ok,
+              f"literal={d['literal']:.3f}, basura={d['basura']:.3f}")
+        failures += 0 if ok else 1
+    except Exception as e:
+        failures += 1
+        check("métrica: literal < basura (distancia)", False, str(e)[:80])
 
     print(f"\n{'PASS ✓' if failures == 0 else f'FAIL ✗ ({failures} checks)'}")
     return 1 if failures else 0
