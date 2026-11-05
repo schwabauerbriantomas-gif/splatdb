@@ -82,3 +82,22 @@ jobs:
           # via hyper -> axum, no patched version exists (upstream archived
           # 2026-10-01). Re-evaluate when hyper/axum drop pin-utils.
           ignore: RUSTSEC-2026-0441
+
+  # Python tooling of the Hermes memory hub (semantic-hub/hermes_*).
+  # Stdlib-only by design: no pip deps, no GPU, no services — the embed
+  # server is mocked with an in-thread http.server.
+  python-tools:
+    name: Python tools (hermes hub)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile tools (syntax gate)
+        run: python -m py_compile semantic-hub/hermes_lib.py semantic-hub/hermes_ingest.py semantic-hub/hermes_merge.py semantic-hub/hermes_recall.py semantic-hub/hermes_smoke.py
+
+      - name: Unit tests (mocked embed server)
+        run: python -m unittest discover -s semantic-hub/tests -v
