@@ -73,6 +73,7 @@ semantic-hub/**/*.pid
 emb-test/**/*.db
 # Hermes memory hub (sesiones privadas — data fuera del repo)
 hermes-hub/
+hermes-hub-code/
 
 # local run artifacts
 splatsdb_data/

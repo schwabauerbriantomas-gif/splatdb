@@ -1753,20 +1753,27 @@ If a project can't answer "yes" to all of these, their benchmarks are not trustw
 Semantic recall over Hermes Agent session history: messages are embedded
 locally with **embeddinggemma-2** (768d, RTX 3090) and served by a dedicated
 SplatsDB instance on port **8872** (the 8871 hub keeps the legacy m2m corpus).
+A second pure-code hub on **8873** indexes 14 local repos (~6.5k chunks) —
+kept separate because embeddinggemma is prose-biased: in a mixed hub,
+session messages *discussing* code outrank the code itself (code hits only
+reached rank ~25 in top-30; in the pure hub they rank top-3).
 Measured on real sessions (2026-11-05): for paraphrase queries that share no
 keywords with the target message, session recall@10 was **7/8** vs **2/8**
 for SQLite FTS5 (MRR 0.60 vs 0.27); FTS still wins on exact identifiers
 (literal 3/3, ~14 ms vs ~120–220 ms end-to-end for vector recall).
 
 ```bash
-# incremental ingest of new messages → merge → restart hub → smoke
+# ciclo completo diario: sesiones + re-ingesta de código + merges + restarts + smoke
 bash semantic-hub/hermes-cycle.sh
 
-# semantic recall (paraphrase-tolerant)
+# recall semántico de sesiones (paráfrasis-tolerante)
 python3 semantic-hub/hermes_recall.py "dónde quedó el túnel sin autoupdate"
 
-# hybrid: vector + literal FTS5 in one output
-python3 semantic-hub/hermes_recall.py "C5120257 ZED-F9P stock" --fts
+# recall de código (hub puro :8873)
+python3 semantic-hub/hermes_recall.py "donde se empaqueta el shard binario" --target code
+
+# híbrido: sesiones + código intercalado por score, + FTS5 literal
+python3 semantic-hub/hermes_recall.py "C5120257 ZED-F9P stock" --target all --fts
 ```
 
 Key properties: the Hermes live DB is opened **read-only**; ingest is

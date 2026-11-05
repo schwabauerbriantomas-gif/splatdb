@@ -31,21 +31,35 @@ if ! python3 "$SH/hermes_ingest.py" >> "$LOG" 2>&1; then
     exit 1
 fi
 
-# 3. merge (siempre rebuild del master; es barato y determinista)
-if ! python3 "$SH/hermes_merge.py" >> "$LOG" 2>&1; then
-    say "ERROR: merge falló — ciclo abortado"
-    exit 1
+# 3. código: re-ingesta de repos (rebuild del part — los archivos cambian)
+REPOS=(/mnt/d/splatdb /mnt/d/vuupta /mnt/d/vectorcraft /mnt/d/splatsdb-ui \
+       /mnt/d/m2m-memory /mnt/d/kicad-mcp /mnt/d/pasturometro-app \
+       /mnt/d/freerouting-ml /mnt/d/fusion360-mcp /mnt/d/career-ops \
+       /mnt/d/ClinFusion /mnt/d/pulverizador-hpa /mnt/d/RTKBase_50k \
+       /mnt/d/latent-space-language-diffusion-model)
+ARGS=()
+for r in "${REPOS[@]}"; do [ -d "$r" ] && ARGS+=(--repo "$r"); done
+if ! python3 "$SH/ingest.py" --hub /mnt/d/splatdb/hermes-hub-code --name repos \
+        --kind repo --cap 500 --batch 32 "${ARGS[@]}" >> "$LOG" 2>&1; then
+    say "WARN: ingesta de código falló — el hub de código mantiene el índice anterior"
+fi
+if ! python3 "$SH/hermes_merge.py" --hub /mnt/d/splatdb/hermes-hub-code \
+        --parts repos >> "$LOG" 2>&1; then
+    say "WARN: merge del hub de código falló — mantiene el índice anterior"
 fi
 
-# 4. restart del hub para que cargue el bin nuevo (solo si está vivo y es nuestro)
-if [ -f "$HUB/hub.pid" ] && kill -0 "$(cat "$HUB/hub.pid")" 2>/dev/null; then
-    say "restart hub (pid $(cat "$HUB/hub.pid"))"
-    kill "$(cat "$HUB/hub.pid")" 2>/dev/null
-    sleep 2
-fi
+# 4. restart de ambos hubs para que carguen los bins nuevos
+for H in "$HUB" "/mnt/d/splatdb/hermes-hub-code"; do
+    if [ -f "$H/hub.pid" ] && kill -0 "$(cat "$H/hub.pid")" 2>/dev/null; then
+        say "restart hub $(basename "$H") (pid $(cat "$H/hub.pid"))"
+        kill "$(cat "$H/hub.pid")" 2>/dev/null
+    fi
+done
+sleep 2
 bash "$SH/hermes-hub-ensure.sh" >> "$LOG" 2>&1
 for i in $(seq 1 60); do
-    curl -s --max-time 2 http://127.0.0.1:8872/health | grep -q status && break
+    curl -s --max-time 2 http://127.0.0.1:8872/health | grep -q status \
+      && curl -s --max-time 2 http://127.0.0.1:8873/health | grep -q status && break
     sleep 1
 done
 

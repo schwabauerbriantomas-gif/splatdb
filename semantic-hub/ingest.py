@@ -175,9 +175,12 @@ def main():
     ap.add_argument("--m2m", help="metadata.db de m2m para migrar")
     ap.add_argument("--cap", type=int, default=DEFAULT_CAP, help="chunks por repo")
     ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument("--hub", default=HUB,
+                    help="dir del hub destino (default: semantic-hub; usar "
+                         "/mnt/d/splatdb/hermes-hub para el hub de sesiones)")
     args = ap.parse_args()
 
-    parts_dir = os.path.join(HUB, "parts")
+    parts_dir = os.path.join(args.hub, "parts")
     os.makedirs(parts_dir, exist_ok=True)
     db_path = os.path.join(parts_dir, f"{args.name}.db")
     if os.path.exists(db_path):

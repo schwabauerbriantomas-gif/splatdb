@@ -63,22 +63,36 @@ def main():
             failures += 1
             check(f"health {name}", False, str(e)[:80])
 
-    # 2. consistencia sidecar/bin
+    # 2. consistencia sidecar/bin (ambos hubs)
+    for label, hub in (("sesiones", HERMES_HUB),
+                       ("código", "/mnt/d/splatdb/hermes-hub-code")):
+        try:
+            bin_path = os.path.join(hub, "data", "vectors", "default.bin")
+            nrows, ncols = read_shard_bin_header(bin_path)
+            sidecar = sqlite3.connect(
+                f"file:{os.path.join(hub, 'sidecar.db')}?mode=ro", uri=True)
+            ndocs = sidecar.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            sidecar.close()
+            ok = nrows == ndocs and ncols == 768
+            check(f"sidecar/bin consistentes ({label})", ok,
+                  f"bin={nrows}x{ncols}, sidecar={ndocs}")
+            failures += 0 if ok else 1
+        except Exception as e:
+            failures += 1
+            check(f"sidecar/bin consistentes ({label})", False, str(e)[:80])
+
+    # 3. health del hub de código
     try:
-        bin_path = os.path.join(HERMES_HUB, "data", "vectors", "default.bin")
-        nrows, ncols = read_shard_bin_header(bin_path)
-        sidecar = sqlite3.connect(
-            f"file:{os.path.join(HERMES_HUB, 'sidecar.db')}?mode=ro", uri=True)
-        ndocs = sidecar.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-        sidecar.close()
-        ok = nrows == ndocs and ncols == 768
-        check("sidecar/bin consistentes", ok, f"bin={nrows}x{ncols}, sidecar={ndocs}")
+        resp = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:8873/health", timeout=5).read())
+        ok = resp.get("status") == "ok"
+        check("health hub código (:8873)", ok, json.dumps(resp)[:80])
         failures += 0 if ok else 1
     except Exception as e:
         failures += 1
-        check("sidecar/bin consistentes", False, str(e)[:80])
+        check("health hub código (:8873)", False, str(e)[:80])
 
-    # 3. recall semántico (paráfrasis → sesión esperada en top-k)
+    # 4. recall semántico (paráfrasis → sesión esperada en top-k)
     from hermes_recall import recall
     for name, query, sid_substr, k in CASES:
         try:
@@ -95,6 +109,21 @@ def main():
         except Exception as e:
             failures += 1
             check(f"recall {name}", False, str(e)[:80])
+
+    # 5. recall de código: en el hub puro de código, top-3 debe ser kind=repo
+    try:
+        from hermes_recall import recall_any
+        t0 = time.monotonic()
+        hits = recall_any("funcion que empaqueta vectores en archivo binario con "
+                          "header de counts y dimensiones", k=3, target="code")
+        dt = (time.monotonic() - t0) * 1000
+        ok = bool(hits) and all(h["kind"] == "repo" for h in hits[:3])
+        check("recall código (top-3 = kind repo)", ok,
+              f"kinds={[h['kind'] for h in hits[:3]]} ({dt:.0f} ms)")
+        failures += 0 if ok else 1
+    except Exception as e:
+        failures += 1
+        check("recall código (top-3 = kind repo)", False, str(e)[:80])
 
     print(f"\n{'PASS ✓' if failures == 0 else f'FAIL ✗ ({failures} checks)'}")
     return 1 if failures else 0

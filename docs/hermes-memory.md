@@ -17,15 +17,24 @@ hermes-hub/parts/hermes.db ──► hermes_merge.py ──► hermes-hub/data/v
                                                                             │
 embeddinggemma-2 (:8860, GPU 3090, 768d)          splatsdb serve (:8872) ◄──┘
         ▲                                                  │
-        └────────── hermes_recall.py (embed query → search → join sidecar)
+        └──── hermes_recall.py (embed query → search → join sidecar)
+
+14 repos locales (código) ──► ingest.py --hub hermes-hub-code ──► hermes-hub-code/
+                                                                      └─► splatsdb (:8873)
 ```
 
 - **8871**: hub existente con corpus m2m legacy (26.273 chunks, oct-2026) — no se toca.
-- **8872**: hub de sesiones Hermes, data-dir propio (`/mnt/d/splatdb/hermes-hub/`).
+- **8872**: sesiones Hermes (hub puro), data-dir `hermes-hub/`.
+- **8873**: código de 14 repos (~6.5k chunks), data-dir `hermes-hub-code/` — hub
+  puro a propósito: embeddinggemma es sesgado a prosa y en un hub mixto los
+  mensajes que *discuten* código le ganan al código mismo (code hits ~rank 25
+  en top-30; en el hub puro, top-3).
 - El estado vivo de Hermes **nunca se escribe**: la fuente se abre en modo RO.
 - El sidecar (`sidecar.db`) es el JOIN post-búsqueda: el server devuelve
   índices; el texto y la metadata (`{message_id, session_id, role, title, date}`)
   viven client-side. `chunks.rowid = vector_index + 1`.
+- Orden de merge: `hermes` primero — preserva los vector_idx de sesiones
+  cuando se agregan parts nuevos.
 
 ## Filtros de ingesta
 
@@ -72,18 +81,23 @@ Smoke post-restart: 3 casos de paráfrasis en rank 5/2/1.
 ## Operación (runbook)
 
 ```bash
-# ciclo completo (ingesta incremental → merge → restart → smoke)
+# ciclo completo diario (sesiones + re-ingesta de código + merges + restarts + smoke)
 bash /mnt/d/splatdb/semantic-hub/hermes-cycle.sh
 
-# ensure idempotente (crash-recovery; cron cada 10 min)
+# ensure idempotente AMBOS hubs (crash-recovery; cron cada 10 min)
 bash /mnt/d/splatdb/semantic-hub/hermes-hub-ensure.sh
 
-# smoke end-to-end (health + consistencia sidecar/bin + 3 recalls reales)
+# smoke end-to-end (health x3 + consistencia x2 + 3 recalls sesión + 1 de código)
 python3 /mnt/d/splatdb/semantic-hub/hermes_smoke.py
 
 # ingesta manual / rebuild desde cero
 python3 /mnt/d/splatdb/semantic-hub/hermes_ingest.py [--rebuild]
-python3 /mnt/d/splatdb/semantic-hub/hermes_merge.py
+python3 /mnt/d/splatdb/semantic-hub/hermes_merge.py --parts hermes
+
+# código: re-ingesta de los 14 repos + merge del hub de código
+python3 /mnt/d/splatdb/semantic-hub/ingest.py --hub /mnt/d/splatdb/hermes-hub-code \
+  --name repos --kind repo --cap 500 --repo /mnt/d/splatdb --repo /mnt/d/vuupta ...
+python3 /mnt/d/splatdb/semantic-hub/hermes_merge.py --hub /mnt/d/splatdb/hermes-hub-code --parts repos
 ```
 
 Cron del usuario (patrón existente de la máquina — sin sudo, sin systemd):

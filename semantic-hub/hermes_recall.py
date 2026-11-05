@@ -42,6 +42,26 @@ def recall(query, k=5, hub=HERMES_HUB, port=8872,
     return joined
 
 
+# target → (hub_dir, puerto). 'all' consulta ambos y intercala por score.
+TARGETS = {
+    "sessions": (HERMES_HUB, 8872),
+    "code": ("/mnt/d/splatdb/hermes-hub-code", 8873),
+}
+
+
+def recall_any(query, k=5, target="sessions", **kw):
+    if target in TARGETS:
+        hub, port = TARGETS[target]
+        return recall(query, k=k, hub=hub, port=port, **kw)
+    if target == "all":
+        merged = []
+        for t in TARGETS.values():
+            merged.extend(recall(query, k=k, hub=t[0], port=t[1], **kw))
+        merged.sort(key=lambda h: -h["score"])
+        return merged[:k]
+    raise ValueError(f"target inválido: {target}")
+
+
 def recall_fts(query, k=5, db_path=HERMES_STATE_DB):
     """Búsqueda literal FTS5 sobre la DB viva (complemento híbrido)."""
     tq = fts_query(query)
@@ -60,21 +80,24 @@ def recall_fts(query, k=5, db_path=HERMES_STATE_DB):
 
 
 def _fmt(h):
+    preview = h["text"][:160].replace("\n", " ")
+    if h["kind"] == "repo":
+        return (f"[{h['score']:.3f}] [código] {h['repo']}/{h['path']}\n"
+                f"    {preview}")
     sid = h["meta"].get("session_id", h["path"])
     date = h["meta"].get("date") or (sid[:8] if sid[:8].isdigit() else "?")
     role = h["meta"].get("role", "?")
     title = h["meta"].get("title", "")
-    preview = h["text"][:160].replace("\n", " ")
     return (f"[{h['score']:.3f}] {date} {sid[:24]} ({role}) {title}\n"
             f"    {preview}")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="recall semántico de sesiones Hermes")
+    ap = argparse.ArgumentParser(description="recall semántico de sesiones y código Hermes")
     ap.add_argument("query")
     ap.add_argument("--k", type=int, default=5)
-    ap.add_argument("--port", type=int, default=8872)
-    ap.add_argument("--hub", default=HERMES_HUB)
+    ap.add_argument("--target", choices=["sessions", "code", "all"], default="sessions",
+                    help="sessions=:8872, code=:8873, all=ambos intercalado por score")
     ap.add_argument("--embed-url", default=EMBED_URL_DEFAULT)
     ap.add_argument("--min-score", type=float, default=None,
                     help="corte duro de score (opcional)")
@@ -83,14 +106,15 @@ def main():
     ap.add_argument("--json", action="store_true", dest="as_json")
     args = ap.parse_args()
     t0 = time.monotonic()
-    hits = recall(args.query, k=args.k, hub=args.hub, port=args.port,
-                  embed_url=args.embed_url, min_score=args.min_score)
+    hits = recall_any(args.query, k=args.k, target=args.target,
+                      embed_url=args.embed_url, min_score=args.min_score)
     dt = (time.monotonic() - t0) * 1000
     if args.as_json:
-        print(json.dumps({"query": args.query, "latency_ms": round(dt),
+        print(json.dumps({"query": args.query, "target": args.target,
+                          "latency_ms": round(dt),
                           "hits": hits}, ensure_ascii=False, indent=2))
         return
-    print(f"query: {args.query!r}  ({dt:.0f} ms, {len(hits)} hits)\n")
+    print(f"query: {args.query!r}  [{args.target}] ({dt:.0f} ms, {len(hits)} hits)\n")
     for h in hits:
         print(_fmt(h) + "\n")
     if args.fts:

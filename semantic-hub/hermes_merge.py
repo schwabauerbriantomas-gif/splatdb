@@ -67,8 +67,11 @@ def run_merge(hub=HERMES_HUB, parts=("hermes",)):
 def main():
     ap = argparse.ArgumentParser(description="Merge del part hermes → sidecar + shard bin")
     ap.add_argument("--hub", default=HERMES_HUB)
+    ap.add_argument("--parts", nargs="+", default=["hermes"],
+                    help="parts en orden de merge (los primeros preservan sus "
+                         "vector_idx; 'hermes' siempre primero)")
     args = ap.parse_args()
-    run_merge(hub=args.hub)
+    run_merge(hub=args.hub, parts=tuple(args.parts))
 
 
 if __name__ == "__main__":
