@@ -42,7 +42,28 @@ confidence intervals. Splats remain valuable as a **compression/routing codebook
   native-vs-brute-force gap (0.304 vs 0.966) reported in the benchmark audit.
 - Bugs found (tracked in issues #1–#5): `ingest` success+empty store; `status` panic at
   384-dim; `serve` ignores `--dim` (hardcoded 640); `search -q` rejects negative CSV
-  components; `search-file` missing `--shard`.
+  components (**fixed** 1365070: `allow_hyphen_values` on quant/field/fused/hnsw/lsh
+  `--query` and graph-add-* `--embedding`); `search-file` missing `--shard`.
+
+## TurboQuant recall audit (v2.7.2)
+
+`quant-search` (the only quantized route wired to a store, config
+`QuantConfig::for_search`: 4-bit, dim/8 projections, seed 42) re-quantizes the corpus
+on every call and ranks against compressed codes. Measured against exact cosine
+ground truth on the real sessions hub (5,638×768, 20 queries sampled from the corpus
+itself, self-retrieval included):
+
+- **R@10 median 0.10, mean 0.055, min 0.00** — unusable as a ranking signal.
+- Self-match sanity: each query IS a corpus vector (exact cosine sim 1.0), yet the
+  self-match falls outside the top-10 in ~90% of queries — 4-bit codes destroy the
+  ranking signal, not just tail precision.
+- CLI overhead: ~3.5s per invocation (loads the store and re-quantizes 5,638 vectors
+  per call — also makes this route impractical beyond the recall problem).
+
+Verdict: same family as the gaussian rescore (agreement 4.6%) — **do not use
+`quant-search` for ranking or gating**. Viable quantization for this workload would
+need a different scheme (e.g. per-group scalar quantization with exact rescoring);
+TurboQuant 4-bit as configured is falsified on real data.
 
 ## What IS validated
 
