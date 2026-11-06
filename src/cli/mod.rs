@@ -113,7 +113,7 @@ pub enum Commands {
     },
     /// Search using quantized codes
     QuantSearch {
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         query: String,
         #[arg(short = 'k', long, default_value = "10")]
         top_k: usize,
@@ -144,7 +144,7 @@ pub enum Commands {
     },
     /// Search using all enabled backends fused
     FusedSearch {
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         query: Option<String>,
         #[arg(long)]
         query_file: Option<PathBuf>,
@@ -154,7 +154,7 @@ pub enum Commands {
     /// Search the splat field: default exact (triangle bounds); --nprobe N > 0
     /// switches to two-phase IVF (approximate, recall depends on N)
     FieldSearch {
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         query: String,
         #[arg(short, long, default_value = "10")]
         k: usize,
@@ -172,7 +172,7 @@ pub enum Commands {
     },
     /// Search using HNSW index only
     HnswSearch {
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         query: Option<String>,
         #[arg(long)]
         query_file: Option<PathBuf>,
@@ -181,7 +181,7 @@ pub enum Commands {
     },
     /// Search using LSH index only
     LshSearch {
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         query: Option<String>,
         #[arg(long)]
         query_file: Option<PathBuf>,
@@ -278,14 +278,14 @@ pub enum Commands {
     GraphAddDoc {
         #[arg(short, long)]
         text: String,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         embedding: String,
     },
     /// Add an entity node to the graph store
     GraphAddEntity {
         #[arg(short, long)]
         name: String,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         embedding: String,
         #[arg(short = 't', long, default_value = "default")]
         entity_type: String,
