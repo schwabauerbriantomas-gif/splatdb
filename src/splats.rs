@@ -136,7 +136,6 @@ impl SplatStore {
             None
         };
 
-
         Self {
             config,
             max_splats,

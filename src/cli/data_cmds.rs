@@ -461,18 +461,10 @@ pub fn cmd_preset_info(preset: Option<String>) {
                 store_config.enable_cuda = false;
                 store_config.finalize();
                 let store = SplatStore::new(store_config);
-                (
-                    store.has_quantization(),
-                    store.has_hnsw(),
-                    store.has_lsh(),
-                )
+                (store.has_quantization(), store.has_hnsw(), store.has_lsh())
             } else {
                 // Derive from config flags to avoid OOM on large presets
-                (
-                    c.enable_quantization,
-                    c.enable_hnsw,
-                    c.enable_lsh,
-                )
+                (c.enable_quantization, c.enable_hnsw, c.enable_lsh)
             };
 
             serde_json::json!({
