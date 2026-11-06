@@ -16,7 +16,7 @@ say "=== inicio ciclo ==="
 
 # 1. embed server tiene que estar vivo para embeber
 bash /mnt/d/embedding-server/start-embed-server.sh >> "$LOG" 2>&1
-for i in $(seq 1 90); do
+for i in $(seq 1 150); do
     curl -s --max-time 2 http://127.0.0.1:8860/health | grep -q status && break
     sleep 2
 done
