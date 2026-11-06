@@ -798,7 +798,6 @@ fn handle_status(state: &Mutex<McpState>) -> Result<Value, String> {
         "has_hnsw": s.store.has_hnsw(),
         "has_lsh": s.store.has_lsh(),
         "has_quantization": s.store.has_quantization(),
-        "has_semantic_memory": s.store.has_semantic_memory(),
     }))
 }
 

@@ -168,7 +168,6 @@ pub struct StatusResponse {
     pub has_hnsw: bool,
     pub has_lsh: bool,
     pub has_quantization: bool,
-    pub has_semantic_memory: bool,
 }
 
 #[derive(Serialize)]
@@ -194,7 +193,6 @@ async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
         has_hnsw: store.has_hnsw(),
         has_lsh: store.has_lsh(),
         has_quantization: store.has_quantization(),
-        has_semantic_memory: store.has_semantic_memory(),
     })
 }
 

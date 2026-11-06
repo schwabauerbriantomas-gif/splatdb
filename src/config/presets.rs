@@ -38,7 +38,6 @@ impl SplatsDBConfig {
         // Disable heavy features
         config.enable_quantization = false;
         config.enable_graph = false;
-        config.enable_semantic_memory = false;
         config.enable_mapreduce = false;
         config.enable_auto_scaling = false;
         config.enable_quality_reflection = false;
@@ -94,7 +93,6 @@ impl SplatsDBConfig {
         config.graph_boost_weight = 0.1;
 
         // Semantic Memory with RRF fusion and temporal decay
-        config.enable_semantic_memory = true;
         config.semantic_fusion = FusionMethod::Rrf;
         config.semantic_vector_weight = 0.6;
         config.semantic_bm25_weight = 0.4;
@@ -174,7 +172,6 @@ impl SplatsDBConfig {
         config.knn_k = 64;
 
         // Semantic search for cross-node queries
-        config.enable_semantic_memory = true;
         config.semantic_fusion = FusionMethod::Rrf;
         config.semantic_decay_halflife = 7200.0; // 2 hours
 
@@ -195,7 +192,6 @@ impl SplatsDBConfig {
         // GPU acceleration when available
         config.enable_gpu_search = config.enable_cuda;
         config.gpu_batch_size = 1024;
-        config.gpu_auto_tune = true;
 
         // Moderate capacity for agent memory
         config.max_splats = 100_000;
@@ -218,7 +214,6 @@ impl SplatsDBConfig {
         config.graph_traverse_depth = 5;
 
         // Semantic memory with hybrid search
-        config.enable_semantic_memory = true;
         config.semantic_fusion = FusionMethod::Rrf;
         config.semantic_vector_weight = 0.6;
         config.semantic_bm25_weight = 0.4;
@@ -241,7 +236,6 @@ impl SplatsDBConfig {
         // GPU search acceleration
         config.enable_gpu_search = true;
         config.gpu_batch_size = 4096;
-        config.gpu_auto_tune = true;
 
         // HNSW on GPU for high-throughput ANN
         config.enable_hnsw = true;
@@ -260,7 +254,6 @@ impl SplatsDBConfig {
         config.enable_graph = true;
         config.graph_max_neighbors = 32;
         config.graph_traverse_depth = 5;
-        config.enable_semantic_memory = true;
 
         // Large capacity with GPU memory
         config.max_splats = 5_000_000;

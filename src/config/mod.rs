@@ -136,9 +136,7 @@ pub struct SplatsDBConfig {
     pub graph_boost_weight: f64,
 
     // --- Semantic Memory Configuration ---
-    pub enable_semantic_memory: bool,
     // NOTE (2026-10-25 audit): the keys below are parsed/serialized but have
-    // NO reader outside config/ — SemanticMemoryDB uses hardcoded fusion
     // weights (RRF + exp decay). Wire them in or ignore them; do not trust
     // them to change behavior.
     /// Currently unused — reserved.
@@ -192,7 +190,6 @@ pub struct SplatsDBConfig {
     // --- GPU Acceleration ---
     pub enable_gpu_search: bool,
     pub gpu_batch_size: usize,
-    pub gpu_auto_tune: bool,
 }
 
 impl Default for SplatsDBConfig {
@@ -304,7 +301,6 @@ impl Default for SplatsDBConfig {
             graph_boost_weight: 0.05,
 
             // Semantic Memory
-            enable_semantic_memory: true,
             semantic_fusion: FusionMethod::Rrf,
             semantic_vector_weight: 0.7,
             semantic_bm25_weight: 0.3,
@@ -348,7 +344,6 @@ impl Default for SplatsDBConfig {
             // GPU
             enable_gpu_search: false,
             gpu_batch_size: 1024,
-            gpu_auto_tune: true,
         }
     }
 }
@@ -388,7 +383,6 @@ mod tests {
         assert_eq!(config.device, "cpu");
         assert!(config.enable_quantization);
         assert!(config.enable_graph);
-        assert!(config.enable_semantic_memory);
     }
 
     #[test]
@@ -397,7 +391,6 @@ mod tests {
         assert!(!config.enable_3_tier_memory);
         assert!(!config.enable_quantization);
         assert!(!config.enable_graph);
-        assert!(!config.enable_semantic_memory);
         assert_eq!(config.memory_tier, "ram-only");
         assert_eq!(config.max_splats, 10000);
     }
@@ -408,7 +401,6 @@ mod tests {
         assert!(config.enable_3_tier_memory);
         assert!(config.enable_quantization);
         assert!(config.enable_graph);
-        assert!(config.enable_semantic_memory);
         assert!(config.enable_hnsw);
         assert!(config.enable_auto_scaling);
         assert_eq!(config.device, "cuda");
@@ -514,11 +506,7 @@ mod tests {
         // Simple should have heavy features DISABLED
         assert!(!c.enable_quantization, "simple: quantization should be off");
         assert!(!c.enable_graph, "simple: graph should be off");
-        assert!(
-            !c.enable_semantic_memory,
-            "simple: semantic memory should be off"
-        );
-        assert!(!c.enable_hnsw, "simple: hnsw should be off");
+                assert!(!c.enable_hnsw, "simple: hnsw should be off");
         assert!(!c.enable_lsh, "simple: lsh should be off");
         assert!(
             !c.enable_3_tier_memory,
@@ -539,11 +527,7 @@ mod tests {
         // Advanced should have EVERYTHING enabled
         assert!(c.enable_quantization, "advanced: quantization should be on");
         assert!(c.enable_graph, "advanced: graph should be on");
-        assert!(
-            c.enable_semantic_memory,
-            "advanced: semantic memory should be on"
-        );
-        assert!(c.enable_hnsw, "advanced: hnsw should be on");
+                assert!(c.enable_hnsw, "advanced: hnsw should be on");
         assert!(
             c.enable_3_tier_memory,
             "advanced: 3-tier memory should be on"
@@ -583,11 +567,7 @@ mod tests {
             c.enable_quality_reflection,
             "distributed: quality reflection should be on"
         );
-        assert!(
-            c.enable_semantic_memory,
-            "distributed: semantic memory should be on"
-        );
-        // Scale
+                // Scale
         assert_eq!(c.max_splats, 10_000_000);
         assert!(c.autoscale_max_nodes >= 10);
         assert!(c.mapreduce_n_chunks >= 8);
@@ -602,13 +582,8 @@ mod tests {
         assert!(c.enable_hnsw, "gpu: hnsw should be on");
         assert!(c.enable_quantization, "gpu: quantization should be on");
         assert!(c.enable_graph, "gpu: graph should be on");
-        assert!(
-            c.enable_semantic_memory,
-            "gpu: semantic memory should be on"
-        );
-        // GPU tuning
+                // GPU tuning
         assert_eq!(c.gpu_batch_size, 4096);
-        assert!(c.gpu_auto_tune);
         // Large capacity
         assert_eq!(c.max_splats, 5_000_000);
         assert_eq!(c.knn_k, 256);
@@ -767,7 +742,6 @@ mod tests {
         );
         assert!(!store.has_hnsw(), "simple: no HNSW subsystem");
         assert!(!store.has_lsh(), "simple: no LSH subsystem");
-        assert!(!store.has_semantic_memory(), "simple: no semantic memory");
     }
 
     #[test]
@@ -779,11 +753,7 @@ mod tests {
         );
         assert!(store.has_hnsw(), "advanced: should have HNSW");
         assert!(!store.has_lsh(), "advanced: LSH not in advanced preset");
-        assert!(
-            store.has_semantic_memory(),
-            "advanced: should have semantic memory"
-        );
-    }
+            }
 
     #[test]
     fn test_distributed_preset_subsystems() {
@@ -796,22 +766,14 @@ mod tests {
             !store.has_hnsw(),
             "distributed: no HNSW (not in distributed config)"
         );
-        assert!(
-            store.has_semantic_memory(),
-            "distributed: should have semantic memory"
-        );
-    }
+            }
 
     #[test]
     fn test_gpu_preset_subsystems() {
         let store = store_from_preset(SplatsDBConfig::gpu(None));
         assert!(store.has_quantization(), "gpu: should have quantization");
         assert!(store.has_hnsw(), "gpu: should have HNSW");
-        assert!(
-            store.has_semantic_memory(),
-            "gpu: should have semantic memory"
-        );
-    }
+            }
 
     #[test]
     fn test_fused_search_uses_hnsw() {

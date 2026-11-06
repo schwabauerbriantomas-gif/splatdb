@@ -19,7 +19,6 @@ fn chaos_config(dim: usize, max_splats: usize) -> SplatsDBConfig {
     c.enable_hnsw = false; // Keep simple for chaos tests
     c.enable_quantization = false;
     c.enable_lsh = false;
-    c.enable_semantic_memory = false;
     c.enable_graph = false;
     c
 }

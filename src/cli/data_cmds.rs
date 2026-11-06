@@ -454,7 +454,7 @@ pub fn cmd_preset_info(preset: Option<String>) {
         .map(|(name, c)| {
             let estimated_mem_gb = (c.max_splats as f64 * c.latent_dim as f64 * 4.0) / 1e9;
 
-            let (has_quant, has_hnsw, has_lsh, has_semantic) = if estimated_mem_gb < 2.0 {
+            let (has_quant, has_hnsw, has_lsh) = if estimated_mem_gb < 2.0 {
                 // Small enough to safely instantiate
                 let mut store_config = c.clone();
                 store_config.device = "cpu".to_string();
@@ -465,7 +465,6 @@ pub fn cmd_preset_info(preset: Option<String>) {
                     store.has_quantization(),
                     store.has_hnsw(),
                     store.has_lsh(),
-                    store.has_semantic_memory(),
                 )
             } else {
                 // Derive from config flags to avoid OOM on large presets
@@ -473,7 +472,6 @@ pub fn cmd_preset_info(preset: Option<String>) {
                     c.enable_quantization,
                     c.enable_hnsw,
                     c.enable_lsh,
-                    c.enable_semantic_memory,
                 )
             };
 
@@ -486,7 +484,6 @@ pub fn cmd_preset_info(preset: Option<String>) {
                     "quantization": c.enable_quantization,
                     "hnsw": c.enable_hnsw,
                     "lsh": c.enable_lsh,
-                    "semantic_memory": c.enable_semantic_memory,
                     "graph": c.enable_graph,
                     "cuda": c.enable_cuda,
                     "gpu_search": c.enable_gpu_search,
@@ -495,7 +492,6 @@ pub fn cmd_preset_info(preset: Option<String>) {
                     "has_quantization": has_quant,
                     "has_hnsw": has_hnsw,
                     "has_lsh": has_lsh,
-                    "has_semantic_memory": has_semantic,
                 },
             })
         })

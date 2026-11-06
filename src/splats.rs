@@ -38,7 +38,6 @@ static STORE_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 /// - `enable_quantization` → QuantizedStore for compressed search
 /// - `enable_hnsw` → HNSWIndex as secondary index
 /// - `enable_lsh` → CrossPolytopeLSH for approximate search
-/// - `enable_semantic_memory` → SemanticMemoryDB for hybrid text+vector search
 pub struct SplatStore {
     config: SplatsDBConfig,
     max_splats: usize,
@@ -65,9 +64,6 @@ pub struct SplatStore {
     /// < n_active, there are unindexed vectors that need incremental insertion.
     hnsw_indexed_count: usize,
     lsh: Option<crate::lsh_index::CrossPolytopeLSH>,
-    // Semantic memory is a separate layer (it contains its own SplatStore internally,
-    // so we can't embed it here without creating a cycle). Use has_semantic_memory()
-    // to check if the preset enables it, then manage SemanticMemoryDB externally.
 }
 
 impl SplatStore {
@@ -140,7 +136,6 @@ impl SplatStore {
             None
         };
 
-        let _semantic_enabled = config.enable_semantic_memory;
 
         Self {
             config,
@@ -810,11 +805,6 @@ impl SplatStore {
     /// Check if LSH index is active.
     pub fn has_lsh(&self) -> bool {
         self.lsh.is_some()
-    }
-    /// Check if semantic memory is enabled in this preset.
-    /// Note: SemanticMemoryDB must be managed externally (it wraps its own SplatStore).
-    pub fn has_semantic_memory(&self) -> bool {
-        self.config.enable_semantic_memory
     }
 
     /// Batch find neighbors for multiple queries.
