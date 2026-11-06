@@ -80,6 +80,25 @@ pub fn cmd_append(
         input.display()
     );
 
+    // Insert incremental HNSW solo tiene sentido si hay un índice persistido que
+    // extender (creado por hnsw-search con el preset advanced). Copiamos los
+    // parámetros HNSW de advanced para que try_load_hnsw acepte el binario.
+    let mut config = config;
+    if std::path::Path::new(&data_dir)
+        .join("hnsw_index.bin")
+        .exists()
+    {
+        let adv = SplatsDBConfig::advanced(None);
+        config.enable_hnsw = true;
+        config.hnsw_m = adv.hnsw_m;
+        config.hnsw_ef_construction = adv.hnsw_ef_construction;
+        config.hnsw_ef_search = adv.hnsw_ef_search;
+        eprintln!(
+            "[splatsdb] hnsw_index.bin detectado: insert incremental HNSW habilitado (m={}, ef_c={}, ef_s={})",
+            config.hnsw_m, config.hnsw_ef_construction, config.hnsw_ef_search
+        );
+    }
+
     // Load existing store
     let (mut store, persist) = load_or_create_store(&data_dir, &config);
     let n_before = store.n_active();
