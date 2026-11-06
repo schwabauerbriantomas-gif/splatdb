@@ -1,5 +1,19 @@
 # Changelog
 
+## [v2.7.2] - 2026-11-06
+
+### Added
+- **cli**: `append` ahora hace el insert incremental HNSW real que el help prometía — el CLI corría con `enable_hnsw=false`, así que `candidates` era `None`, `hnsw_indexed` quedaba en 0 y el índice se ignoraba. Al detectar `{data-dir}/hnsw_index.bin` (creado por `hnsw-search`, preset advanced) replica sus parámetros (m=32, ef_c=400, ef_s=100), carga el índice persistido, inserta los nuevos vectores sin rebuild y persiste el índice extendido. Medido sobre copia del hub (5.638+20): 476ms total, `hnsw_indexed = n_after`; sin índice persistido el comportamiento es idéntico al anterior
+
+### Fixed
+- **cli**: `--query` de `quant/field/fused/hnsw/lsh-search` y `--embedding` de `graph-add-{doc,entity}` abortaban en clap (`unexpected argument '-0'`) cuando el primer float era negativo — única salida la forma `--query="..."`; `allow_hyphen_values` en los 7 args (el `search` base ya la tenía)
+
+### Removed
+- Poda v2.7.2 (commits `bf47b88`, `662d9bb`, `2696042`): 9.338 LOC (27%, src/ 34.007 → 24.800), cadenas muertas verificadas por alcanzabilidad. Wave 1 (5.011 LOC, cero camino de ejecución desde cualquier entry point): `semantic_memory.rs`, `bm25_index.rs`, `embedding_model.rs` (SemanticMemory nunca se construía; el léxico vivo es el FTS5 del hook), `query_optimizer.rs`, `optimized_api.rs`, `query_router.rs`, `search_supervisor.rs`, `quality_reflector.rs`, `mapreduce_indexer.rs`, `gpu_vector_index.rs`, `gpu_hierarchical_search.rs`, `cuda_search.rs`, `gpu_auto_tune.rs` (el GPU vivo es el dir `gpu/` con kernels PTX), flags `enable_semantic_memory`/`gpu_auto_tune`. Wave 2 (superficie CLI sin uso, stack single-machine): `src/cluster/` (sharding distribuido: 5 módulos + 7 comandos `cluster-*`), `src/ebm/` (`soc-check`/`soc-avalanche`/`soc-relax` — el ranking por energía ya estaba condenado por bench-gaussian, agreement vs L2 ≈ 4.6%), `entity_extractor.rs`, `evaluate_embeddings.rs`, `ml_cmds.rs`, preset `distributed`. `git show bf47b88~1:<ruta>` recupera cualquier archivo cortado. README honest-assets pass: architecture diagram, feature tables, presets table, benchmark provenance notes. Kept deliberately: `hrm2_engine` (el store lo envuelve — ES el store), `quantization`, `verbatim` + `text_compression` (MCP), `lsh_index`, `candidate_backend`, `gpu/`, `loaders/ quant/ storage/`
+
+### Docs
+- A5: audit de recall de TurboQuant sobre datos reales — `quant-search` 4-bit (config `for_search`) da **R@10 mediana 0.10 vs exacto** (self-match fuera del top-10 en ~90% de queries): no usar para ranking ni gating; bug negative-CSV marcado FIXED
+
 ## [v2.7.1] - 2026-10-25
 
 ### Fixed
@@ -17,8 +31,7 @@
 - **cli**: `.bin` loaders cap header-driven allocations (1e9 elements) and validate real file size before allocating — a hostile header can no longer OOM the ingest/search/bench paths
 
 ### Removed
-- Poda v2.7.2 (commits `bf47b88`, `662d9bb` + capa 2): ~9.000 LOC of unreachable / unused code, reachability-audited before cutting. Wave 1 (zero runtime path): `semantic_memory.rs`, `bm25_index.rs`, `embedding_model.rs` (SemanticMemory was never constructed; live lexical search is the hub hook's FTS5), `query_optimizer.rs`, `optimized_api.rs`, `query_router.rs`, `search_supervisor.rs`, `quality_reflector.rs`, `mapreduce_indexer.rs`, `gpu_vector_index.rs`, `gpu_hierarchical_search.rs`, `cuda_search.rs`, `gpu_auto_tune.rs` (live GPU path is the `gpu/` dir PTX kernels), config flags `enable_semantic_memory`/`gpu_auto_tune`/`soc_*`. Wave 2 (unused CLI surface, single-machine stack): `src/cluster/` (distributed sharding, 5 modules + 7 `cluster-*` commands), `src/ebm/` (`soc-check`/`soc-avalanche`/`soc-relax` — energy ranking was already condemned by bench-gaussian, agreement vs L2 ≈ 4.6%), `entity_extractor.rs`, `evaluate_embeddings.rs` (`extract-entities`, `eval-embeddings`), `ml_cmds.rs`. The `distributed` preset and its `preset-info` entry removed. README honest-assets pass: architecture diagram, feature tables, presets table, benchmark provenance notes. Kept deliberately: `hrm2_engine` (the store wraps it), `quantization`, `verbatim` + `text_compression` (MCP), `lsh_index`, `geometry` (qa_validation exercises it).
-- - Dead code (zero callers verified by search): `src/energy.rs` (239 LOC), `src/ebm/exploration.rs` (447 LOC)
+- Dead code (zero callers verified by search): `src/energy.rs` (239 LOC), `src/ebm/exploration.rs` (447 LOC)
 
 ### Docs
 - Consistency pass: measured test counts, every benchmark table cites its persisted artifact in `bench-data/`, BEIR v2 labeled NOT VALIDATED, broken anchors fixed, TOC completed, MCP tool tables completed (18/18), stale PDFs with superseded claims removed

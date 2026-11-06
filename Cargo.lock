@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "splatsdb"
-version = "2.7.1"
+version = "2.7.2"
 dependencies = [
  "anyhow",
  "approx",
