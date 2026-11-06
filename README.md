@@ -42,8 +42,6 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Knowledge Graph | ✅ | — | — | — | — | — |
 | Spatial Memory (Wing/Room/Hall/Tunnel) | ✅ | — | — | — | — | — |
 | MCP server (18 tools) | ✅ | — | — | — | — | — |
-| Distributed sharding (hash/cluster/geo) | ✅ | — | ✅ Cloud | ✅ | ✅ | — |
-| Energy-aware routing | ✅ (SOC internals — **not** a retrieval-quality feature; energy must stay out of the ranking score, see [A5 findings](docs/A5_FINDINGS.md)) | — | — | — | — | — |
 | RRF result fusion | ✅ | — | — | — | ✅ | — |
 | Self-hosted | ✅ | ✅ | ❌ SaaS-only | ✅ | ✅ | ✅ |
 | Embedded (no server) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
@@ -52,7 +50,7 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 | Vector compression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Pricing (cloud managed) | **Free** | N/A | $50–$500/mo | Usage-based | $99–$155/mo | Free |
 
-> **Honest note**: Faiss remains the gold standard for raw CPU ANN throughput — its HNSW is **14.8× faster** than SplatsDB's HNSW on CPU (9,758 vs 658 QPS at k=64, recall 0.9926 vs 0.986). SplatsDB's GPU path is **brute-force exact top-k at k=10**: 12,195 QPS with the dataset persistent in VRAM. That is a different regime (exact vs approximate, k=10 vs k=64, GPU vs CPU) — not a like-for-like win over Faiss; see [Benchmarks](#benchmarks). Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatsDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary with built-in distributed sharding.
+> **Honest note**: Faiss remains the gold standard for raw CPU ANN throughput — its HNSW is **14.8× faster** than SplatsDB's HNSW on CPU (9,758 vs 658 QPS at k=64, recall 0.9926 vs 0.986). SplatsDB's GPU path is **brute-force exact top-k at k=10**: 12,195 QPS with the dataset persistent in VRAM. That is a different regime (exact vs approximate, k=10 vs k=64, GPU vs CPU) — not a like-for-like win over Faiss; see [Benchmarks](#benchmarks). Milvus and Qdrant have richer ecosystem integrations (LangChain, LlamaIndex, managed cloud). SplatsDB's niche is uncertainty-aware retrieval + knowledge graph + agent memory + spatial memory in a single Rust binary.
 
 ---
 
@@ -74,7 +72,6 @@ SplatsDB is **not** a Faiss competitor on raw QPS. If you need the fastest possi
 - [Vector Compression (TurboQuant / PolarQuant)](#vector-compression-turboquant--polarquant)
 - [Semantic Memory](#semantic-memory)
 - [Hermes Memory Hub (Session Recall)](#hermes-memory-hub-session-recall)
-- [Energy-Based Model](#energy-based-model)
 - [Module Map](#module-map)
 - [Dependencies](#dependencies)
 - [Roadmap](#roadmap)
@@ -95,7 +92,7 @@ SplatsDB applies **Gaussian Splatting** — a technique from 3D neural rendering
 - **Uncertainty-aware retrieval** — sparse regions have high energy, guiding active learning
 - **Knowledge graph overlay** — typed entities and relations augment vector retrieval
 
-Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, 15 CUDA GPU kernels (7 distance + 8 extended), and hybrid BM25+vector semantic memory, SplatsDB provides a full-featured vector search engine in ~34.6K lines of pure Rust + CUDA (34,618 by `wc -l` — Rust `src/` 33,594 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
+Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental indexing, and 15 CUDA GPU kernels (7 distance + 8 extended), SplatsDB provides a full-featured vector search engine in ~25.8K lines of pure Rust + CUDA (25,824 by `wc -l` — Rust `src/` 24,800 + CUDA `kernels/` 1,024, raw lines; the single LOC criterion also used by the badge and the [Module Map](#module-map)).
 
 **Key use cases:**
 - AI agent long-term memory (MCP server for Claude, GPT, open-source LLMs)
@@ -113,15 +110,15 @@ Combined with a two-level KMeans++ retrieval pipeline (HRM2), HNSW incremental i
 │         CLI (clap)  │  MCP (stdio JSON-RPC)  │  HTTP API         │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐    │
-│  │ Query Layer   │  │ Semantic     │  │ GraphSplat          │    │
-│  │ HRM2 Two-     │  │ Memory       │  │ Knowledge Graph     │    │
-│  │ Level         │  │ BM25+Vector  │  │ Hybrid Search +     │    │
-│  │ Retrieval     │  │ RRF Fusion   │  │ BFS Traversal       │    │
-│  └──────┬───────┘  └──────┬───────┘  └───────┬─────────────┘    │
-│         └─────────────────┼──────────────────┘                   │
-│                           │                                       │
-│  ┌────────────────────────▼────────────────────────────────────┐ │
+│  ┌──────────────┐  ┌─────────────────────────────────────────┐ │
+│  │ Query Layer   │  │ GraphSplat                              │ │
+│  │ HRM2 Two-     │  │ Knowledge Graph                         │ │
+│  │ Level         │  │ Hybrid Search +                         │ │
+│  │ Retrieval     │  │ BFS Traversal                           │ │
+│  └──────┬───────┘  └──────────────────┬──────────────────────┘ │
+│         └─────────────────────────────┼────────────────────────┘│
+│                                       │                         │
+│  ┌────────────────────────────────────▼────────────────────────┐│
 │  │            Gaussian Splat Embeddings                         │ │
 │  │         (mean μ + opacity α + concentration κ)               │ │
 │  ├──────────────────────────────────────────────────────────────┤ │
@@ -293,7 +290,7 @@ score(i) = αᵢ · exp(−κᵢ · ‖q − μᵢ‖²)
 
 where each stored item carries α (opacity / importance) and κ (concentration / specificity) alongside its mean μ. The re-scoring step is what produces the confidence signal: an item with high κ only scores high when it is very close to the query, while a low-κ item contributes a broader, weaker match. The same α/κ model defines the energy landscape `E(x) = −log(Σᵢ αᵢ·exp(−κᵢ·‖x−μᵢ‖²))` used for uncertainty estimation (`src/energy.rs`, `src/ebm/`).
 
-Probabilistic scoring of candidates is not new as a technique — probabilistic cross-media embedding methods (e.g. PCME / PCME++) and mixture-model retrieval score candidates distributionally in the academic literature. SplatsDB's contribution is at the product level: per-item κ re-scoring, uncertainty flags, and confidence-aware results exposed as first-class database features (search results, MCP tools, energy/SOC commands), not as a research artifact.
+Probabilistic scoring of candidates is not new as a technique — probabilistic cross-media embedding methods (e.g. PCME / PCME++) and mixture-model retrieval score candidates distributionally in the academic literature. SplatsDB's contribution is at the product level: per-item κ re-scoring, uncertainty flags, and confidence-aware results exposed as first-class database features (search results, MCP tools), not as a research artifact.
 
 > **v2.6 empirical audit** (`bench-latent/`, 30 queries vs exact GT, 26k×768): energy re-scoring as a *ranking* signal collapses recall to ~0.00–0.05 in 768d — κ clamps low and α dominates, so the ranking becomes cluster popularity. Use it for uncertainty flagging and energy exploration only; rank with the embedding metric. Details in [`docs/A5_FINDINGS.md`](docs/A5_FINDINGS.md).
 
@@ -585,7 +582,7 @@ An earlier Python prototype claimed a **32× speedup** for HRM2 vs linear scan o
 
 ## Configuration Presets
 
-Six presets cover edge devices to GPU clusters. Each preset configures all subsystems at once — no manual flag toggling required. (The `training` preset and its subsystems — data lake, distillation, leader clustering — were removed in v2.6.1 as unvalidated dead weight.)
+Five presets cover edge devices to GPU workstations. Each preset configures all subsystems at once — no manual flag toggling required. (The `training` preset and its subsystems — data lake, distillation, leader clustering — were removed in v2.6.1 as unvalidated dead weight.)
 
 | Preset | Use Case | Capacity | Quantization | Graph | Semantic | GPU | HNSW | LSH |
 |--------|----------|----------|-------------|-------|----------|-----|------|-----|
@@ -593,7 +590,6 @@ Six presets cover edge devices to GPU clusters. Each preset configures all subsy
 | `simple` | Edge / IoT | 10K | — | — | — | — | — | — |
 | `mcp` | AI agent memory | 100K | 8-bit TurboQuant | ✅ | ✅ RRF | Auto | — | — |
 | `advanced` | AI agents | 1M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | ✅ M=32 | — |
-| `distributed` | Multi-node | 10M | 4-bit TurboQuant | ✅ | ✅ RRF | Optional | — | — |
 | `gpu` | CUDA servers | 5M | 4-bit TurboQuant | ✅ | ✅ | ✅ | ✅ M=48 | — |
 
 ```rust
@@ -603,7 +599,6 @@ let edge    = SplatsDBConfig::simple(None);              // Raspberry Pi
 let agent   = SplatsDBConfig::mcp(None);                 // AI agent memory (auto GPU)
 let heavy   = SplatsDBConfig::advanced(Some("cuda"));    // Full-featured with GPU
 let server  = SplatsDBConfig::gpu(None);                 // Maximum GPU performance
-let cluster = SplatsDBConfig::distributed(Some("cpu"));  // Multi-node deployment
 ```
 
 **Device auto-detection**: Pass `None` to auto-detect (CUDA → Vulkan → CPU). Pass `Some("cuda")`, `Some("vulkan")`, or `Some("cpu")` to force a specific device.
@@ -616,7 +611,6 @@ Start
   ├─ AI agent, need memory? → mcp (auto GPU)
   ├─ >100K docs, need speed? → advanced (HNSW M=32)
   ├─ >5M docs + CUDA? → gpu (M=48, VRAM-persistent)
-  └─ Multi-node? → distributed
 ```
 
 ---
@@ -684,9 +678,6 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 
 | Command | Description |
 |---------|-------------|
-| `soc-check` | Check system criticality state |
-| `soc-avalanche --seed 42` | Trigger avalanche reorganization |
-| `soc-relax --iterations 50` | Relax the system toward lower energy |
 
 ### Document Commands
 
@@ -719,8 +710,6 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 
 | Command | Description |
 |---------|-------------|
-| `extract-entities --text "content" --min-score 0.3` | Extract entities via structural patterns and n-grams |
-| `eval-embeddings --dim 64 --n-queries 10` | Evaluate embedding quality with synthetic benchmark |
 
 ### Benchmark Commands
 
@@ -728,19 +717,12 @@ SplatsDB provides a comprehensive CLI for all operations. Global options apply t
 |---------|-------------|
 | `bench-hnsw --train data.bin --queries q.bin --gt ground.bin --dim 128` | HNSW benchmark with recall measurement |
 
-### Distributed, Verbatim & Compression Commands
+### Verbatim & Compression Commands
 
-Distributed cluster operations, verbatim text storage, AAAK text compression, and the remaining benchmark commands (all defined in the `Commands` enum, `src/cli/mod.rs`).
+Verbatim text storage, AAAK text compression, and the remaining benchmark commands (all defined in the `Commands` enum, `src/cli/mod.rs`).
 
 | Command | Description |
 |---------|-------------|
-| `cluster-ingest --prefix doc --n-docs 1000 --strategy hash\|cluster\|geo` | Ingest documents to the cluster with sharding |
-| `cluster-join --id <ID> --url localhost:8001 --role worker\|edge\|coordinator --weight 1.0` | Join a node to the cluster |
-| `cluster-leave --id <ID>` | Remove a node from the cluster |
-| `cluster-reset` | Reset cluster state (remove all nodes) |
-| `cluster-search --query "0.1,..." -k 10 --strategy broadcast\|round_robin\|least_loaded` | Cluster search with routing and RRF aggregation |
-| `cluster-status [--verbose]` | Cluster status — nodes, routing, sharding |
-| `cluster-bench --n-queries 1000 -k 10 --strategy broadcast\|round_robin\|least_loaded` | Benchmark cluster search performance |
 | `verbatim-store --id my-doc --text "verbatim content" [--category notes]` | Store document with verbatim text (Drawer layer, alpha) |
 | `verbatim-get --id my-doc` | Retrieve the original document text by ID |
 | `verbatim-search --query "search text" -k 10` | Search with HIGH/MEDIUM/LOW confidence on verbatim text |
@@ -908,8 +890,7 @@ curl -X POST http://localhost:8199/status
   "dimension": 640,
   "has_hnsw": false,
   "has_lsh": false,
-  "has_quantization": true,
-  "has_semantic_memory": false
+  "has_quantization": true
 }
 ```
 
@@ -1249,24 +1230,6 @@ With 4-bit TurboQuant on 640D vectors:
 
 ---
 
-## Semantic Memory
-
-SplatsDB combines **BM25 text search** with **vector similarity** using Reciprocal Rank Fusion (RRF).
-
-### How RRF Works
-
-1. Run BM25 search over document text → get ranking R₁
-2. Run vector similarity search → get ranking R₂
-3. Fuse: `score(d) = w_vec × 1/(k + rank_R₂(d)) + w_bm25 × 1/(k + rank_R₁(d))`
-
-Default weights: `w_vec = 0.6`, `w_bm25 = 0.4` (configurable per preset).
-
-This gives the best of both worlds: vector search captures semantic meaning, BM25 captures exact keyword matches, and RRF merges them without score normalization issues.
-
-### Temporal Decay
-
-Optional: recent memories can be weighted higher via exponential decay with configurable half-life.
-
 ### Verbatim Storage (Implemented — alpha)
 
 > Inspired by [MemPalace's](https://github.com/MemPalace/mempalace) principle: "Store everything verbatim, never let an LLM decide what to remember."
@@ -1326,41 +1289,11 @@ Compressed (~40 tokens, 30x):
 
 ---
 
-## Energy-Based Model
-
-SplatsDB models the embedding space as an energy landscape:
-
-```
-E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
-```
-
-- **Low energy**: Well-covered regions — many documents nearby, high confidence
-- **High energy**: Sparse regions — few documents, high uncertainty
-
-### Applications
-
-- **Active learning**: Focus labeling effort on high-energy regions
-- **Exploration**: Boltzmann sampling from the energy landscape
-- **Self-organized criticality (SOC)**: The system can self-tune via avalanche reorganization and relaxation
-
-### CLI
-
-```bash
-# Check current energy state
-./target/release/splatsdb soc-check
-
-# Trigger avalanche (reorganize splats for better coverage)
-./target/release/splatsdb soc-avalanche --iterations 100
-
-# Relax toward lower energy
-./target/release/splatsdb soc-relax --iterations 50
-```
-
 ---
 
 ## Module Map
 
-34,618 lines of Rust + CUDA by `wc -l` (raw lines: 33,594 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
+25,824 lines of Rust + CUDA by `wc -l` (raw lines: 24,800 in `src/` + 1,024 in `kernels/`) — the single LOC criterion used by the badge and the intro. Rust modules:
 
 | Module | Source | Description |
 |--------|--------|-------------|
@@ -1370,14 +1303,12 @@ E(x) = −log(Σᵢ αᵢ · exp(−κᵢ · ‖x − μᵢ‖²))
 | `quantization` | `src/quantization.rs` | TurboQuant / PolarQuant data-oblivious compression with recall measurement |
 | `clustering` | `src/clustering.rs` | KMeans++ with ChaCha8 RNG |
 | `graph_splat` | `src/graph_splat.rs` | Knowledge graph overlay with hybrid search |
-| `semantic_memory` | `src/semantic_memory.rs` | BM25 + vector RRF fusion with temporal decay |
 | `hnsw_index` | `src/hnsw_index.rs` | HNSW approximate nearest neighbor with incremental insertion |
 | `lsh_index` | `src/lsh_index.rs` | Locality-sensitive hashing |
-| `ebm` | `src/ebm/` | Boltzmann exploration, self-organized criticality |
 | `storage` | `src/storage/` | SQLite persistence (WAL), JSON store |
 | `api_server` | `src/api_server.rs` | HTTP REST API (5 endpoints: health, status, store, search, field-search) |
 | `mcp_server` | `src/mcp_server.rs` | MCP JSON-RPC 2.0 server (18 tools, production-hardened) |
-| `config` | `src/config/` | 6 presets, device auto-detection |
+| `config` | `src/config/` | 5 presets, device auto-detection |
 | `cli` | `src/cli/` | Command-line interface (clap) |
 
 ---
@@ -1496,7 +1427,6 @@ Spatial memory has an initial implementation. The building blocks exist:
 - ✅ KMeans++ coarse/fine clustering (becomes Rooms)
 - ✅ GraphSplat with BFS traversal (becomes Tunnels)
 - ✅ Metadata tags on documents (becomes Wings)
-- ✅ BM25 + vector hybrid (can filter by hall type)
 - ✅ Named cluster labels auto-assigned from document content (TF keyword extraction, EN+ES stopwords)
 - ✅ Full search pipeline integration (spatial pre-filter → vector search via `find_neighbors_filtered`)
 - ✅ MCP tools: `splatsdb_spatial_search`, `splatsdb_spatial_info`
@@ -1537,9 +1467,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 2. **MCP Server** — 18 tools ready to use with any MCP-compatible agent (Claude, GPT, etc.). Zero glue code. Competitors require custom SDK integrations or REST wrappers.
 
-3. **Distributed Sharding** — 3 strategies (hash/cluster/geo), load balancing (round-robin/least-loaded/broadcast), RRF result fusion, energy-aware routing, offline sync with retry. All built-in, no external dependencies.
-
-4. **Embedded + Cluster** — Works as CLI tool, Rust library, MCP server, or distributed cluster. Milvus and Qdrant require a separate server process. Chroma is embedded but limited to single-node.
+3. **Embedded** — Works as CLI tool, Rust library, or MCP server. Milvus and Qdrant require a separate server process. Chroma is embedded but limited to single-node.
 
 5. **Cost** — Free, self-hosted, no usage limits. Pinecone charges $50/mo minimum. Zilliz starts at $99/GB. SplatsDB runs on a $5 VPS.
 
@@ -1558,7 +1486,7 @@ Spatial memory has an initial implementation. The building blocks exist:
 
 **AI agents with long-term conversational memory, RAG pipelines, and knowledge management** — where spatial pre-filtering, MCP integration, and zero-cost self-hosting matter more than raw QPS at billion-scale.
 
-The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph, no distributed sharding. SplatsDB trades ecosystem maturity for deeper agent memory features.
+The closest competitor in philosophy is **LanceDB** (Rust, embedded, Apache 2.0, 9.9k GitHub stars). Key differences: LanceDB uses IVF-PQ (not HNSW), has no spatial memory, no MCP server, no knowledge graph. SplatsDB trades ecosystem maturity for deeper agent memory features.
 
 ---
 
@@ -1638,7 +1566,7 @@ Standard BEIR protocol — NDCG@10, Recall@10 via pytrec-eval. Same evaluator, s
 
 **v2 — Improved (BGE-small + BM25 + RRF fusion + entity boost)**
 
-Uses SplatsDB's full pipeline: BM25 from `bm25_index.rs`, RRF from `cluster/aggregator.rs`, entity extraction from `entity_extractor.rs`, graph boost from `graph_splat.rs`.
+Historical v2.6 result, measured with modules removed in v2.7.2 (`bm25_index.rs`, `cluster/aggregator.rs`, `entity_extractor.rs`) — kept for provenance; not reproducible against current main.
 
 | Domain | NDCG@10 | vs v1 | Recall@10 | vs v1 |
 |--------|---------|-------|-----------|-------|
@@ -1682,7 +1610,7 @@ Key insight: the biggest improvement (+3% NDCG) comes from using a better embedd
 
 **Source**: v1 — `bench-data/locomo_results.json`; v2 — `bench-data/locomo_v2_results.json` (both run 2026-04-11; 1,982 questions, 10 conversations).
 
-v2 uses BGE-small + session-level retrieval + BM25 hybrid via RRF. The +19% improvement on temporal queries shows BM25 helps when queries contain specific keywords (dates, names).
+v2 used BGE-small + session-level retrieval + BM25 hybrid via RRF (measured 2026-04-11 with modules removed in v2.7.2 — kept for provenance). The +19% improvement on temporal queries showed BM25 helps when queries contain specific keywords (dates, names).
 
 ### HotpotQA Multi-hop Reasoning
 

@@ -1,13 +1,11 @@
 //! CLI command handlers — extracted from main.rs
 
 mod bench_longmemeval;
-mod cluster_cmds;
 mod data_cmds;
 mod field_cmds;
 mod graph_cmds;
 mod helpers;
 mod index_cmds;
-mod ml_cmds;
 mod search_cmds;
 mod spatial_cmds;
 mod verbatim_cmds;
@@ -64,17 +62,8 @@ pub enum Commands {
         verbose: bool,
     },
     /// SOC: check system criticality
-    SocCheck,
     /// SOC: trigger avalanche reorganization
-    SocAvalanche {
-        #[arg(short, long)]
-        seed: Option<usize>,
-    },
     /// SOC: relax the system toward lower energy
-    SocRelax {
-        #[arg(short, long, default_value = "10")]
-        iterations: usize,
-    },
     /// Save current state to disk
     Save {
         #[arg(short, long, default_value = "default")]
@@ -336,19 +325,7 @@ pub enum Commands {
     GraphStats,
     // ── ML / Entity / Data Lake Commands ──────────────────────────────
     /// Extract entities from text using structural patterns and n-grams
-    ExtractEntities {
-        #[arg(short, long)]
-        text: String,
-        #[arg(short, long, default_value = "0.3")]
-        min_score: f64,
-    },
     /// Evaluate embedding quality with synthetic benchmark
-    EvalEmbeddings {
-        #[arg(short, long, default_value = "64")]
-        dim: usize,
-        #[arg(short = 'q', long, default_value = "10")]
-        n_queries: usize,
-    },
     /// Benchmark HNSW search with recall measurement (single-process)
     BenchHnsw {
         /// Binary file with training vectors [u64 rows][u64 cols][f32 data]
@@ -408,72 +385,12 @@ pub enum Commands {
     },
     /// Show spatial memory structure (wings, rooms, tunnels)
     SpatialInfo,
-    // ── Cluster Commands ──────────────────────────────────────────────
-    /// Join a node to the cluster
-    ClusterJoin {
-        /// Edge node ID
-        #[arg(short, long)]
-        id: String,
-        /// Node URL (e.g. localhost:8001)
-        #[arg(short, long)]
-        url: String,
-        /// Node role: worker, edge, coordinator
-        #[arg(short = 't', long, default_value = "worker")]
-        role: String,
-        /// Node weight for routing (default: 1.0)
-        #[arg(short, long, default_value = "1.0")]
-        weight: f64,
-    },
     /// Remove a node from the cluster
-    ClusterLeave {
-        /// Edge node ID to remove
-        #[arg(short, long)]
-        id: String,
-    },
     /// Show cluster status — nodes, routing, sharding
-    ClusterStatus {
-        /// Show detailed per-node info
-        #[arg(short, long)]
-        verbose: bool,
-    },
     /// Ingest documents to cluster with sharding
-    ClusterIngest {
-        /// Document ID prefix
-        #[arg(short, long, default_value = "doc")]
-        prefix: String,
-        /// Number of documents to ingest
-        #[arg(short = 'n', long, default_value = "1000")]
-        n_docs: usize,
-        /// Sharding strategy: hash, cluster, geo
-        #[arg(short, long, default_value = "hash")]
-        strategy: String,
-    },
     /// Search the cluster with routing and RRF aggregation
-    ClusterSearch {
-        /// Query vector (comma-separated floats)
-        #[arg(short, long)]
-        query: String,
-        /// Number of results
-        #[arg(short, long, default_value = "10")]
-        k: usize,
-        /// Routing strategy: broadcast, round_robin, least_loaded
-        #[arg(short = 't', long, default_value = "broadcast")]
-        strategy: String,
-    },
     /// Benchmark cluster search performance
-    ClusterBench {
-        /// Number of queries to run
-        #[arg(short = 'n', long, default_value = "1000")]
-        n_queries: usize,
-        /// Number of results per query
-        #[arg(short, long, default_value = "10")]
-        k: usize,
-        /// Routing strategy: broadcast, round_robin, least_loaded
-        #[arg(short = 't', long, default_value = "broadcast")]
-        strategy: String,
-    },
     /// Reset cluster state (remove all nodes)
-    ClusterReset,
     // ── Verbatim Storage ─────────────────────────────────────────────
     /// Store document with verbatim text for exact recall
     VerbatimStore {
@@ -571,11 +488,6 @@ pub fn dispatch(cli: Cli) {
         } => search_cmds::cmd_search_file(cli.data_dir, config, input, k, format, shard),
         Commands::Status { verbose } => {
             data_cmds::cmd_status(cli.data_dir, cli.max_splats, config, verbose)
-        }
-        Commands::SocCheck => data_cmds::cmd_soc_check(cli.data_dir, config),
-        Commands::SocAvalanche { seed } => data_cmds::cmd_soc_avalanche(cli.data_dir, config, seed),
-        Commands::SocRelax { iterations } => {
-            data_cmds::cmd_soc_relax(cli.data_dir, config, iterations)
         }
         Commands::Save { shard } => data_cmds::cmd_save(cli.data_dir, config, shard),
         Commands::Load { shard } => data_cmds::cmd_load(cli.data_dir, cli.backend, shard),
@@ -747,10 +659,6 @@ pub fn dispatch(cli: Cli) {
         } => graph_cmds::cmd_graph_search(query, k, search_type),
         Commands::GraphStats => graph_cmds::cmd_graph_stats(),
         // ── ML / Entity / Data Lake ──
-        Commands::ExtractEntities { text, min_score } => {
-            ml_cmds::cmd_extract_entities(text, min_score)
-        }
-        Commands::EvalEmbeddings { dim, n_queries } => ml_cmds::cmd_eval_embeddings(dim, n_queries),
         Commands::BenchHnsw {
             train,
             queries,
@@ -787,31 +695,6 @@ pub fn dispatch(cli: Cli) {
             k,
         } => crate::cli::spatial_cmds::cmd_spatial_search(cli.data_dir, query, wing, room, hall, k),
         Commands::SpatialInfo => crate::cli::spatial_cmds::cmd_spatial_info(cli.data_dir),
-        // ── Cluster ──
-        Commands::ClusterJoin {
-            id,
-            url,
-            role,
-            weight,
-        } => crate::cli::cluster_cmds::cmd_cluster_join(&id, &url, &role, weight),
-        Commands::ClusterLeave { id } => crate::cli::cluster_cmds::cmd_cluster_leave(&id),
-        Commands::ClusterStatus { verbose } => {
-            crate::cli::cluster_cmds::cmd_cluster_status(verbose)
-        }
-        Commands::ClusterIngest {
-            prefix,
-            n_docs,
-            strategy,
-        } => crate::cli::cluster_cmds::cmd_cluster_ingest(&prefix, n_docs, &strategy),
-        Commands::ClusterSearch { query, k, strategy } => {
-            crate::cli::cluster_cmds::cmd_cluster_search(&query, k, &strategy)
-        }
-        Commands::ClusterBench {
-            n_queries,
-            k,
-            strategy,
-        } => crate::cli::cluster_cmds::cmd_cluster_bench(n_queries, k, &strategy),
-        Commands::ClusterReset => crate::cli::cluster_cmds::cmd_cluster_reset(),
         // ── Verbatim Storage ──
         Commands::VerbatimStore { id, text, category } => {
             crate::cli::verbatim_cmds::cmd_verbatim_store(

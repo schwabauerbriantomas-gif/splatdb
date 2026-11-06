@@ -36,102 +36,6 @@ pub fn cmd_status(data_dir: String, max_splats: usize, config: SplatsDBConfig, v
     );
 }
 
-pub fn cmd_soc_check(data_dir: String, config: SplatsDBConfig) {
-    let (store, _) = load_or_create_store(&data_dir, &config);
-    let mu = store.get_mu();
-    let alpha = store.get_alpha();
-    let kappa = store.get_kappa();
-
-    if mu.is_none() || store.n_active() == 0 {
-        println!("{}", serde_json::json!({"error": "No splats loaded"}));
-        std::process::exit(1);
-    }
-
-    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
-    soc.update_splats(
-        mu.expect("mu checked above"),
-        alpha.expect("alpha checked above"),
-        kappa.expect("kappa checked above"),
-    );
-
-    let report = soc.check_criticality();
-    println!(
-        "{}",
-        serde_json::json!({
-            "state": format!("{:?}", report.state),
-            "index": (report.index * 10000.0).round() / 10000.0,
-            "energy_variance": (report.energy_variance * 10000.0).round() / 10000.0,
-            "size_variance": (report.size_variance * 10000.0).round() / 10000.0,
-            "needs_relaxation": report.needs_relaxation(),
-            "needs_monitoring": report.needs_monitoring(),
-        })
-    );
-}
-
-pub fn cmd_soc_avalanche(data_dir: String, config: SplatsDBConfig, seed: Option<usize>) {
-    let (store, _) = load_or_create_store(&data_dir, &config);
-    let mu = store.get_mu();
-    let alpha = store.get_alpha();
-    let kappa = store.get_kappa();
-
-    if mu.is_none() || store.n_active() == 0 {
-        println!("{}", serde_json::json!({"error": "No splats loaded"}));
-        std::process::exit(1);
-    }
-
-    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
-    soc.update_splats(
-        mu.expect("mu checked above"),
-        alpha.expect("alpha checked above"),
-        kappa.expect("kappa checked above"),
-    );
-
-    let result = soc.trigger_avalanche(seed);
-    println!(
-        "{}",
-        serde_json::json!({
-            "affected_clusters": result.affected_clusters,
-            "energy_released": (result.energy_released * 10000.0).round() / 10000.0,
-            "duration_ms": (result.duration_ms * 1000.0).round() / 1000.0,
-            "new_equilibrium": (result.new_equilibrium * 10000.0).round() / 10000.0,
-        })
-    );
-}
-
-pub fn cmd_soc_relax(data_dir: String, config: SplatsDBConfig, iterations: usize) {
-    let (store, _) = load_or_create_store(&data_dir, &config);
-    let mu = store.get_mu();
-    let alpha = store.get_alpha();
-    let kappa = store.get_kappa();
-
-    if mu.is_none() || store.n_active() == 0 {
-        println!("{}", serde_json::json!({"error": "No splats loaded"}));
-        std::process::exit(1);
-    }
-
-    let energy_api = splatsdb::ebm::energy_api::EBMEnergy::new();
-    let mut soc = splatsdb::ebm::soc::SOCEngine::new(energy_api, 0.7);
-    soc.update_splats(
-        mu.expect("mu checked above"),
-        alpha.expect("alpha checked above"),
-        kappa.expect("kappa checked above"),
-    );
-
-    let result = soc.relax(iterations);
-    println!(
-        "{}",
-        serde_json::json!({
-            "initial_energy": (result.initial_energy * 10000.0).round() / 10000.0,
-            "final_energy": (result.final_energy * 10000.0).round() / 10000.0,
-            "energy_delta": (result.energy_delta * 10000.0).round() / 10000.0,
-            "iterations": result.iterations,
-            "improved": result.improved,
-        })
-    );
-}
-
 pub fn cmd_save(data_dir: String, config: SplatsDBConfig, shard: String) {
     let (store, persist) = load_or_create_store(&data_dir, &config);
     let persist = match persist {
@@ -436,7 +340,6 @@ pub fn cmd_preset_info(preset: Option<String>) {
     let presets = vec![
         ("simple", SplatsDBConfig::simple(None)),
         ("advanced", SplatsDBConfig::advanced(None)),
-        ("distributed", SplatsDBConfig::distributed(None)),
         ("gpu", SplatsDBConfig::gpu(None)),
     ];
 
@@ -448,7 +351,7 @@ pub fn cmd_preset_info(preset: Option<String>) {
     };
 
     // Only build a lightweight store for small presets to avoid OOM.
-    // For large presets (gpu/distributed), derive subsystem status from config flags.
+    // For large presets, derive subsystem status from config flags.
     let info: Vec<serde_json::Value> = filtered
         .iter()
         .map(|(name, c)| {

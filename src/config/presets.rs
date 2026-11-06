@@ -108,7 +108,6 @@ impl SplatsDBConfig {
         config.enable_mapreduce = true;
         config.mapreduce_n_chunks = 16;
 
-        // Auto-scaling for distributed deployments
         config.enable_auto_scaling = true;
         config.autoscale_min_nodes = 2;
         config.autoscale_max_nodes = 20;
@@ -130,50 +129,6 @@ impl SplatsDBConfig {
         config.context_local = 24;
         config.context_medium = 128;
         config.context_global = 1024;
-
-        config
-    }
-
-    /// Creates a 'Distributed' configuration for multi-node cluster deployments.
-    ///
-    /// Enables cluster modules (router, balancer, sharding), auto-scaling,
-    /// MapReduce indexing, and inter-node communication.
-    pub fn distributed(device: Option<&str>) -> Self {
-        let mut config = Self::default();
-
-        if let Some(d) = device {
-            config.device = d.to_string();
-        }
-
-        // Cluster and distributed features
-        config.enable_auto_scaling = true;
-        config.autoscale_min_nodes = 3;
-        config.autoscale_max_nodes = 50;
-        config.autoscale_cooldown_secs = 20.0;
-
-        // MapReduce for distributed indexing
-        config.enable_mapreduce = true;
-        config.mapreduce_n_chunks = 32;
-
-        // Compression for inter-node transfer efficiency
-        config.enable_quantization = true;
-        config.quant_algorithm = QuantAlgorithm::TurboQuant;
-        config.quant_bits = 4;
-        config.quant_projections = 80;
-        config.quant_search_fraction = 0.15;
-
-        // Quality monitoring across nodes
-        config.enable_quality_reflection = true;
-        config.quality_recall_target = 0.97;
-
-        // Large scale
-        config.max_splats = 10_000_000;
-        config.n_splats_init = 500_000;
-        config.knn_k = 64;
-
-        // Semantic search for cross-node queries
-        config.semantic_fusion = FusionMethod::Rrf;
-        config.semantic_decay_halflife = 7200.0; // 2 hours
 
         config
     }

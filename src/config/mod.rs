@@ -57,9 +57,6 @@ pub struct SplatsDBConfig {
     pub global_temperature: f64,
 
     // --- SOC Parameters ---
-    pub soc_threshold: f64,
-    pub soc_buffer_capacity: usize,
-    pub soc_update_interval: usize,
     pub phi_convergence_threshold: f64,
 
     // --- Hardware Acceleration ---
@@ -222,9 +219,6 @@ impl Default for SplatsDBConfig {
             global_temperature: 1.0,
 
             // SOC
-            soc_threshold: 0.8,
-            soc_buffer_capacity: 1000,
-            soc_update_interval: 100,
             phi_convergence_threshold: 0.95,
 
             // Hardware
@@ -427,17 +421,6 @@ mod tests {
     }
 
     #[test]
-    fn test_distributed_config() {
-        let config = SplatsDBConfig::distributed(None);
-        assert!(config.enable_auto_scaling);
-        assert!(config.enable_mapreduce);
-        assert!(config.enable_quantization);
-        assert_eq!(config.max_splats, 10_000_000);
-        assert_eq!(config.autoscale_max_nodes, 50);
-        assert_eq!(config.mapreduce_n_chunks, 32);
-    }
-
-    #[test]
     fn test_gpu_config() {
         let config = SplatsDBConfig::gpu(None);
         assert!(config.enable_cuda);
@@ -454,7 +437,6 @@ mod tests {
     ///
     /// NOTE: We cap `max_splats` to a small value (100) for ALL presets so that
     /// SplatStore::new (which allocates `max_splats * latent_dim * 4` bytes) stays
-    /// within reasonable memory.  Without this cap the `distributed` preset would
     /// allocate 10 M × 640 × 4 = 25.6 GB and the `gpu` preset 5 M × 640 × 4 =
     /// 12.8 GB, causing an OOM on machines with ≤ 8 GB RAM.
     #[test]
@@ -466,7 +448,6 @@ mod tests {
             ("default", SplatsDBConfig::default()),
             ("simple", SplatsDBConfig::simple(None)),
             ("advanced", SplatsDBConfig::advanced(None)),
-            ("distributed", SplatsDBConfig::distributed(None)),
             ("gpu", SplatsDBConfig::gpu(None)),
         ];
 
@@ -548,29 +529,6 @@ mod tests {
         // Large capacity
         assert_eq!(c.max_splats, 1_000_000);
         assert_eq!(c.knn_k, 128);
-    }
-
-    #[test]
-    fn test_distributed_preset_features() {
-        let c = SplatsDBConfig::distributed(None);
-        // Distributed-specific
-        assert!(
-            c.enable_auto_scaling,
-            "distributed: auto-scaling should be on"
-        );
-        assert!(c.enable_mapreduce, "distributed: mapreduce should be on");
-        assert!(
-            c.enable_quantization,
-            "distributed: quantization should be on"
-        );
-        assert!(
-            c.enable_quality_reflection,
-            "distributed: quality reflection should be on"
-        );
-        // Scale
-        assert_eq!(c.max_splats, 10_000_000);
-        assert!(c.autoscale_max_nodes >= 10);
-        assert!(c.mapreduce_n_chunks >= 8);
     }
 
     #[test]
@@ -753,19 +711,6 @@ mod tests {
         );
         assert!(store.has_hnsw(), "advanced: should have HNSW");
         assert!(!store.has_lsh(), "advanced: LSH not in advanced preset");
-    }
-
-    #[test]
-    fn test_distributed_preset_subsystems() {
-        let store = store_from_preset(SplatsDBConfig::distributed(None));
-        assert!(
-            store.has_quantization(),
-            "distributed: should have quantization"
-        );
-        assert!(
-            !store.has_hnsw(),
-            "distributed: no HNSW (not in distributed config)"
-        );
     }
 
     #[test]
