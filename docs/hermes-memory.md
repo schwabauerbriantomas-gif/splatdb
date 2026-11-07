@@ -49,6 +49,14 @@ Dedup por blake2b-96 del texto: re-envíos idénticos no duplican vectores.
 
 - Modelo: `google/embeddinggemma-2` local (`/mnt/d/embedding-server`, venv
   `~/.venvs/embed-server`, puerto 8860, MRL truncado a 768).
+- **Latencia (6-nov-2026)**: el pipeline ST completo corre en CUDA graphs por
+  buckets de seq_len (16–512 tokens) — embed de query **103ms → 10.9ms mediana**
+  (el forward eager en WSL2 era CPU-bound: ~218 matmuls/casts por batch=1).
+  Fallback eager para batch>1 o >512 tokens. Test canónico:
+  `/mnt/d/embedding-server/test_graph_ab.py` (cos ≥ 0.9999 vs encode oficial).
+- **Arranque/recovery**: cache del modelo en ext4 (`~/.cache/huggingface`,
+  HF_HOME solo del server) — carga en ~22s (NTFS frío: 220s). Cron
+  `*/10 ensure-embed.sh` relanza el server si el health no responde.
 - **Asimetría de prompts (crítico para la calidad medida)**: documentos sin
   prompt; queries con `prompt_name=Retrieval-query`. El smoke test de
   `faststart.sh` del hub 8871 embebe queries sin el prompt — por eso sus

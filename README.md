@@ -9,11 +9,11 @@ Vector search with uncertainty awareness. Knowledge graph + HNSW + GPU in a sing
 </p>
 
 [![CI](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabauerbriantomas-gif/splatdb/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb)
+[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)](https://github.com/schwabauerbriantomas-gif/splatdb/releases/tag/v2.7.2)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-393%20passing-brightgreen.svg)]()
-[![LOC](https://img.shields.io/badge/LOC-34.6K-informational.svg)]()
+[![Tests](https://img.shields.io/badge/tests-268%20passing-brightgreen.svg)]()
+[![LOC](https://img.shields.io/badge/LOC-25.8K-informational.svg)]()
 [![CUDA](https://img.shields.io/badge/GPU-RTX%203090-76B900.svg)]()
 
 ---
@@ -216,7 +216,7 @@ cargo build --release
 cargo build --release --no-default-features
 
 # Run tests
-cargo test   # full suite: 317 lib tests (305 #[test] + 12 #[tokio::test]) + 76 integration tests in tests/ (393 total)
+cargo test   # full suite: 268 tests across 7 binaries (measured 2026-11-06): lib 190, main 2, chaos 8, integration 3, integration_gaussian 5, pentest 29, qa_validation 31
 ```
 
 ### Run
@@ -874,7 +874,7 @@ curl http://localhost:8199/health
 ```
 
 ```json
-{"status": "ok", "version": "2.7.1"}
+{"status": "ok", "version": "2.7.2"}
 ```
 
 #### `POST /status` — Store Statistics
